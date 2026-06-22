@@ -8,6 +8,7 @@ const STATIC_MODE = import.meta.env.VITE_STATIC_MODE === '1';
 const STATIC_DB_KEY = 'qualityInspectionStaticDb';
 const DIMENSION_LIBRARY_KEY = 'qualityInspectionDimensionLibrary';
 const REPORT_FILE_LIBRARY_KEY = 'qualityInspectionReportFileLibrary';
+const QUALITY_SEAL_IMAGE = `${import.meta.env.BASE_URL}assets/quality-seal.png`;
 const DIMENSION_PREVIEW_ROW_LIMIT = 20;
 const DEFAULT_ADMIN_USER = { id: 'u-admin', name: '孙立柱', password: '521sunlizhu', role: '管理员' };
 const ROLE_ADMIN = '管理员';
@@ -582,34 +583,22 @@ async function createStampedImageDataUrl(record, rotation) {
   ctx.drawImage(image, -image.naturalWidth / 2, -image.naturalHeight / 2);
   ctx.restore();
 
-  const minSide = Math.min(canvas.width, canvas.height);
-  const radius = Math.max(72, Math.min(150, minSide * 0.12));
-  const x = canvas.width - radius * 1.45;
-  const y = canvas.height - radius * 1.45;
-  const red = '#d30f1f';
+  const stampImage = await loadImageElement(QUALITY_SEAL_IMAGE);
+  const sealWidth = Math.round(canvas.width * 0.18);
+  const sealHeight = Math.round((stampImage.naturalHeight * sealWidth) / stampImage.naturalWidth);
+  const sealCanvas = document.createElement('canvas');
+  const angle = (-5 * Math.PI) / 180;
+  const extra = Math.ceil(Math.max(sealWidth, sealHeight) * 0.18);
+  sealCanvas.width = sealWidth + extra * 2;
+  sealCanvas.height = sealHeight + extra * 2;
+  const sealCtx = sealCanvas.getContext('2d');
+  sealCtx.translate(sealCanvas.width / 2, sealCanvas.height / 2);
+  sealCtx.rotate(angle);
+  sealCtx.drawImage(stampImage, -sealWidth / 2, -sealHeight / 2, sealWidth, sealHeight);
 
-  ctx.save();
-  ctx.globalAlpha = 0.92;
-  ctx.strokeStyle = red;
-  ctx.fillStyle = red;
-  ctx.lineWidth = Math.max(5, radius * 0.055);
-  ctx.beginPath();
-  ctx.arc(x, y, radius, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(x, y, radius * 0.72, 0, Math.PI * 2);
-  ctx.lineWidth = Math.max(2, radius * 0.025);
-  ctx.stroke();
-
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.font = `700 ${Math.round(radius * 0.26)}px "Microsoft YaHei", Arial`;
-  ctx.fillText('品质验货', x, y - radius * 0.16);
-  ctx.font = `700 ${Math.round(radius * 0.30)}px "Microsoft YaHei", Arial`;
-  ctx.fillText('检验章', x, y + radius * 0.20);
-  ctx.font = `600 ${Math.round(radius * 0.14)}px "Microsoft YaHei", Arial`;
-  ctx.fillText(nowText().slice(0, 10), x, y + radius * 0.52);
-  ctx.restore();
+  const x = canvas.width - sealCanvas.width - Math.round(canvas.width * 0.055);
+  const y = canvas.height - sealCanvas.height - Math.round(canvas.height * 0.045);
+  ctx.drawImage(sealCanvas, x, y);
 
   return canvas.toDataURL(imageMimeForReport(record), 0.92);
 }
