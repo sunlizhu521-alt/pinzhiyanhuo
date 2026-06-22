@@ -34,7 +34,7 @@ const NOTICE_FIELDS = [
   { key: 'kingdeeOrderNo', label: '金蝶采购订单' },
   { key: 'supplierShortName', label: '供应商简称' },
   { key: 'supplierAddress', label: '供应商地址' },
-  { key: 'businessDepartments', label: '事业部', options: BUSINESS_DEPARTMENT_OPTIONS, multiple: true },
+  { key: 'businessDepartments', label: '事业部', options: BUSINESS_DEPARTMENT_OPTIONS },
   { key: 'operation', label: '运营' },
   { key: 'firstInspection', label: '是否首批验货', options: ['是', '否'] },
   { key: 'salesProductLine', label: '产品线' },
@@ -211,14 +211,6 @@ function joinBusinessDepartments(values) {
   }).join('、');
 }
 
-function toggleMultiValue(currentValue, option) {
-  const values = splitMultiValue(currentValue);
-  const nextValues = values.includes(option)
-    ? values.filter((item) => item !== option)
-    : [...values, option];
-  return joinBusinessDepartments(nextValues);
-}
-
 function parseQuantity(value) {
   const text = normalize(value).replace(/,/g, '');
   if (!text) return null;
@@ -293,7 +285,7 @@ function mergeNoticeRowsForImport(rows) {
     return {
       ...first,
       id: first.id || createId(),
-      businessDepartments: joinBusinessDepartments(departmentValues),
+      businessDepartments: departmentValues[0] || normalize(first.businessDepartments),
       totalQuantity: hasQuantity ? formatQuantity(quantityTotal) : normalize(first.totalQuantity),
       remark: remarkParts.join('；')
     };
@@ -1446,7 +1438,7 @@ function App() {
     const rows = mergeNoticeRowsForImport(noticeRows
       .map((row) => ({
         ...row,
-        businessDepartments: joinBusinessDepartments(splitMultiValue(row.businessDepartments)),
+        businessDepartments: splitMultiValue(row.businessDepartments)[0] || normalize(row.businessDepartments),
         inspectionApplicant: user.name
       }))
       .map((row) => normalizeNoticeSupplier(row, supplierOptions, dimensionLibrary))
@@ -2481,28 +2473,14 @@ function InspectionNoticePage({
                 </div>
               );
             }
-            if (field.multiple && field.options) {
-              const selectedValues = splitMultiValue(row[field.key]);
-              return (
-                <div className="table-multi-select inspection-notice-multi-select">
-                  {field.options.map((option) => (
-                    <label key={option} className="table-multi-option">
-                      <input
-                        type="checkbox"
-                        checked={selectedValues.includes(option)}
-                        onChange={() => onChange(row.id, field.key, toggleMultiValue(row[field.key], option))}
-                      />
-                      <span>{option}</span>
-                    </label>
-                  ))}
-                </div>
-              );
-            }
             if (field.options) {
+              const selectValue = field.key === 'businessDepartments'
+                ? (splitMultiValue(row[field.key])[0] || row[field.key] || '')
+                : (row[field.key] || '');
               return (
                 <select
                   className="table-input inspection-notice-input"
-                  value={row[field.key] || ''}
+                  value={selectValue}
                   onChange={(event) => onChange(row.id, field.key, event.target.value)}
                 >
                   <option value="">选择</option>
