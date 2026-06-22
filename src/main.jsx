@@ -66,7 +66,7 @@ function nowText() {
 function defaultStaticDb() {
   return {
     users: [
-      { id: 'u-admin', name: '管理员', password: '123456', role: '管理员' },
+      { id: 'u-admin', name: '孙立柱', password: '521sunlizhu', role: '管理员' },
       { id: 'u-user', name: '验货员', password: '123456', role: '普通用户' }
     ],
     qualityInspection: {
@@ -173,8 +173,8 @@ function reportHref(record) {
 function App() {
   const [activeTab, setActiveTab] = useState('inspectionNotice');
   const [authMode, setAuthMode] = useState('login');
-  const [loginName, setLoginName] = useState('管理员');
-  const [password, setPassword] = useState('123456');
+  const [loginName, setLoginName] = useState('孙立柱');
+  const [password, setPassword] = useState('521sunlizhu');
   const [registerName, setRegisterName] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
   const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('qualityInspectionUser') || 'null'));

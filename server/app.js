@@ -31,7 +31,7 @@ function normalizeDb(db = {}) {
   const qualityInspection = db.qualityInspection || {};
   return {
     users: Array.isArray(db.users) && db.users.length ? db.users : [
-      { id: 'u-admin', name: '管理员', password: '123456', role: '管理员' },
+      { id: 'u-admin', name: '孙立柱', password: '521sunlizhu', role: '管理员' },
       { id: 'u-user', name: '验货员', password: '123456', role: '普通用户' }
     ],
     qualityInspection: {
