@@ -308,6 +308,24 @@ th {
   white-space: nowrap;
 }
 
+.upload-button {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0 12px;
+  border-radius: 6px;
+  background: #eef2f7;
+  color: #334155;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.upload-button input {
+  display: none;
+}
+
 .readonly-cell {
   display: inline-block;
   min-width: 110px;

@@ -6,6 +6,7 @@ import './styles.css';
 const API = import.meta.env.DEV ? 'http://localhost:4002' : '';
 const STATIC_MODE = import.meta.env.PROD;
 const STATIC_DB_KEY = 'qualityInspectionStaticDb';
+const DEFAULT_ADMIN_USER = { id: 'u-admin', name: '孙立柱', password: '521sunlizhu', role: '管理员' };
 
 const NOTICE_FIELDS = [
   { key: 'inspectionApplicant', label: '验货填写人', readonly: true },
@@ -24,6 +25,24 @@ const NOTICE_FIELDS = [
   { key: 'skuQuantity', label: 'SKU及数量', multiline: true },
   { key: 'remark', label: '备注', multiline: true }
 ];
+
+const NOTICE_IMPORT_ALIASES = {
+  inspectionApplicant: ['验货填写人', '填写人', '申请人', '提报人'],
+  inspectionFillTime: ['验货填写时间', '填写时间', '申请时间', '提报时间', '通知时间'],
+  supplierFinishTime: ['供应商完工时间', '完工时间', '供应商完成时间'],
+  shipmentTime: ['发货时间', '出货时间', '计划发货时间'],
+  kingdeeOrderNo: ['金蝶采购订单', '采购订单', '采购订单号', '金蝶订单', '订单号', 'PO', 'PO号'],
+  supplierShortName: ['供应商简称', '供应商', '供应商名称', '厂家简称'],
+  supplierAddress: ['供应商地址', '地址', '验货地址', '工厂地址'],
+  businessDepartments: ['事业部', '业务部门', '部门'],
+  operation: ['运营', '运营人员', '运营负责人'],
+  firstInspection: ['是否首批验货', '首批验货', '是否首批', '首批'],
+  salesProductLine: ['产品线', '销售产品线', '一级产品线'],
+  series: ['系列', '产品系列'],
+  totalQuantity: ['合计数量', '总数量', '数量', '验货数量'],
+  skuQuantity: ['SKU及数量', 'SKU数量', 'SKU明细', 'SKU及数量明细'],
+  remark: ['备注', '备注信息', '说明']
+};
 
 const MENU_PAGES = [
   { tab: 'inspectionNotice', label: '验货通知' },
@@ -53,6 +72,10 @@ function normalize(value) {
   return String(value ?? '').trim();
 }
 
+function normalizeHeader(value) {
+  return normalize(value).replace(/\s+/g, '').toLowerCase();
+}
+
 function formatDate(value) {
   return value ? String(value).slice(0, 10) : '';
 }
@@ -66,7 +89,7 @@ function nowText() {
 function defaultStaticDb() {
   return {
     users: [
-      { id: 'u-admin', name: '孙立柱', password: '521sunlizhu', role: '管理员' },
+      DEFAULT_ADMIN_USER,
       { id: 'u-user', name: '验货员', password: '123456', role: '普通用户' }
     ],
     qualityInspection: {
@@ -82,8 +105,11 @@ function defaultStaticDb() {
 function normalizeStaticDb(db = {}) {
   const fallback = defaultStaticDb();
   const inspection = db.qualityInspection || {};
+  const users = Array.isArray(db.users) && db.users.length ? db.users : fallback.users;
   return {
-    users: Array.isArray(db.users) && db.users.length ? db.users : fallback.users,
+    users: users.map((user) => user.id === DEFAULT_ADMIN_USER.id || user.name === '管理员'
+      ? { ...user, ...DEFAULT_ADMIN_USER }
+      : user),
     qualityInspection: {
       initialData: { ...fallback.qualityInspection.initialData, ...(inspection.initialData || {}) },
       notices: { ...fallback.qualityInspection.notices, ...(inspection.notices || {}) },
@@ -149,6 +175,28 @@ function parseWorkbookInBrowser(file) {
     };
     reader.readAsArrayBuffer(file);
   });
+}
+
+function importedRowsToNoticeRows(importedRows, currentUserName) {
+  return importedRows
+    .map((sourceRow) => {
+      const normalizedSource = new Map();
+      Object.entries(sourceRow || {}).forEach(([key, value]) => {
+        if (key === 'id' || key === '__cells') return;
+        normalizedSource.set(normalizeHeader(key), value);
+      });
+      const values = {};
+      NOTICE_FIELDS.forEach((field) => {
+        const aliases = [field.label, field.key, ...(NOTICE_IMPORT_ALIASES[field.key] || [])];
+        const match = aliases
+          .map(normalizeHeader)
+          .find((alias) => normalizedSource.has(alias));
+        values[field.key] = match ? normalize(normalizedSource.get(match)) : '';
+      });
+      values.inspectionApplicant = currentUserName;
+      return createNoticeRow(values);
+    })
+    .filter((row) => NOTICE_FIELDS.some((field) => !field.readonly && normalize(row[field.key])));
 }
 
 function readFileAsDataUrl(file) {
@@ -296,6 +344,26 @@ function App() {
 
   function addNoticeRow() {
     setNoticeRows((rows) => [...rows, createNoticeRow({ inspectionApplicant: user.name })]);
+  }
+
+  async function uploadNoticeRows(files) {
+    const file = files?.[0];
+    if (!file) return;
+    try {
+      const result = await parseWorkbookInBrowser(file);
+      const importedRows = importedRowsToNoticeRows(result.rows || [], user.name);
+      if (!importedRows.length) {
+        setMessage('未识别到可导入的验货通知数据，请检查表头。');
+        return;
+      }
+      setNoticeRows((rows) => {
+        const activeRows = rows.filter((row) => NOTICE_FIELDS.some((field) => !field.readonly && normalize(row[field.key])));
+        return [...activeRows, ...importedRows];
+      });
+      setMessage(`批量导入成功：从 ${result.sheetName || file.name} 读取 ${importedRows.length} 条验货通知。`);
+    } catch {
+      setMessage('验货通知批量导入失败，请检查文件格式。');
+    }
   }
 
   function deleteNoticeRow(id) {
@@ -589,6 +657,7 @@ function App() {
             onAdd={addNoticeRow}
             onDelete={deleteNoticeRow}
             onChange={updateNoticeRow}
+            onUpload={uploadNoticeRows}
             onSubmit={submitNotices}
           />
         )}
@@ -621,7 +690,7 @@ function App() {
   );
 }
 
-function InspectionNoticePage({ rows, submission, user, onAdd, onDelete, onChange, onSubmit }) {
+function InspectionNoticePage({ rows, submission, user, onAdd, onDelete, onChange, onUpload, onSubmit }) {
   return (
     <>
       <div className="section-heading-row">
@@ -629,6 +698,17 @@ function InspectionNoticePage({ rows, submission, user, onAdd, onDelete, onChang
         <span className="section-count">共 {rows.length} 条</span>
         {submission.submittedAt && <span className="section-count">已提交：{submission.submittedAt}</span>}
         <button type="button" className="ghost compact-button" onClick={onAdd}>新增一行</button>
+        <label className="upload-button">
+          批量上传
+          <input
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            onChange={(event) => {
+              onUpload(event.target.files);
+              event.target.value = '';
+            }}
+          />
+        </label>
         <button type="button" onClick={onSubmit}>确认提交</button>
       </div>
       <DataTable

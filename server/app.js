@@ -14,6 +14,7 @@ const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path
 const uploadDir = path.join(dataDir, 'uploads');
 const dbPath = path.join(dataDir, 'db.json');
 const port = Number(process.env.PORT || 4002);
+const DEFAULT_ADMIN_USER = { id: 'u-admin', name: '孙立柱', password: '521sunlizhu', role: '管理员' };
 
 await mkdir(uploadDir, { recursive: true });
 
@@ -29,11 +30,14 @@ function nowText() {
 
 function normalizeDb(db = {}) {
   const qualityInspection = db.qualityInspection || {};
+  const users = Array.isArray(db.users) && db.users.length ? db.users : [
+    DEFAULT_ADMIN_USER,
+    { id: 'u-user', name: '验货员', password: '123456', role: '普通用户' }
+  ];
   return {
-    users: Array.isArray(db.users) && db.users.length ? db.users : [
-      { id: 'u-admin', name: '孙立柱', password: '521sunlizhu', role: '管理员' },
-      { id: 'u-user', name: '验货员', password: '123456', role: '普通用户' }
-    ],
+    users: users.map((user) => user.id === DEFAULT_ADMIN_USER.id || user.name === '管理员'
+      ? { ...user, ...DEFAULT_ADMIN_USER }
+      : user),
     qualityInspection: {
       initialData: {
         sheetName: '',
