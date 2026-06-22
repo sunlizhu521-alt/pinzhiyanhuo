@@ -48,11 +48,9 @@ const NOTICE_IMPORT_ALIASES = {
 const MENU_PAGES = [
   { tab: 'inspectionNotice', label: '验货通知' },
   { tab: 'inspectionSchedule', label: '验货安排' },
-  { tab: 'inspectionReportUpload', label: '检验报告单回传' },
   { tab: 'inspectionFeedback', label: '验货反馈' },
   { tab: 'inspectionReportQuery', label: '检验报告单查询' },
   { tab: 'inspectionSummary', label: '验货信息汇总表' },
-  { tab: 'inspectionInitialData', label: '验货信息初始数据' },
   { tab: 'dimensionLibrary', label: '维度表库存' }
 ];
 
