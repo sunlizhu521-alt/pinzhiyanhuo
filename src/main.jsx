@@ -186,7 +186,8 @@ function defaultStaticDb() {
       notices: { rows: [], submittedAt: '', submittedBy: '' },
       schedules: {},
       reports: {},
-      feedback: {}
+      feedback: {},
+      dimensionLibrary: {}
     }
   };
 }
@@ -218,9 +219,17 @@ function normalizeStaticDb(db = {}) {
       notices: { ...fallback.qualityInspection.notices, ...(inspection.notices || {}) },
       schedules: inspection.schedules || {},
       reports: inspection.reports || {},
-      feedback: inspection.feedback || {}
+      feedback: inspection.feedback || {},
+      dimensionLibrary: inspection.dimensionLibrary || {}
     }
   };
+}
+
+function normalizeDimensionLibrary(library = {}) {
+  return DIMENSION_LIBRARY_SLOTS.reduce((normalized, slot) => ({
+    ...normalized,
+    [slot.id]: library[slot.id] || null
+  }), {});
 }
 
 function readStaticDb() {
@@ -238,12 +247,9 @@ function saveStaticDb(db) {
 function readDimensionLibrary() {
   try {
     const saved = JSON.parse(localStorage.getItem(DIMENSION_LIBRARY_KEY) || '{}');
-    return DIMENSION_LIBRARY_SLOTS.reduce((library, slot) => ({
-      ...library,
-      [slot.id]: saved[slot.id] || null
-    }), {});
+    return normalizeDimensionLibrary(saved);
   } catch {
-    return DIMENSION_LIBRARY_SLOTS.reduce((library, slot) => ({ ...library, [slot.id]: null }), {});
+    return normalizeDimensionLibrary();
   }
 }
 
@@ -683,6 +689,7 @@ function App() {
   const [initialData, setInitialData] = useState({ sheetName: '', columns: [], rows: [], updatedAt: '' });
   const [initialImportResult, setInitialImportResult] = useState(null);
   const [dimensionLibrary, setDimensionLibrary] = useState(readDimensionLibrary);
+  const [dimensionPendingFiles, setDimensionPendingFiles] = useState({});
   const [reportFiles, setReportFiles] = useState(() => readReportFileLibrary());
   const [permissionUsers, setPermissionUsers] = useState([]);
   const [records, setRecords] = useState([]);
@@ -729,6 +736,11 @@ function App() {
   }, [activeTab, user]);
 
   useEffect(() => {
+    if (!user || activeTab !== 'dimensionLibrary') return;
+    refreshDimensionLibrary();
+  }, [activeTab, user]);
+
+  useEffect(() => {
     if (!user || activeTab !== 'permissionManagement') return;
     refreshPermissionUsers();
   }, [activeTab, user]);
@@ -741,6 +753,7 @@ function App() {
         ? (inspection.notices.rows || [])
         : (inspection.notices.rows || []).filter((row) => row.inspectionApplicant === user.name);
       setInitialData(inspection.initialData);
+      setDimensionLibrary(readDimensionLibrary());
       setNoticeSubmission({ ...inspection.notices, rows: visibleNotices });
       setNoticeRows(visibleNotices.length
         ? visibleNotices.map((row) => createNoticeRow(row))
@@ -759,6 +772,7 @@ function App() {
       return;
     }
     if (initialRes.ok) setInitialData(await initialRes.json());
+    if (canAccessPage(user, 'dimensionLibrary')) await refreshDimensionLibrary();
     if (noticeRes.ok) {
       const payload = await noticeRes.json();
       setNoticeSubmission(payload);
@@ -1117,6 +1131,15 @@ function App() {
     if (res.ok) setReportFiles((await res.json()).files || []);
   }
 
+  async function refreshDimensionLibrary() {
+    if (STATIC_MODE) {
+      setDimensionLibrary(readDimensionLibrary());
+      return;
+    }
+    const res = await authFetch(`${API}/api/quality-inspection/dimension-library`, { cache: 'no-store' });
+    if (res.ok) setDimensionLibrary(normalizeDimensionLibrary((await res.json()).library || {}));
+  }
+
   async function refreshPermissionUsers() {
     if (STATIC_MODE) {
       setPermissionUsers(readStaticDb().users || []);
@@ -1229,36 +1252,82 @@ function App() {
         appliedAt: ''
       };
       const next = { ...dimensionLibrary, [slotId]: record };
-      const saved = saveDimensionLibrary(next);
+      const saved = STATIC_MODE ? saveDimensionLibrary(next) : true;
       setDimensionLibrary(next);
+      setDimensionPendingFiles((current) => ({ ...current, [slotId]: file }));
       setMessage(saved
-        ? `维度表文件库已读取：${file.name}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行，请确认后应用刷新。`
+        ? `维度表文件库已读取：${file.name}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行，请点击应用刷新同步。`
         : `维度表文件库已读取：${file.name}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行；文件较大，已保留预览信息但浏览器缓存保存失败。`);
     } catch {
       setMessage('维度表文件库读取失败，请检查文件格式。');
     }
   }
 
-  function applyDimensionSlot(slotId) {
+  async function applyDimensionSlot(slotId) {
     const existing = dimensionLibrary[slotId];
     if (!existing) {
       setMessage('该槽位暂无可应用文件。');
+      return;
+    }
+    const pendingFile = dimensionPendingFiles[slotId];
+    if (!STATIC_MODE && !pendingFile && !existing.storedFileName) {
+      setMessage('请先重新上传维度表文件，再应用刷新到服务器。');
+      return;
+    }
+    if (!STATIC_MODE && !pendingFile && existing.applied) {
+      setMessage(`${existing.fileName} 已是服务器当前应用文件。`);
       return;
     }
     const next = {
       ...dimensionLibrary,
       [slotId]: { ...existing, applied: true, appliedAt: nowText() }
     };
-    const saved = saveDimensionLibrary(next);
-    setDimensionLibrary(next);
-    setMessage(saved ? `${existing.fileName} 已应用刷新。` : `${existing.fileName} 已应用刷新，但浏览器缓存保存失败。`);
+    if (STATIC_MODE) {
+      const saved = saveDimensionLibrary(next);
+      setDimensionLibrary(next);
+      setDimensionPendingFiles((current) => ({ ...current, [slotId]: null }));
+      setMessage(saved ? `${existing.fileName} 已应用刷新。` : `${existing.fileName} 已应用刷新，但浏览器缓存保存失败。`);
+      return;
+    }
+    setSavingId(slotId);
+    const form = new FormData();
+    form.append('file', pendingFile);
+    form.append('record', JSON.stringify(next[slotId]));
+    const res = await authFetch(`${API}/api/quality-inspection/dimension-library/${encodeURIComponent(slotId)}/apply`, {
+      method: 'POST',
+      body: form
+    });
+    setSavingId('');
+    if (!res.ok) {
+      setMessage(`${existing.fileName} 应用刷新失败，服务器未保存。`);
+      return;
+    }
+    const payload = await res.json();
+    setDimensionLibrary(normalizeDimensionLibrary(payload.library || {}));
+    setDimensionPendingFiles((current) => ({ ...current, [slotId]: null }));
+    setMessage(`${existing.fileName} 已上传到腾讯云服务器并应用，其他用户可读取最新文件。`);
   }
 
-  function deleteDimensionSlot(slotId) {
+  async function deleteDimensionSlot(slotId) {
     const next = { ...dimensionLibrary, [slotId]: null };
-    const saved = saveDimensionLibrary(next);
-    setDimensionLibrary(next);
-    setMessage(saved ? '已清除该维度表槽位。' : '已清除该维度表槽位，但浏览器缓存保存失败。');
+    if (STATIC_MODE) {
+      const saved = saveDimensionLibrary(next);
+      setDimensionLibrary(next);
+      setDimensionPendingFiles((current) => ({ ...current, [slotId]: null }));
+      setMessage(saved ? '已清除该维度表槽位。' : '已清除该维度表槽位，但浏览器缓存保存失败。');
+      return;
+    }
+    setSavingId(slotId);
+    const res = await authFetch(`${API}/api/quality-inspection/dimension-library/${encodeURIComponent(slotId)}`, { method: 'DELETE' });
+    setSavingId('');
+    if (!res.ok) {
+      setMessage('维度表槽位删除失败。');
+      return;
+    }
+    const payload = await res.json();
+    setDimensionLibrary(normalizeDimensionLibrary(payload.library || {}));
+    setDimensionPendingFiles((current) => ({ ...current, [slotId]: null }));
+    setMessage('已清除该维度表槽位，服务器文件同步删除。');
   }
 
   async function saveSchedules(scheduleDrafts) {
@@ -1861,6 +1930,7 @@ function App() {
           <DimensionLibraryPage
             slots={DIMENSION_LIBRARY_SLOTS}
             library={dimensionLibrary}
+            savingId={savingId}
             onUpload={uploadDimensionSlot}
             onApply={applyDimensionSlot}
             onDelete={deleteDimensionSlot}
@@ -2624,7 +2694,7 @@ function InitialDataPage({ data, result, onUpload }) {
   );
 }
 
-function DimensionLibraryPage({ slots, library, onUpload, onApply, onDelete }) {
+function DimensionLibraryPage({ slots, library, savingId, onUpload, onApply, onDelete }) {
   const filledCount = slots.filter((slot) => library[slot.id]).length;
   const appliedCount = slots.filter((slot) => library[slot.id]?.applied).length;
   return (
@@ -2702,8 +2772,10 @@ function DimensionLibraryPage({ slots, library, onUpload, onApply, onDelete }) {
                     })}
                   </div>
                   <div className="card-actions">
-                    <button type="button" className="compact-button" onClick={() => onApply(slot.id)}>应用刷新</button>
-                    <button type="button" className="ghost compact-button" onClick={() => onDelete(slot.id)}>删除</button>
+                    <button type="button" className="compact-button" disabled={savingId === slot.id} onClick={() => onApply(slot.id)}>
+                      {savingId === slot.id ? '应用中' : '应用刷新'}
+                    </button>
+                    <button type="button" className="ghost compact-button" disabled={savingId === slot.id} onClick={() => onDelete(slot.id)}>删除</button>
                   </div>
                 </>
               ) : (

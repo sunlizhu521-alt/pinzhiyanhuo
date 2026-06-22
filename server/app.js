@@ -12,6 +12,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(rootDir, 'data');
 const uploadDir = path.join(dataDir, 'uploads');
+const dimensionUploadDir = path.join(dataDir, 'dimension-uploads');
 const dbPath = path.join(dataDir, 'db.json');
 const port = Number(process.env.PORT || 4002);
 const DEFAULT_ADMIN_USER = { id: 'u-admin', name: '孙立柱', password: '521sunlizhu', role: '管理员' };
@@ -47,6 +48,7 @@ const DEFAULT_USERS = [
 ];
 
 await mkdir(uploadDir, { recursive: true });
+await mkdir(dimensionUploadDir, { recursive: true });
 
 const app = express();
 const upload = multer({
@@ -121,7 +123,8 @@ function normalizeDb(db = {}) {
       },
       schedules: qualityInspection.schedules || {},
       reports: qualityInspection.reports || {},
-      feedback: qualityInspection.feedback || {}
+      feedback: qualityInspection.feedback || {},
+      dimensionLibrary: qualityInspection.dimensionLibrary || {}
     }
   };
 }
@@ -236,6 +239,10 @@ function reportFilePath(fileName) {
   return path.join(uploadDir, path.basename(fileName || ''));
 }
 
+function dimensionFilePath(fileName) {
+  return path.join(dimensionUploadDir, path.basename(fileName || ''));
+}
+
 async function uniqueUploadName(fileName) {
   const ext = path.extname(fileName || '');
   const base = safeFileBaseName(path.basename(fileName || 'report', ext), `report-${Date.now()}`);
@@ -252,8 +259,28 @@ async function uniqueUploadName(fileName) {
   }
 }
 
+async function uniqueDimensionUploadName(fileName) {
+  const ext = path.extname(fileName || '');
+  const base = safeFileBaseName(path.basename(fileName || 'dimension', ext), `dimension-${Date.now()}`);
+  let candidate = `${base}${ext}`;
+  let index = 1;
+  while (true) {
+    try {
+      await stat(dimensionFilePath(candidate));
+      candidate = `${base}-${index}${ext}`;
+      index += 1;
+    } catch {
+      return candidate;
+    }
+  }
+}
+
 function fileUrl(fileName) {
   return `/uploads/${encodeURIComponent(fileName)}`;
+}
+
+function dimensionFileUrl(fileName) {
+  return `/dimension-uploads/${encodeURIComponent(fileName)}`;
 }
 
 function reportReferenceMap(db) {
@@ -414,6 +441,69 @@ app.post('/api/quality-inspection/initial-data/import', requireAuth, requirePage
   } finally {
     await removeUploadedFile(req.file);
   }
+});
+
+app.get('/api/quality-inspection/dimension-library', requireAuth, requirePages('dimensionLibrary'), async (req, res) => {
+  const db = await readDb();
+  res.json({ library: db.qualityInspection.dimensionLibrary || {} });
+});
+
+app.post('/api/quality-inspection/dimension-library/:slotId/apply', requireAuth, requirePages('dimensionLibrary'), upload.single('file'), async (req, res) => {
+  const db = await readDb();
+  const slotId = String(req.params.slotId || '').trim();
+  if (!slotId) {
+    if (req.file) await removeUploadedFile(req.file);
+    return res.status(400).json({ error: 'missing slot id' });
+  }
+  if (!req.file) return res.status(400).json({ error: 'missing file' });
+
+  let record;
+  try {
+    record = JSON.parse(req.body.record || '{}');
+  } catch {
+    await removeUploadedFile(req.file);
+    return res.status(400).json({ error: 'invalid record' });
+  }
+
+  const existing = db.qualityInspection.dimensionLibrary?.[slotId] || {};
+  const previousStoredName = existing.storedFileName || '';
+  const storedName = await uniqueDimensionUploadName(`${slotId}-${req.file.originalname || `file-${Date.now()}`}`);
+  await rename(req.file.path, dimensionFilePath(storedName));
+  if (previousStoredName && previousStoredName !== storedName) {
+    await unlink(dimensionFilePath(previousStoredName)).catch(() => {});
+  }
+
+  const next = {
+    ...record,
+    id: slotId,
+    fileName: req.file.originalname || record.fileName || storedName,
+    storedFileName: storedName,
+    fileUrl: dimensionFileUrl(storedName),
+    fileSize: req.file.size || record.fileSize || 0,
+    fileType: req.file.mimetype || record.fileType || '未知类型',
+    applied: true,
+    appliedAt: nowText(),
+    savedAt: record.savedAt || nowText(),
+    updatedAt: nowText(),
+    updatedBy: req.authUser.name
+  };
+  db.qualityInspection.dimensionLibrary = {
+    ...(db.qualityInspection.dimensionLibrary || {}),
+    [slotId]: next
+  };
+  await saveDb(db);
+  res.json({ library: db.qualityInspection.dimensionLibrary, record: next });
+});
+
+app.delete('/api/quality-inspection/dimension-library/:slotId', requireAuth, requirePages('dimensionLibrary'), async (req, res) => {
+  const db = await readDb();
+  const slotId = String(req.params.slotId || '').trim();
+  const existing = db.qualityInspection.dimensionLibrary?.[slotId];
+  if (existing?.storedFileName) await unlink(dimensionFilePath(existing.storedFileName)).catch(() => {});
+  db.qualityInspection.dimensionLibrary = { ...(db.qualityInspection.dimensionLibrary || {}) };
+  delete db.qualityInspection.dimensionLibrary[slotId];
+  await saveDb(db);
+  res.json({ library: db.qualityInspection.dimensionLibrary });
 });
 
 app.get('/api/quality-inspection/notices', requireAuth, requirePages('inspectionNotice'), async (req, res) => {
@@ -690,6 +780,11 @@ app.patch('/api/quality-inspection/feedback/:id', requireAuth, requirePages('ins
 app.get('/uploads/:fileName', (req, res) => {
   const safeName = path.basename(req.params.fileName);
   res.sendFile(reportFilePath(safeName));
+});
+
+app.get('/dimension-uploads/:fileName', requireAuth, requirePages('dimensionLibrary'), (req, res) => {
+  const safeName = path.basename(req.params.fileName);
+  res.sendFile(dimensionFilePath(safeName));
 });
 
 const distDir = path.join(rootDir, 'dist');
