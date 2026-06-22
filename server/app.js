@@ -46,6 +46,7 @@ const DEFAULT_USERS = [
   { id: 'u-inspector', name: '验货员', password: '123456', role: ROLE_INSPECTOR },
   { id: 'u-settlement', name: '结算员', password: '123456', role: ROLE_SETTLEMENT }
 ];
+const PURCHASE_WORK_DIVISION_SLOT_ID = 'dimension-slot-2';
 
 await mkdir(uploadDir, { recursive: true });
 await mkdir(dimensionUploadDir, { recursive: true });
@@ -443,9 +444,25 @@ app.post('/api/quality-inspection/initial-data/import', requireAuth, requirePage
   }
 });
 
-app.get('/api/quality-inspection/dimension-library', requireAuth, requirePages('dimensionLibrary'), async (req, res) => {
+app.get('/api/quality-inspection/dimension-library', requireAuth, requirePages('dimensionLibrary', 'inspectionNotice'), async (req, res) => {
   const db = await readDb();
-  res.json({ library: db.qualityInspection.dimensionLibrary || {} });
+  const library = db.qualityInspection.dimensionLibrary || {};
+  if (!hasPageAccess(req.authUser, 'dimensionLibrary') && hasPageAccess(req.authUser, 'inspectionNotice')) {
+    const purchaseWorkDivision = library[PURCHASE_WORK_DIVISION_SLOT_ID] || {};
+    res.json({
+      library: {
+        [PURCHASE_WORK_DIVISION_SLOT_ID]: {
+          id: PURCHASE_WORK_DIVISION_SLOT_ID,
+          fileName: purchaseWorkDivision.fileName || '',
+          applied: Boolean(purchaseWorkDivision.applied),
+          appliedAt: purchaseWorkDivision.appliedAt || '',
+          supplierAddressLookup: purchaseWorkDivision.supplierAddressLookup || []
+        }
+      }
+    });
+    return;
+  }
+  res.json({ library });
 });
 
 app.post('/api/quality-inspection/dimension-library/:slotId/apply', requireAuth, requirePages('dimensionLibrary'), upload.single('file'), async (req, res) => {

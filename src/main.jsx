@@ -145,6 +145,11 @@ const DIMENSION_LIBRARY_SLOTS = [
   { id: 'dimension-slot-3', title: '维度表槽位 3' },
   { id: 'dimension-slot-4', title: '维度表槽位 4' }
 ];
+const PURCHASE_WORK_DIVISION_SLOT_ID = 'dimension-slot-2';
+const DIMENSION_SUPPLIER_ALIASES = ['供应商简称', '供应商', '供应商名称', '厂家简称', '厂商简称', '工厂简称'];
+const DIMENSION_ADDRESS_ALIASES = ['产品线明细地址', '供应商地址', '验货地址', '工厂地址', '详细地址', '地址', '所在地'];
+const DIMENSION_PROVINCE_ALIASES = ['省', '省份', '所在省', '省区'];
+const DIMENSION_CITY_ALIASES = ['市', '城市', '所在市', '地市'];
 
 function createId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
@@ -166,6 +171,11 @@ function normalize(value) {
 
 function normalizeHeader(value) {
   return normalize(value).replace(/\s+/g, '').toLowerCase();
+}
+
+function normalizeSupplierKey(value) {
+  return normalizeHeader(value)
+    .replace(/有限责任公司|股份有限公司|有限公司|公司|工厂|厂/g, '');
 }
 
 function formatDate(value) {
@@ -369,14 +379,95 @@ function parseWorkbookSheetsInBrowser(file) {
   });
 }
 
-function importedRowsToNoticeRows(importedRows, currentUserName) {
+function normalizedSourceMap(sourceRow = {}) {
+  const normalizedSource = new Map();
+  Object.entries(sourceRow || {}).forEach(([key, value]) => {
+    if (key === 'id' || key === '__cells') return;
+    normalizedSource.set(normalizeHeader(key), value);
+  });
+  return normalizedSource;
+}
+
+function extractProvinceCityFromAddress(address) {
+  const text = normalize(address).replace(/\s+/g, '');
+  if (!text) return '';
+  const municipality = text.match(/^(北京市|上海市|天津市|重庆市)/);
+  if (municipality) return municipality[1];
+  const autonomousRegion = text.match(/^(内蒙古自治区|广西壮族自治区|宁夏回族自治区|新疆维吾尔自治区|西藏自治区)(.{1,20}?市)/);
+  if (autonomousRegion) return `${autonomousRegion[1]}${autonomousRegion[2]}`;
+  const provinceCity = text.match(/^(.{2,12}?(?:省|自治区|特别行政区))(.{1,20}?市)/);
+  if (provinceCity) return `${provinceCity[1]}${provinceCity[2]}`;
+  const provinceOnly = text.match(/^(.{2,12}?(?:省|自治区|特别行政区))/);
+  if (provinceOnly) return provinceOnly[1];
+  const cityOnly = text.match(/^(.{1,20}?市)/);
+  return cityOnly ? cityOnly[1] : '';
+}
+
+function provinceCityFromDimensionRow(sourceRow = {}) {
+  const normalizedSource = normalizedSourceMap(sourceRow);
+  const province = readImportedValue(normalizedSource, DIMENSION_PROVINCE_ALIASES);
+  const city = readImportedValue(normalizedSource, DIMENSION_CITY_ALIASES);
+  if (province || city) {
+    const normalizedProvince = normalize(province);
+    const normalizedCity = normalize(city);
+    return normalizedCity && !normalizedProvince.includes(normalizedCity)
+      ? `${normalizedProvince}${normalizedCity}`
+      : normalizedProvince || normalizedCity;
+  }
+  return extractProvinceCityFromAddress(readImportedValue(normalizedSource, DIMENSION_ADDRESS_ALIASES));
+}
+
+function buildSupplierProvinceCityLookup(dimensionLibrary = {}) {
+  const record = dimensionLibrary[PURCHASE_WORK_DIVISION_SLOT_ID];
+  const lookup = new Map();
+  const indexedRows = Array.isArray(record?.supplierAddressLookup) ? record.supplierAddressLookup : [];
+  indexedRows.forEach((item) => {
+    const supplier = normalize(item.supplierShortName || item.supplier || '');
+    const address = normalize(item.provinceCity || item.address || '');
+    if (!supplier || !address) return;
+    lookup.set(normalizeHeader(supplier), address);
+    lookup.set(normalizeSupplierKey(supplier), address);
+  });
+  const sheets = Array.isArray(record?.sheets) ? record.sheets : [];
+  sheets.forEach((sheet) => {
+    (sheet.rows || []).forEach((row) => {
+      const normalizedSource = normalizedSourceMap(row);
+      const supplier = readImportedValue(normalizedSource, DIMENSION_SUPPLIER_ALIASES);
+      const provinceCity = provinceCityFromDimensionRow(row);
+      if (!supplier || !provinceCity) return;
+      lookup.set(normalizeHeader(supplier), provinceCity);
+      lookup.set(normalizeSupplierKey(supplier), provinceCity);
+    });
+  });
+  return lookup;
+}
+
+function buildSupplierAddressLookupRows(sheets = []) {
+  const lookup = new Map();
+  sheets.forEach((sheet) => {
+    (sheet.rows || []).forEach((row) => {
+      const normalizedSource = normalizedSourceMap(row);
+      const supplier = readImportedValue(normalizedSource, DIMENSION_SUPPLIER_ALIASES);
+      const provinceCity = provinceCityFromDimensionRow(row);
+      if (!supplier || !provinceCity) return;
+      const key = normalizeSupplierKey(supplier) || normalizeHeader(supplier);
+      if (!lookup.has(key)) {
+        lookup.set(key, {
+          supplierShortName: supplier,
+          provinceCity,
+          sheetName: sheet.sheetName || ''
+        });
+      }
+    });
+  });
+  return Array.from(lookup.values());
+}
+
+function importedRowsToNoticeRows(importedRows, currentUserName, dimensionLibrary = {}) {
+  const supplierProvinceCityLookup = buildSupplierProvinceCityLookup(dimensionLibrary);
   return importedRows
     .map((sourceRow) => {
-      const normalizedSource = new Map();
-      Object.entries(sourceRow || {}).forEach(([key, value]) => {
-        if (key === 'id' || key === '__cells') return;
-        normalizedSource.set(normalizeHeader(key), value);
-      });
+      const normalizedSource = normalizedSourceMap(sourceRow);
       const values = {};
       NOTICE_FIELDS.forEach((field) => {
         const aliases = [field.label, field.key, ...(NOTICE_IMPORT_ALIASES[field.key] || [])];
@@ -386,6 +477,8 @@ function importedRowsToNoticeRows(importedRows, currentUserName) {
         values[field.key] = match ? normalize(normalizedSource.get(match)) : '';
       });
       values.inspectionApplicant = currentUserName;
+      const supplierKey = normalizeSupplierKey(values.supplierShortName) || normalizeHeader(values.supplierShortName);
+      values.supplierAddress = supplierProvinceCityLookup.get(supplierKey) || supplierProvinceCityLookup.get(normalizeHeader(values.supplierShortName)) || '';
       return createNoticeRow(values);
     })
     .filter((row) => NOTICE_FIELDS.some((field) => !field.readonly && normalize(row[field.key])));
@@ -772,7 +865,7 @@ function App() {
       return;
     }
     if (initialRes.ok) setInitialData(await initialRes.json());
-    if (canAccessPage(user, 'dimensionLibrary')) await refreshDimensionLibrary();
+    if (canAccessPage(user, 'dimensionLibrary') || canAccessPage(user, 'inspectionNotice')) await refreshDimensionLibrary();
     if (noticeRes.ok) {
       const payload = await noticeRes.json();
       setNoticeSubmission(payload);
@@ -858,7 +951,8 @@ function App() {
     if (!file) return;
     try {
       const result = await parseWorkbookInBrowser(file);
-      const importedRows = importedRowsToNoticeRows(result.rows || [], user.name);
+      const latestDimensionLibrary = await refreshDimensionLibrary();
+      const importedRows = importedRowsToNoticeRows(result.rows || [], user.name, latestDimensionLibrary || dimensionLibrary);
       if (!importedRows.length) {
         setMessage('未识别到可导入的验货通知数据，请检查表头。');
         return;
@@ -1133,11 +1227,17 @@ function App() {
 
   async function refreshDimensionLibrary() {
     if (STATIC_MODE) {
-      setDimensionLibrary(readDimensionLibrary());
-      return;
+      const library = readDimensionLibrary();
+      setDimensionLibrary(library);
+      return library;
     }
     const res = await authFetch(`${API}/api/quality-inspection/dimension-library`, { cache: 'no-store' });
-    if (res.ok) setDimensionLibrary(normalizeDimensionLibrary((await res.json()).library || {}));
+    if (res.ok) {
+      const library = normalizeDimensionLibrary((await res.json()).library || {});
+      setDimensionLibrary(library);
+      return library;
+    }
+    return dimensionLibrary;
   }
 
   async function refreshPermissionUsers() {
@@ -1226,6 +1326,9 @@ function App() {
     if (!file) return;
     try {
       const result = await parseWorkbookSheetsInBrowser(file);
+      const supplierAddressLookup = slotId === PURCHASE_WORK_DIVISION_SLOT_ID
+        ? buildSupplierAddressLookupRows(result.sheets || [])
+        : [];
       const sheets = (result.sheets || []).map((sheet) => ({
         sheetName: sheet.sheetName,
         columns: sheet.columns || [],
@@ -1247,6 +1350,7 @@ function App() {
         rows: firstSheet.rows || [],
         importedCount: result.importedCount || 0,
         previewCount: sheets.reduce((sum, sheet) => sum + (sheet.previewCount || 0), 0),
+        supplierAddressLookup,
         savedAt: nowText(),
         applied: false,
         appliedAt: ''
