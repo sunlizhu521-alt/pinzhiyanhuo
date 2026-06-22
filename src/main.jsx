@@ -89,8 +89,8 @@ const MENU_PAGES = [
   { tab: 'inspectionSchedule', label: '验货安排' },
   { tab: 'inspectionFeedback', label: '验货反馈' },
   { tab: 'inspectionStamp', label: '加盖检验章' },
-  { tab: 'inspectionReportQuery', label: '检验报告单查询' },
-  { tab: 'inspectionSummary', label: '验货信息汇总表' },
+  { tab: 'inspectionReportQuery', label: '查询检验单' },
+  { tab: 'inspectionSummary', label: '验货反馈表' },
   { tab: 'dimensionLibrary', label: '维度表文件库' },
   { tab: 'inspectionReportLibrary', label: '报告单文件库' },
   { tab: 'permissionManagement', label: '权限管理' }
@@ -887,7 +887,7 @@ function App() {
       const result = await parseWorkbookInBrowser(file);
       const items = importedRowsToSummaryItems(result.rows || [], user.name);
       if (!items.length) {
-        setMessage('未识别到可追加的汇总表数据，请检查表头。');
+        setMessage('未识别到可追加的验货反馈表数据，请检查表头。');
         return;
       }
       setSummaryImportPreview({
@@ -896,21 +896,21 @@ function App() {
         items,
         parsedAt: nowText()
       });
-      setMessage(`验货信息汇总表已解析：共 ${items.length} 条，请检查预览后确认追加。`);
+      setMessage(`验货反馈表已解析：共 ${items.length} 条，请检查预览后确认追加。`);
     } catch {
-      setMessage('验货信息汇总表批量上传失败，请检查文件格式。');
+      setMessage('验货反馈表批量上传失败，请检查文件格式。');
     }
   }
 
   function clearSummaryImportPreview() {
     setSummaryImportPreview(null);
-    setMessage('已清空验货信息汇总表导入预览。');
+    setMessage('已清空验货反馈表导入预览。');
   }
 
   async function confirmSummaryImport() {
     const items = summaryImportPreview?.items || [];
     if (!items.length) {
-      setMessage('暂无可追加的汇总表预览数据。');
+      setMessage('暂无可追加的验货反馈表预览数据。');
       return;
     }
     if (STATIC_MODE) {
@@ -956,7 +956,7 @@ function App() {
       setNoticeRows(rows.map((row) => createNoticeRow(row)));
       setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
       setSummaryImportPreview(null);
-      setMessage(`验货信息汇总表已追加：新增 ${items.length} 条，原有信息已保留。`);
+      setMessage(`验货反馈表已追加：新增 ${items.length} 条，原有信息已保留。`);
       return;
     }
     const res = await authFetch(`${API}/api/quality-inspection/summary-import?user=${encodeURIComponent(user.name)}`, {
@@ -965,7 +965,7 @@ function App() {
       body: JSON.stringify({ items, user: user.name })
     });
     if (!res.ok) {
-      setMessage('验货信息汇总表追加失败。');
+      setMessage('验货反馈表追加失败。');
       return;
     }
     const payload = await res.json();
@@ -973,7 +973,7 @@ function App() {
     setNoticeRows(payload.notices.rows.map((row) => createNoticeRow(row)));
     setRecords(payload.rows || []);
     setSummaryImportPreview(null);
-    setMessage(`验货信息汇总表已追加：新增 ${items.length} 条，原有信息已保留。`);
+    setMessage(`验货反馈表已追加：新增 ${items.length} 条，原有信息已保留。`);
   }
 
   async function previewFeedbackRows(files) {
@@ -2481,7 +2481,7 @@ function ReportQueryPage({ records, query, statusFilter, onQuery, onStatusFilter
   return (
     <>
       <div className="section-heading-row">
-        <h2>检验报告单查询</h2>
+        <h2>查询检验单</h2>
         <span className="section-count">筛选结果 {records.length} 条</span>
       </div>
       <div className="toolbar">
@@ -2517,7 +2517,7 @@ function SummaryPage({ summary, records, canImport, importPreview, onUpload, onC
   return (
     <>
       <div className="section-heading-row">
-        <h2>验货信息汇总表</h2>
+        <h2>验货反馈表</h2>
         <span className="section-count">按当前数据实时汇总</span>
       </div>
       {canImport && (
@@ -2527,8 +2527,8 @@ function SummaryPage({ summary, records, canImport, importPreview, onUpload, onC
           onDrop={(event) => { event.preventDefault(); onUpload(event.dataTransfer.files); }}
         >
           <input type="file" accept=".xlsx,.xls,.csv" onChange={(event) => onUpload(event.target.files)} />
-          <strong>拖拽汇总表文件到这里，或点击批量上传</strong>
-          <span>支持 .xlsx / .xls / .csv，解析后先预览，确认后追加到现有汇总信息</span>
+          <strong>拖拽验货反馈表文件到这里，或点击批量上传</strong>
+          <span>支持 .xlsx / .xls / .csv，解析后先预览，确认后追加到现有反馈信息</span>
         </label>
       )}
       {canImport && importPreview && (
