@@ -606,7 +606,7 @@ app.get('/api/quality-inspection/report-files', requireAuth, requirePages('inspe
   res.json({ files: await reportFileItems(db) });
 });
 
-app.post('/api/quality-inspection/report-files', requireAuth, requirePages('inspectionReportLibrary'), requireRoles(ROLE_ADMIN), upload.array('files', 300), async (req, res) => {
+app.post('/api/quality-inspection/report-files', requireAuth, requirePages('inspectionReportLibrary', 'inspectionStamp'), requireRoles(ROLE_ADMIN), upload.array('files', 300), async (req, res) => {
   const db = await readDb();
   const files = Array.isArray(req.files) ? req.files : [];
   if (!files.length) return res.status(400).json({ error: 'missing files' });

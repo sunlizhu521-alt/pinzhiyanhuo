@@ -518,11 +518,23 @@ function readFileAsDataUrl(file) {
   });
 }
 
-const REPORT_LIBRARY_EXTENSIONS = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.xlsx', '.xls', '.doc', '.docx']);
+const REPORT_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp']);
+const REPORT_LIBRARY_EXTENSIONS = new Set(['.pdf', ...REPORT_IMAGE_EXTENSIONS, '.xlsx', '.xls', '.doc', '.docx']);
 
 function isReportLibraryFile(file) {
   const name = String(file?.name || '').toLowerCase();
   return REPORT_LIBRARY_EXTENSIONS.has(name.match(/\.[^.]+$/)?.[0] || '');
+}
+
+function isReportImageFile(file) {
+  const name = String(file?.name || '').toLowerCase();
+  return REPORT_IMAGE_EXTENSIONS.has(name.match(/\.[^.]+$/)?.[0] || '');
+}
+
+async function dataUrlToFile(dataUrl, fileName) {
+  const response = await fetch(dataUrl);
+  const blob = await response.blob();
+  return new File([blob], fileName, { type: blob.type || 'image/png' });
 }
 
 function readEntryFiles(entry) {
@@ -585,7 +597,7 @@ function reportFileExt(record) {
 }
 
 function isImageReport(record) {
-  return ['.png', '.jpg', '.jpeg', '.webp'].includes(reportFileExt(record));
+  return REPORT_IMAGE_EXTENSIONS.has(reportFileExt(record));
 }
 
 function imageMimeForReport(record) {
@@ -1437,15 +1449,46 @@ function App() {
   async function stampReport(record, rotation) {
     if (!record?.id || !reportHref(record)) {
       setMessage('当前没有可盖章的检验报告单。');
-      return;
+      return false;
     }
     if (!isImageReport(record)) {
       setMessage('当前文件不是图片格式，暂不支持直接盖章，请上传 JPG/PNG 图片版检验报告单。');
-      return;
+      return false;
     }
     setSavingId(record.id);
     try {
       const fileDataUrl = await createStampedImageDataUrl(record, rotation);
+      if (record.isStampUpload) {
+        const fileName = record.report?.fileName || record.report?.originalName || `stamped-${Date.now()}.png`;
+        if (STATIC_MODE) {
+          const nextFiles = [
+            ...readReportFileLibrary(),
+            {
+              id: createId(),
+              fileName,
+              fileUrl: fileDataUrl,
+              size: record.report?.size || 0,
+              source: '加盖上传',
+              stampedAt: nowText(),
+              modifiedAt: nowText()
+            }
+          ];
+          saveReportFileLibrary(nextFiles);
+          setReportFiles(nextFiles);
+        } else {
+          const form = new FormData();
+          form.append('files', await dataUrlToFile(fileDataUrl, fileName));
+          const res = await authFetch(`${API}/api/quality-inspection/report-files`, { method: 'POST', body: form });
+          if (!res.ok) {
+            setMessage('检验章已生成，但保存到报告单文件库失败。');
+            return false;
+          }
+          const payload = await res.json();
+          setReportFiles(payload.files || []);
+        }
+        setMessage('检验章已加盖，图片已保存到报告单文件库。');
+        return true;
+      }
       if (STATIC_MODE) {
         const db = readStaticDb();
         db.qualityInspection.reports[record.id] = {
@@ -1459,7 +1502,7 @@ function App() {
         saveStaticDb(db);
         setRecords(composedStaticRecords(db).filter((item) => canReadClientRecord(user, item)));
         setMessage('检验章已加盖，文件已覆盖保存。');
-        return;
+        return true;
       }
       const res = await authFetch(`${API}/api/quality-inspection/reports/${encodeURIComponent(record.id)}/stamp`, {
         method: 'POST',
@@ -1469,12 +1512,14 @@ function App() {
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
         setMessage(payload.error || '检验章加盖失败。');
-        return;
+        return false;
       }
       await refreshRecords();
       setMessage('检验章已加盖，文件已覆盖保存到报告单文件库。');
+      return true;
     } catch {
       setMessage('检验章加盖失败，请确认报告单图片可以正常打开。');
+      return false;
     } finally {
       setSavingId('');
     }
@@ -2217,36 +2262,76 @@ function FeedbackPage({ records, savingId, canImport, importPreview, onUpload, o
 function InspectionStampPage({ records, savingId, onStamp }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [rotation, setRotation] = useState(0);
-  const safeIndex = records.length ? Math.min(currentIndex, records.length - 1) : 0;
-  const current = records[safeIndex];
+  const [uploadedRecords, setUploadedRecords] = useState([]);
+  const stampRecords = useMemo(() => [...uploadedRecords, ...records], [uploadedRecords, records]);
+  const safeIndex = stampRecords.length ? Math.min(currentIndex, stampRecords.length - 1) : 0;
+  const current = stampRecords[safeIndex];
   const canStamp = current && isImageReport(current);
 
   useEffect(() => {
-    if (currentIndex > Math.max(records.length - 1, 0)) setCurrentIndex(0);
-  }, [records.length, currentIndex]);
+    if (currentIndex > Math.max(stampRecords.length - 1, 0)) setCurrentIndex(0);
+  }, [stampRecords.length, currentIndex]);
 
   useEffect(() => {
     setRotation(0);
   }, [current?.id]);
 
   function go(delta) {
-    if (!records.length) return;
-    setCurrentIndex((index) => (index + delta + records.length) % records.length);
+    if (!stampRecords.length) return;
+    setCurrentIndex((index) => (index + delta + stampRecords.length) % stampRecords.length);
+  }
+
+  async function uploadStampImages(files) {
+    const selectedFiles = Array.from(files || []).filter(isReportImageFile);
+    if (!selectedFiles.length) return;
+    const uploaded = await Promise.all(selectedFiles.map(async (file) => ({
+      id: `stamp-upload-${createId()}`,
+      isStampUpload: true,
+      supplierShortName: '页面上传',
+      salesProductLine: '',
+      series: '',
+      report: {
+        fileName: file.name,
+        originalName: file.name,
+        fileDataUrl: await readFileAsDataUrl(file),
+        size: file.size,
+        uploadedAt: nowText()
+      }
+    })));
+    setUploadedRecords((current) => [...uploaded, ...current]);
+    setCurrentIndex(0);
   }
 
   return (
     <section className="stamp-page">
       <div className="section-heading-row">
         <h2>加盖检验章</h2>
-        <span className="section-count">待盖章 {records.length} 份</span>
-        <button type="button" className="ghost compact-button" onClick={() => go(-1)} disabled={records.length < 2}>上一张</button>
-        <button type="button" className="ghost compact-button" onClick={() => go(1)} disabled={records.length < 2}>下一张</button>
+        <span className="section-count">待盖章 {stampRecords.length} 份</span>
+        <label className="upload-button">
+          上传图片
+          <input
+            type="file"
+            multiple
+            accept=".png,.jpg,.jpeg,.webp"
+            onChange={(event) => {
+              uploadStampImages(event.target.files);
+              event.target.value = '';
+            }}
+          />
+        </label>
+        <button type="button" className="ghost compact-button" onClick={() => go(-1)} disabled={stampRecords.length < 2}>上一张</button>
+        <button type="button" className="ghost compact-button" onClick={() => go(1)} disabled={stampRecords.length < 2}>下一张</button>
         <button type="button" className="ghost compact-button" onClick={() => setRotation((value) => (value + 90) % 360)} disabled={!current}>旋转</button>
         <button
           type="button"
           className="compact-button"
           disabled={!canStamp || savingId === current?.id}
-          onClick={() => onStamp(current, rotation)}
+          onClick={async () => {
+            const stamped = await onStamp(current, rotation);
+            if (stamped && current?.isStampUpload) {
+              setUploadedRecords((items) => items.filter((item) => item.id !== current.id));
+            }
+          }}
         >
           {savingId === current?.id ? '加盖中' : '加盖印章'}
         </button>
@@ -2257,22 +2342,22 @@ function InspectionStampPage({ records, savingId, onStamp }) {
       ) : (
         <div className="stamp-workspace">
           <aside className="stamp-list">
-            {records.map((record, index) => (
+            {stampRecords.map((record, index) => (
               <button
                 type="button"
                 key={record.id}
                 className={index === safeIndex ? 'active' : ''}
                 onClick={() => setCurrentIndex(index)}
               >
-                <strong>{record.report?.reportNo || '未填写报告编码'}</strong>
-                <span>{record.supplierShortName || '未填写供应商'}</span>
+                <strong>{record.isStampUpload ? '页面上传图片' : (record.report?.reportNo || '未填写报告编码')}</strong>
+                <span>{record.isStampUpload ? '页面上传图片' : (record.supplierShortName || '未填写供应商')}</span>
                 <span>{record.report?.originalName || record.report?.fileName}</span>
               </button>
             ))}
           </aside>
           <section className="stamp-viewer">
             <div className="stamp-meta">
-              <strong>{current.report?.reportNo || '未填写报告编码'}</strong>
+              <strong>{current.isStampUpload ? '页面上传图片' : (current.report?.reportNo || '未填写报告编码')}</strong>
               <span>{current.supplierShortName || ''}</span>
               <span>{current.salesProductLine || ''} {current.series || ''}</span>
               {!canStamp && <span className="stamp-warning">当前文件不是图片格式，只能查看，不能直接加盖图片印章。</span>}
