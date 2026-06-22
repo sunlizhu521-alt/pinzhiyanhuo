@@ -516,6 +516,12 @@ function buildSupplierProvinceCityLookup(dimensionLibrary = {}) {
   return lookup;
 }
 
+function supplierProvinceCityForName(supplierShortName, dimensionLibrary = {}) {
+  const lookup = buildSupplierProvinceCityLookup(dimensionLibrary);
+  const supplierKey = normalizeSupplierKey(supplierShortName) || normalizeHeader(supplierShortName);
+  return lookup.get(supplierKey) || lookup.get(normalizeHeader(supplierShortName)) || '';
+}
+
 function buildSupplierAddressLookupRows(sheets = []) {
   const lookup = new Map();
   sheets.forEach((sheet) => {
@@ -1014,7 +1020,14 @@ function App() {
   }
 
   function updateNoticeRow(id, key, value) {
-    setNoticeRows((rows) => rows.map((row) => row.id === id ? { ...row, [key]: value } : row));
+    setNoticeRows((rows) => rows.map((row) => {
+      if (row.id !== id) return row;
+      const next = { ...row, [key]: value };
+      if (key === 'supplierShortName') {
+        next.supplierAddress = supplierProvinceCityForName(value, dimensionLibrary);
+      }
+      return next;
+    }));
   }
 
   function addNoticeRow() {
@@ -1235,7 +1248,11 @@ function App() {
 
   async function submitNotices() {
     const rows = noticeRows
-      .map((row) => ({ ...row, inspectionApplicant: user.name }))
+      .map((row) => ({
+        ...row,
+        inspectionApplicant: user.name,
+        supplierAddress: supplierProvinceCityForName(row.supplierShortName, dimensionLibrary)
+      }))
       .filter((row) => NOTICE_FIELDS.some((field) => !field.readonly && normalize(row[field.key])));
     if (!rows.length) {
       setMessage('请至少填写一条验货通知后再提交。');
@@ -2215,6 +2232,9 @@ function InspectionNoticePage({
         render={(row) => [
           ...NOTICE_FIELDS.map((field) => {
             if (field.readonly) return <span className="readonly-cell">{user.name}</span>;
+            if (field.key === 'supplierAddress') {
+              return <span className="readonly-cell">{row[field.key] || '自动带出'}</span>;
+            }
             if (field.options) {
               return (
                 <select
