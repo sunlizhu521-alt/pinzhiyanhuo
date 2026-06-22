@@ -326,6 +326,54 @@ th {
   display: none;
 }
 
+.notice-upload-zone {
+  min-height: 86px;
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  margin: 0 0 14px;
+  padding: 14px;
+  border: 1px dashed #9db4d5;
+  border-radius: 8px;
+  background: white;
+  color: #475569;
+  text-align: center;
+  cursor: pointer;
+}
+
+.notice-upload-zone strong {
+  color: #1e293b;
+}
+
+.notice-upload-zone span {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.notice-upload-zone input {
+  display: none;
+}
+
+.notice-import-preview {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.inspection-notice-preview-table {
+  max-height: 320px;
+}
+
+.inspection-notice-preview-table table {
+  min-width: 1540px;
+}
+
+.preview-note {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
 .readonly-cell {
   display: inline-block;
   min-width: 110px;

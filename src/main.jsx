@@ -230,6 +230,7 @@ function App() {
   const [appVersionTime, setAppVersionTime] = useState('读取中...');
   const [noticeRows, setNoticeRows] = useState(() => [createNoticeRow()]);
   const [noticeSubmission, setNoticeSubmission] = useState({ rows: [], submittedAt: '', submittedBy: '' });
+  const [noticeImportPreview, setNoticeImportPreview] = useState(null);
   const [initialData, setInitialData] = useState({ sheetName: '', columns: [], rows: [], updatedAt: '' });
   const [initialImportResult, setInitialImportResult] = useState(null);
   const [records, setRecords] = useState([]);
@@ -346,7 +347,7 @@ function App() {
     setNoticeRows((rows) => [...rows, createNoticeRow({ inspectionApplicant: user.name })]);
   }
 
-  async function uploadNoticeRows(files) {
+  async function previewNoticeRows(files) {
     const file = files?.[0];
     if (!file) return;
     try {
@@ -356,14 +357,35 @@ function App() {
         setMessage('未识别到可导入的验货通知数据，请检查表头。');
         return;
       }
-      setNoticeRows((rows) => {
-        const activeRows = rows.filter((row) => NOTICE_FIELDS.some((field) => !field.readonly && normalize(row[field.key])));
-        return [...activeRows, ...importedRows];
+      setNoticeImportPreview({
+        fileName: file.name,
+        sheetName: result.sheetName || '',
+        rows: importedRows,
+        parsedAt: nowText()
       });
-      setMessage(`批量导入成功：从 ${result.sheetName || file.name} 读取 ${importedRows.length} 条验货通知。`);
+      setMessage(`验货通知已解析：共 ${importedRows.length} 条，请检查预览后确认导入。`);
     } catch {
       setMessage('验货通知批量导入失败，请检查文件格式。');
     }
+  }
+
+  function confirmNoticeImport() {
+    const previewRows = noticeImportPreview?.rows || [];
+    if (!previewRows.length) {
+      setMessage('暂无可导入的预览数据。');
+      return;
+    }
+    setNoticeRows((rows) => {
+      const activeRows = rows.filter((row) => NOTICE_FIELDS.some((field) => !field.readonly && normalize(row[field.key])));
+      return [...activeRows, ...previewRows];
+    });
+    setMessage(`批量导入成功：已加入 ${previewRows.length} 条验货通知。`);
+    setNoticeImportPreview(null);
+  }
+
+  function clearNoticeImportPreview() {
+    setNoticeImportPreview(null);
+    setMessage('已清空验货通知导入预览。');
   }
 
   function deleteNoticeRow(id) {
@@ -678,7 +700,10 @@ function App() {
             onAdd={addNoticeRow}
             onDelete={deleteNoticeRow}
             onChange={updateNoticeRow}
-            onUpload={uploadNoticeRows}
+            importPreview={noticeImportPreview}
+            onUpload={previewNoticeRows}
+            onConfirmImport={confirmNoticeImport}
+            onClearImportPreview={clearNoticeImportPreview}
             onSubmit={submitNotices}
           />
         )}
@@ -711,7 +736,23 @@ function App() {
   );
 }
 
-function InspectionNoticePage({ rows, submission, user, onAdd, onDelete, onChange, onUpload, onSubmit }) {
+function InspectionNoticePage({
+  rows,
+  submission,
+  user,
+  importPreview,
+  onAdd,
+  onDelete,
+  onChange,
+  onUpload,
+  onConfirmImport,
+  onClearImportPreview,
+  onSubmit
+}) {
+  const previewRows = importPreview?.rows || [];
+  const previewColumns = NOTICE_FIELDS.map((field) => field.label);
+  const previewLimitedRows = previewRows.slice(0, 10);
+
   return (
     <>
       <div className="section-heading-row">
@@ -732,6 +773,46 @@ function InspectionNoticePage({ rows, submission, user, onAdd, onDelete, onChang
         </label>
         <button type="button" onClick={onSubmit}>确认提交</button>
       </div>
+      <label
+        className="notice-upload-zone"
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault();
+          onUpload(event.dataTransfer.files);
+        }}
+      >
+        <input
+          type="file"
+          accept=".xlsx,.xls,.csv"
+          onChange={(event) => {
+            onUpload(event.target.files);
+            event.target.value = '';
+          }}
+        />
+        <strong>拖拽验货通知文件到这里，或点击选择文件</strong>
+        <span>支持 .xlsx / .xls / .csv，解析后先预览，确认后再导入表格</span>
+      </label>
+      {importPreview && (
+        <section className="notice-import-preview">
+          <div className="section-heading-row">
+            <h3>导入预览</h3>
+            <span className="section-count">
+              文件：{importPreview.fileName}；工作表：{importPreview.sheetName || '默认'}；共 {previewRows.length} 条
+            </span>
+            <button type="button" onClick={onConfirmImport}>确认导入</button>
+            <button type="button" className="ghost compact-button" onClick={onClearImportPreview}>清空预览</button>
+          </div>
+          <DataTable
+            className="inspection-notice-preview-table"
+            rows={previewLimitedRows}
+            columns={previewColumns}
+            render={(row) => NOTICE_FIELDS.map((field) => field.readonly ? user.name : row[field.key] || '')}
+          />
+          {previewRows.length > previewLimitedRows.length && (
+            <p className="preview-note">当前仅预览前 {previewLimitedRows.length} 条，确认导入会导入全部 {previewRows.length} 条。</p>
+          )}
+        </section>
+      )}
       <DataTable
         className="inspection-notice-table"
         rows={rows}
