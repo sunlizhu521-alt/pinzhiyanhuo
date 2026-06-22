@@ -15,11 +15,25 @@ const uploadDir = path.join(dataDir, 'uploads');
 const dbPath = path.join(dataDir, 'db.json');
 const port = Number(process.env.PORT || 4002);
 const DEFAULT_ADMIN_USER = { id: 'u-admin', name: '孙立柱', password: '521sunlizhu', role: '管理员' };
+const ROLE_ADMIN = '管理员';
+const ROLE_PURCHASER = '采购跟单员';
+const ROLE_INSPECTOR = '验货员';
+const ROLE_SETTLEMENT = '结算员';
+const ROLE_USER = '普通用户';
+const DEFAULT_USERS = [
+  DEFAULT_ADMIN_USER,
+  { id: 'u-purchaser', name: '采购跟单员', password: '123456', role: ROLE_PURCHASER },
+  { id: 'u-inspector', name: '验货员', password: '123456', role: ROLE_INSPECTOR },
+  { id: 'u-settlement', name: '结算员', password: '123456', role: ROLE_SETTLEMENT }
+];
 
 await mkdir(uploadDir, { recursive: true });
 
 const app = express();
-const upload = multer({ dest: uploadDir });
+const upload = multer({
+  dest: uploadDir,
+  limits: { fileSize: 20 * 1024 * 1024 }
+});
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -36,16 +50,33 @@ function safeFileBaseName(value, fallback) {
   return cleaned || fallback;
 }
 
+function normalizeRole(role, name) {
+  if (name === DEFAULT_ADMIN_USER.name || role === ROLE_ADMIN) return ROLE_ADMIN;
+  if ([ROLE_PURCHASER, ROLE_INSPECTOR, ROLE_SETTLEMENT, ROLE_USER].includes(role)) return role;
+  if (String(name || '').includes('验货')) return ROLE_INSPECTOR;
+  return ROLE_USER;
+}
+
 function normalizeDb(db = {}) {
   const qualityInspection = db.qualityInspection || {};
-  const users = Array.isArray(db.users) && db.users.length ? db.users : [
-    DEFAULT_ADMIN_USER,
-    { id: 'u-user', name: '验货员', password: '123456', role: '普通用户' }
-  ];
+  const sourceUsers = Array.isArray(db.users) && db.users.length ? db.users : DEFAULT_USERS;
+  const usersByName = new Map(sourceUsers.map((user) => [user.name, user]));
+  DEFAULT_USERS.forEach((user) => {
+    if (!usersByName.has(user.name)) usersByName.set(user.name, user);
+  });
+  const users = Array.from(usersByName.values());
   return {
-    users: users.map((user) => user.id === DEFAULT_ADMIN_USER.id || user.name === '管理员'
-      ? { ...user, ...DEFAULT_ADMIN_USER }
-      : user),
+    users: users.map((user) => {
+      const normalized = user.id === DEFAULT_ADMIN_USER.id || user.name === DEFAULT_ADMIN_USER.name
+        ? { ...user, ...DEFAULT_ADMIN_USER }
+        : user;
+      return {
+        ...normalized,
+        id: normalized.id || randomUUID(),
+        role: normalizeRole(normalized.role, normalized.name)
+      };
+    }),
+    sessions: db.sessions || {},
     qualityInspection: {
       initialData: {
         sheetName: '',
@@ -118,6 +149,43 @@ function requestUser(db, req) {
   return db.users.find((user) => user.name === name) || db.users[0];
 }
 
+function tokenFromRequest(req) {
+  const authorization = String(req.headers.authorization || '');
+  if (authorization.startsWith('Bearer ')) return authorization.slice(7).trim();
+  return String(req.headers['x-auth-token'] || '').trim();
+}
+
+async function requireAuth(req, res, next) {
+  const db = await readDb();
+  const token = tokenFromRequest(req);
+  const session = token ? db.sessions?.[token] : null;
+  const user = session ? db.users.find((item) => item.id === session.userId) : null;
+  if (!user) return res.status(401).json({ error: '请先登录' });
+  req.authUser = user;
+  next();
+}
+
+function requireRoles(...roles) {
+  return (req, res, next) => {
+    if (req.authUser?.role === ROLE_ADMIN || roles.includes(req.authUser?.role)) return next();
+    return res.status(403).json({ error: '无权操作' });
+  };
+}
+
+function canReadRecord(user, record) {
+  if (!user) return false;
+  if (user.role === ROLE_ADMIN || user.role === ROLE_SETTLEMENT) return true;
+  if (user.role === ROLE_PURCHASER) return record.inspectionApplicant === user.name;
+  if (user.role === ROLE_INSPECTOR) return record.schedule?.inspector === user.name;
+  return false;
+}
+
+function canWriteFeedback(user, record) {
+  if (!user || !record) return false;
+  if (user.role === ROLE_ADMIN) return true;
+  return user.role === ROLE_INSPECTOR && record.schedule?.inspector === user.name;
+}
+
 function composedRecords(db) {
   const inspection = db.qualityInspection;
   return (inspection.notices.rows || []).map((row, index) => ({
@@ -161,7 +229,10 @@ app.post('/api/auth/login', async (req, res) => {
   const password = String(req.body.password || '').trim();
   const user = db.users.find((item) => item.name === name && item.password === password);
   if (!user) return res.status(401).json({ error: '账号或密码不正确' });
-  res.json({ id: user.id, name: user.name, role: user.role });
+  const token = randomUUID();
+  db.sessions[token] = { userId: user.id, createdAt: nowText() };
+  await saveDb(db);
+  res.json({ id: user.id, name: user.name, role: user.role, token });
 });
 
 app.post('/api/auth/register', async (req, res) => {
@@ -170,18 +241,20 @@ app.post('/api/auth/register', async (req, res) => {
   const password = String(req.body.password || '').trim();
   if (!name || !password) return res.status(400).json({ error: '请输入姓名和密码' });
   if (db.users.some((user) => user.name === name)) return res.status(409).json({ error: '该姓名已存在' });
-  const user = { id: randomUUID(), name, password, role: '普通用户' };
+  const user = { id: randomUUID(), name, password, role: ROLE_USER };
   db.users.push(user);
+  const token = randomUUID();
+  db.sessions[token] = { userId: user.id, createdAt: nowText() };
   await saveDb(db);
-  res.json({ id: user.id, name: user.name, role: user.role });
+  res.json({ id: user.id, name: user.name, role: user.role, token });
 });
 
-app.get('/api/quality-inspection/initial-data', async (req, res) => {
+app.get('/api/quality-inspection/initial-data', requireAuth, requireRoles(ROLE_ADMIN), async (req, res) => {
   const db = await readDb();
   res.json(db.qualityInspection.initialData);
 });
 
-app.post('/api/quality-inspection/initial-data/import', upload.single('file'), async (req, res) => {
+app.post('/api/quality-inspection/initial-data/import', requireAuth, requireRoles(ROLE_ADMIN), upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'missing file' });
   const db = await readDb();
   try {
@@ -199,18 +272,36 @@ app.post('/api/quality-inspection/initial-data/import', upload.single('file'), a
   }
 });
 
-app.get('/api/quality-inspection/notices', async (req, res) => {
+app.get('/api/quality-inspection/notices', requireAuth, requireRoles(ROLE_ADMIN, ROLE_PURCHASER), async (req, res) => {
   const db = await readDb();
-  res.json(db.qualityInspection.notices);
+  if (req.authUser.role === ROLE_ADMIN) {
+    res.json(db.qualityInspection.notices);
+    return;
+  }
+  res.json({
+    ...db.qualityInspection.notices,
+    rows: (db.qualityInspection.notices.rows || []).filter((row) => row.inspectionApplicant === req.authUser.name)
+  });
 });
 
-app.post('/api/quality-inspection/notices', async (req, res) => {
+app.post('/api/quality-inspection/notices', requireAuth, requireRoles(ROLE_ADMIN, ROLE_PURCHASER), async (req, res) => {
   const db = await readDb();
-  const user = requestUser(db, req);
+  const user = req.authUser || requestUser(db, req);
   const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
+  const preparedRows = rows.map((row) => ({
+    id: row.id || randomUUID(),
+    ...row,
+    inspectionApplicant: user.role === ROLE_PURCHASER ? user.name : row.inspectionApplicant
+  }));
+  const existingRows = db.qualityInspection.notices.rows || [];
+  const nextRows = user.role === ROLE_ADMIN
+    ? preparedRows
+    : [
+        ...existingRows.filter((row) => row.inspectionApplicant !== user.name),
+        ...preparedRows
+      ];
   db.qualityInspection.notices = {
-    rows: rows.map((row, index) => ({
-      id: row.id || randomUUID(),
+    rows: nextRows.map((row, index) => ({
       rowNumber: index + 1,
       ...row
     })),
@@ -218,17 +309,24 @@ app.post('/api/quality-inspection/notices', async (req, res) => {
     submittedBy: user.name
   };
   await saveDb(db);
-  res.json(db.qualityInspection.notices);
+  if (user.role === ROLE_ADMIN) {
+    res.json(db.qualityInspection.notices);
+    return;
+  }
+  res.json({
+    ...db.qualityInspection.notices,
+    rows: db.qualityInspection.notices.rows.filter((row) => row.inspectionApplicant === user.name)
+  });
 });
 
-app.get('/api/quality-inspection/records', async (req, res) => {
+app.get('/api/quality-inspection/records', requireAuth, async (req, res) => {
   const db = await readDb();
-  res.json({ rows: composedRecords(db) });
+  res.json({ rows: composedRecords(db).filter((record) => canReadRecord(req.authUser, record)) });
 });
 
-app.post('/api/quality-inspection/summary-import', async (req, res) => {
+app.post('/api/quality-inspection/summary-import', requireAuth, requireRoles(ROLE_ADMIN), async (req, res) => {
   const db = await readDb();
-  const user = requestUser(db, req);
+  const user = req.authUser || requestUser(db, req);
   const items = Array.isArray(req.body.items) ? req.body.items : [];
   const inspection = db.qualityInspection;
   const currentRows = inspection.notices.rows || [];
@@ -274,7 +372,7 @@ app.post('/api/quality-inspection/summary-import', async (req, res) => {
   res.json({ notices: inspection.notices, rows: composedRecords(db) });
 });
 
-app.patch('/api/quality-inspection/schedules/:id', async (req, res) => {
+app.patch('/api/quality-inspection/schedules/:id', requireAuth, requireRoles(ROLE_ADMIN), async (req, res) => {
   const db = await readDb();
   db.qualityInspection.schedules[req.params.id] = {
     ...(db.qualityInspection.schedules[req.params.id] || {}),
@@ -285,8 +383,13 @@ app.patch('/api/quality-inspection/schedules/:id', async (req, res) => {
   res.json(db.qualityInspection.schedules[req.params.id]);
 });
 
-app.post('/api/quality-inspection/reports/:id', upload.single('file'), async (req, res) => {
+app.post('/api/quality-inspection/reports/:id', requireAuth, upload.single('file'), async (req, res) => {
   const db = await readDb();
+  const record = composedRecords(db).find((item) => item.id === req.params.id);
+  if (!canWriteFeedback(req.authUser, record)) {
+    await removeUploadedFile(req.file);
+    return res.status(403).json({ error: '无权上传该检验报告单' });
+  }
   const previous = db.qualityInspection.reports[req.params.id] || {};
   const reportNo = String(req.body.reportNo || previous.reportNo || '').trim();
   const next = {
@@ -315,8 +418,10 @@ app.post('/api/quality-inspection/reports/:id', upload.single('file'), async (re
   res.json(next);
 });
 
-app.patch('/api/quality-inspection/feedback/:id', async (req, res) => {
+app.patch('/api/quality-inspection/feedback/:id', requireAuth, async (req, res) => {
   const db = await readDb();
+  const record = composedRecords(db).find((item) => item.id === req.params.id);
+  if (!canWriteFeedback(req.authUser, record)) return res.status(403).json({ error: '无权保存该验货反馈' });
   db.qualityInspection.feedback[req.params.id] = {
     ...(db.qualityInspection.feedback[req.params.id] || {}),
     ...req.body,
@@ -332,7 +437,11 @@ app.get('/uploads/:fileName', (req, res) => {
 });
 
 const distDir = path.join(rootDir, 'dist');
+app.use('/pinzhiyanhuo', express.static(distDir));
 app.use(express.static(distDir));
+app.get(/^\/pinzhiyanhuo\/(?!api).*/, (req, res) => {
+  res.sendFile(path.join(distDir, 'index.html'));
+});
 app.get(/^\/(?!api).*/, (req, res) => {
   res.sendFile(path.join(distDir, 'index.html'));
 });

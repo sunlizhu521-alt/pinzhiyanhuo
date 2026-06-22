@@ -2,3 +2,6 @@ node_modules
 dist
 server-start.*.log
 data/uploads
+data/db.json
+backups
+*.log

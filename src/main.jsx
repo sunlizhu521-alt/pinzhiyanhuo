@@ -9,6 +9,17 @@ const STATIC_DB_KEY = 'qualityInspectionStaticDb';
 const DIMENSION_LIBRARY_KEY = 'qualityInspectionDimensionLibrary';
 const DIMENSION_PREVIEW_ROW_LIMIT = 20;
 const DEFAULT_ADMIN_USER = { id: 'u-admin', name: '孙立柱', password: '521sunlizhu', role: '管理员' };
+const ROLE_ADMIN = '管理员';
+const ROLE_PURCHASER = '采购跟单员';
+const ROLE_INSPECTOR = '验货员';
+const ROLE_SETTLEMENT = '结算员';
+const ROLE_USER = '普通用户';
+const DEFAULT_USERS = [
+  DEFAULT_ADMIN_USER,
+  { id: 'u-purchaser', name: '采购跟单员', password: '123456', role: ROLE_PURCHASER },
+  { id: 'u-inspector', name: '验货员', password: '123456', role: ROLE_INSPECTOR },
+  { id: 'u-settlement', name: '结算员', password: '123456', role: ROLE_SETTLEMENT }
+];
 
 const NOTICE_FIELDS = [
   { key: 'inspectionApplicant', label: '验货填写人', readonly: true },
@@ -80,6 +91,35 @@ const MENU_PAGES = [
   { tab: 'dimensionLibrary', label: '维度表库存' }
 ];
 
+const ROLE_PAGE_ACCESS = {
+  [ROLE_ADMIN]: ['inspectionNotice', 'inspectionSchedule', 'inspectionReportUpload', 'inspectionFeedback', 'inspectionReportQuery', 'inspectionSummary', 'inspectionInitialData', 'dimensionLibrary'],
+  [ROLE_PURCHASER]: ['inspectionNotice'],
+  [ROLE_INSPECTOR]: ['inspectionFeedback'],
+  [ROLE_SETTLEMENT]: ['inspectionReportQuery', 'inspectionSummary'],
+  [ROLE_USER]: []
+};
+
+function canAccessPage(user, tab) {
+  if (!user) return false;
+  return (ROLE_PAGE_ACCESS[user.role] || []).includes(tab);
+}
+
+function homeTabForRole(role) {
+  return (ROLE_PAGE_ACCESS[role] || [])[0] || 'inspectionNotice';
+}
+
+function isAdminUser(user) {
+  return user?.role === ROLE_ADMIN;
+}
+
+function canReadClientRecord(user, record) {
+  if (!user) return false;
+  if (user.role === ROLE_ADMIN || user.role === ROLE_SETTLEMENT) return true;
+  if (user.role === ROLE_PURCHASER) return record.inspectionApplicant === user.name;
+  if (user.role === ROLE_INSPECTOR) return record.schedule?.inspector === user.name;
+  return false;
+}
+
 const DIMENSION_LIBRARY_SLOTS = [
   { id: 'dimension-slot-1', title: '商品分类维表' },
   { id: 'dimension-slot-2', title: '采购分工明细' },
@@ -121,10 +161,7 @@ function nowText() {
 
 function defaultStaticDb() {
   return {
-    users: [
-      DEFAULT_ADMIN_USER,
-      { id: 'u-user', name: '验货员', password: '123456', role: '普通用户' }
-    ],
+    users: DEFAULT_USERS,
     qualityInspection: {
       initialData: { sheetName: '', columns: [], rows: [], updatedAt: '' },
       notices: { rows: [], submittedAt: '', submittedBy: '' },
@@ -138,11 +175,22 @@ function defaultStaticDb() {
 function normalizeStaticDb(db = {}) {
   const fallback = defaultStaticDb();
   const inspection = db.qualityInspection || {};
-  const users = Array.isArray(db.users) && db.users.length ? db.users : fallback.users;
+  const sourceUsers = Array.isArray(db.users) && db.users.length ? db.users : fallback.users;
+  const usersByName = new Map(sourceUsers.map((item) => [item.name, item]));
+  DEFAULT_USERS.forEach((item) => {
+    if (!usersByName.has(item.name)) usersByName.set(item.name, item);
+  });
+  const users = Array.from(usersByName.values());
   return {
-    users: users.map((user) => user.id === DEFAULT_ADMIN_USER.id || user.name === '管理员'
-      ? { ...user, ...DEFAULT_ADMIN_USER }
-      : user),
+    users: users.map((user) => {
+      if (user.id === DEFAULT_ADMIN_USER.id || user.name === DEFAULT_ADMIN_USER.name || user.role === ROLE_ADMIN) {
+        return { ...user, ...DEFAULT_ADMIN_USER };
+      }
+      const role = [ROLE_PURCHASER, ROLE_INSPECTOR, ROLE_SETTLEMENT, ROLE_USER].includes(user.role)
+        ? user.role
+        : ROLE_USER;
+      return { ...user, id: user.id || createId(), role };
+    }),
     qualityInspection: {
       initialData: { ...fallback.qualityInspection.initialData, ...(inspection.initialData || {}) },
       notices: { ...fallback.qualityInspection.notices, ...(inspection.notices || {}) },
@@ -471,6 +519,18 @@ function App() {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [savingId, setSavingId] = useState('');
+  const accessibleMenuPages = useMemo(
+    () => MENU_PAGES.filter((page) => canAccessPage(user, page.tab)),
+    [user]
+  );
+
+  function authFetch(url, options = {}) {
+    const headers = {
+      ...(options.headers || {}),
+      ...(user?.token ? { Authorization: `Bearer ${user.token}` } : {})
+    };
+    return fetch(url, { ...options, headers });
+  }
 
   useEffect(() => {
     if (STATIC_MODE) {
@@ -488,23 +548,36 @@ function App() {
     loadData();
   }, [user]);
 
+  useEffect(() => {
+    if (!user) return;
+    if (!canAccessPage(user, activeTab)) setActiveTab(homeTabForRole(user.role));
+  }, [activeTab, user]);
+
   async function loadData() {
     if (STATIC_MODE) {
       const db = readStaticDb();
       const inspection = db.qualityInspection;
+      const visibleNotices = isAdminUser(user)
+        ? (inspection.notices.rows || [])
+        : (inspection.notices.rows || []).filter((row) => row.inspectionApplicant === user.name);
       setInitialData(inspection.initialData);
-      setNoticeSubmission(inspection.notices);
-      setNoticeRows(inspection.notices.rows?.length
-        ? inspection.notices.rows.map((row) => createNoticeRow(row))
+      setNoticeSubmission({ ...inspection.notices, rows: visibleNotices });
+      setNoticeRows(visibleNotices.length
+        ? visibleNotices.map((row) => createNoticeRow(row))
         : [createNoticeRow({ inspectionApplicant: user.name })]);
-      setRecords(composedStaticRecords(db));
+      setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
       return;
     }
     const [initialRes, noticeRes, recordsRes] = await Promise.all([
-      fetch(`${API}/api/quality-inspection/initial-data`, { cache: 'no-store' }),
-      fetch(`${API}/api/quality-inspection/notices`, { cache: 'no-store' }),
-      fetch(`${API}/api/quality-inspection/records`, { cache: 'no-store' })
+      authFetch(`${API}/api/quality-inspection/initial-data`, { cache: 'no-store' }),
+      authFetch(`${API}/api/quality-inspection/notices`, { cache: 'no-store' }),
+      authFetch(`${API}/api/quality-inspection/records`, { cache: 'no-store' })
     ]);
+    if ([initialRes, noticeRes, recordsRes].some((res) => res.status === 401)) {
+      logout();
+      setMessage('登录已失效，请重新登录。');
+      return;
+    }
     if (initialRes.ok) setInitialData(await initialRes.json());
     if (noticeRes.ok) {
       const payload = await noticeRes.json();
@@ -537,18 +610,20 @@ function App() {
         const payload = { id: matchedUser.id, name: matchedUser.name, role: matchedUser.role };
         localStorage.setItem('qualityInspectionUser', JSON.stringify(payload));
         setUser(payload);
+        setActiveTab(homeTabForRole(payload.role));
         return;
       }
       if (db.users.some((item) => item.name === name)) {
         setMessage('该姓名已存在。');
         return;
       }
-      const newUser = { id: createId(), name, password: inputPassword, role: '普通用户' };
+      const newUser = { id: createId(), name, password: inputPassword, role: ROLE_USER };
       db.users.push(newUser);
       saveStaticDb(db);
       const payload = { id: newUser.id, name: newUser.name, role: newUser.role };
       localStorage.setItem('qualityInspectionUser', JSON.stringify(payload));
       setUser(payload);
+      setActiveTab(homeTabForRole(payload.role));
       return;
     }
     const res = await fetch(`${API}/api/auth/${isLogin ? 'login' : 'register'}`, {
@@ -566,6 +641,7 @@ function App() {
     }
     localStorage.setItem('qualityInspectionUser', JSON.stringify(payload));
     setUser(payload);
+    setActiveTab(homeTabForRole(payload.role));
   }
 
   function logout() {
@@ -696,12 +772,12 @@ function App() {
       saveStaticDb(db);
       setNoticeSubmission(inspection.notices);
       setNoticeRows(rows.map((row) => createNoticeRow(row)));
-      setRecords(composedStaticRecords(db));
+      setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
       setSummaryImportPreview(null);
       setMessage(`验货信息汇总表已追加：新增 ${items.length} 条，原有信息已保留。`);
       return;
     }
-    const res = await fetch(`${API}/api/quality-inspection/summary-import?user=${encodeURIComponent(user.name)}`, {
+    const res = await authFetch(`${API}/api/quality-inspection/summary-import?user=${encodeURIComponent(user.name)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ items, user: user.name })
@@ -764,7 +840,7 @@ function App() {
         };
       });
       saveStaticDb(db);
-      setRecords(composedStaticRecords(db));
+      setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
       setFeedbackImportPreview(null);
       setMessage(`验货反馈批量导入成功：已更新 ${matchedItems.length} 条。`);
       return;
@@ -773,7 +849,7 @@ function App() {
     const recordById = new Map(records.map((record) => [record.id, record]));
     const responses = await Promise.all(matchedItems.map((item) => {
       const current = recordById.get(item.recordId);
-      return fetch(`${API}/api/quality-inspection/feedback/${encodeURIComponent(item.recordId)}`, {
+      return authFetch(`${API}/api/quality-inspection/feedback/${encodeURIComponent(item.recordId)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...(current?.feedback || {}), ...item.feedback })
@@ -802,20 +878,30 @@ function App() {
     }
     if (STATIC_MODE) {
       const db = readStaticDb();
+      const existingRows = db.qualityInspection.notices.rows || [];
+      const nextRows = isAdminUser(user)
+        ? rows
+        : [
+            ...existingRows.filter((row) => row.inspectionApplicant !== user.name),
+            ...rows
+          ];
       const payload = {
-        rows: rows.map((row, index) => ({ ...row, id: row.id || createId(), rowNumber: index + 1 })),
+        rows: nextRows.map((row, index) => ({ ...row, id: row.id || createId(), rowNumber: index + 1 })),
         submittedAt: nowText(),
         submittedBy: user.name
       };
       db.qualityInspection.notices = payload;
       saveStaticDb(db);
-      setNoticeSubmission(payload);
-      setNoticeRows(payload.rows.map((row) => createNoticeRow(row)));
-      setRecords(composedStaticRecords(db));
+      const visibleRows = isAdminUser(user)
+        ? payload.rows
+        : payload.rows.filter((row) => row.inspectionApplicant === user.name);
+      setNoticeSubmission({ ...payload, rows: visibleRows });
+      setNoticeRows(visibleRows.map((row) => createNoticeRow(row)));
+      setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
       setMessage(`验货通知已提交：共 ${payload.rows.length} 条。`);
       return;
     }
-    const res = await fetch(`${API}/api/quality-inspection/notices?user=${encodeURIComponent(user.name)}`, {
+    const res = await authFetch(`${API}/api/quality-inspection/notices?user=${encodeURIComponent(user.name)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rows, user: user.name })
@@ -833,10 +919,10 @@ function App() {
 
   async function refreshRecords() {
     if (STATIC_MODE) {
-      setRecords(composedStaticRecords(readStaticDb()));
+      setRecords(composedStaticRecords(readStaticDb()).filter((record) => canReadClientRecord(user, record)));
       return;
     }
-    const res = await fetch(`${API}/api/quality-inspection/records`, { cache: 'no-store' });
+    const res = await authFetch(`${API}/api/quality-inspection/records`, { cache: 'no-store' });
     if (res.ok) setRecords((await res.json()).rows || []);
   }
 
@@ -866,7 +952,7 @@ function App() {
     }
     const form = new FormData();
     form.append('file', file);
-    const res = await fetch(`${API}/api/quality-inspection/initial-data/import`, { method: 'POST', body: form });
+    const res = await authFetch(`${API}/api/quality-inspection/initial-data/import`, { method: 'POST', body: form });
     if (!res.ok) {
       setMessage('验货信息初始数据导入失败，请检查文件格式。');
       return;
@@ -963,14 +1049,14 @@ function App() {
       });
       saveStaticDb(db);
       setSavingId('');
-      setRecords(composedStaticRecords(db));
+      setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
       setMessage(`验货安排已一键提交：共 ${entries.length} 条。`);
       return;
     }
     const responses = await Promise.all(entries.map(([recordId, draft]) => {
       const scheduledDate = normalize(draft.scheduledDate);
       const inspector = normalize(draft.inspector);
-      return fetch(`${API}/api/quality-inspection/schedules/${encodeURIComponent(recordId)}`, {
+      return authFetch(`${API}/api/quality-inspection/schedules/${encodeURIComponent(recordId)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1013,12 +1099,12 @@ function App() {
       saveStaticDb(db);
       formElement.reset();
       setSavingId('');
-      setRecords(composedStaticRecords(db));
+      setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
       setMessage('检验报告单已回传。');
       return;
     }
     const form = new FormData(formElement);
-    const res = await fetch(`${API}/api/quality-inspection/reports/${encodeURIComponent(record.id)}`, {
+    const res = await authFetch(`${API}/api/quality-inspection/reports/${encodeURIComponent(record.id)}`, {
       method: 'POST',
       body: form
     });
@@ -1081,11 +1167,11 @@ function App() {
       }
       saveStaticDb(db);
       setSavingId('');
-      setRecords(composedStaticRecords(db));
+      setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
       setMessage('验货反馈已保存。');
       return;
     }
-    const res = await fetch(`${API}/api/quality-inspection/feedback/${encodeURIComponent(record.id)}`, {
+    const res = await authFetch(`${API}/api/quality-inspection/feedback/${encodeURIComponent(record.id)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...(record.feedback || {}), ...feedbackPatch })
@@ -1099,7 +1185,7 @@ function App() {
       const reportForm = new FormData();
       reportForm.append('file', file);
       reportForm.append('reportNo', reportNo);
-      const reportRes = await fetch(`${API}/api/quality-inspection/reports/${encodeURIComponent(record.id)}`, {
+      const reportRes = await authFetch(`${API}/api/quality-inspection/reports/${encodeURIComponent(record.id)}`, {
         method: 'POST',
         body: reportForm
       });
@@ -1111,7 +1197,7 @@ function App() {
     } else if (reportNo && reportNo !== normalize(record.report?.reportNo)) {
       const reportForm = new FormData();
       reportForm.append('reportNo', reportNo);
-      const reportRes = await fetch(`${API}/api/quality-inspection/reports/${encodeURIComponent(record.id)}`, {
+      const reportRes = await authFetch(`${API}/api/quality-inspection/reports/${encodeURIComponent(record.id)}`, {
         method: 'POST',
         body: reportForm
       });
@@ -1199,7 +1285,7 @@ function App() {
         <div className="menu-group">
           <button type="button" className="menu-group-title">品质验货 <span>▼</span></button>
           <div className="submenu-list">
-            {MENU_PAGES.map((page) => (
+            {accessibleMenuPages.map((page) => (
               <button
                 key={page.tab}
                 type="button"
@@ -1220,7 +1306,7 @@ function App() {
 
       <section className="content" onClick={(event) => event.stopPropagation()}>
         {message && <p className="message">{message}</p>}
-        {activeTab === 'inspectionNotice' && (
+        {canAccessPage(user, 'inspectionNotice') && activeTab === 'inspectionNotice' && (
           <InspectionNoticePage
             rows={noticeRows}
             submission={noticeSubmission}
@@ -1235,16 +1321,17 @@ function App() {
             onSubmit={submitNotices}
           />
         )}
-        {activeTab === 'inspectionSchedule' && (
+        {canAccessPage(user, 'inspectionSchedule') && activeTab === 'inspectionSchedule' && (
           <InspectionSchedulePage records={records} savingId={savingId} onSubmit={saveSchedules} />
         )}
-        {activeTab === 'inspectionReportUpload' && (
+        {canAccessPage(user, 'inspectionReportUpload') && activeTab === 'inspectionReportUpload' && (
           <ReportUploadPage records={records} savingId={savingId} onSave={saveReport} />
         )}
-        {activeTab === 'inspectionFeedback' && (
+        {canAccessPage(user, 'inspectionFeedback') && activeTab === 'inspectionFeedback' && (
           <FeedbackPage
             records={records.filter(shouldShowFeedbackRecord)}
             savingId={savingId}
+            canImport={isAdminUser(user)}
             importPreview={feedbackImportPreview}
             onUpload={previewFeedbackRows}
             onConfirmImport={confirmFeedbackImport}
@@ -1252,7 +1339,7 @@ function App() {
             onSave={saveFeedback}
           />
         )}
-        {activeTab === 'inspectionReportQuery' && (
+        {canAccessPage(user, 'inspectionReportQuery') && activeTab === 'inspectionReportQuery' && (
           <ReportQueryPage
             records={filteredRecords}
             query={query}
@@ -1261,20 +1348,21 @@ function App() {
             onStatusFilter={setStatusFilter}
           />
         )}
-        {activeTab === 'inspectionSummary' && (
+        {canAccessPage(user, 'inspectionSummary') && activeTab === 'inspectionSummary' && (
           <SummaryPage
             summary={summary}
             records={filteredRecords}
+            canImport={isAdminUser(user)}
             importPreview={summaryImportPreview}
             onUpload={previewSummaryRows}
             onConfirmImport={confirmSummaryImport}
             onClearImportPreview={clearSummaryImportPreview}
           />
         )}
-        {activeTab === 'inspectionInitialData' && (
+        {canAccessPage(user, 'inspectionInitialData') && activeTab === 'inspectionInitialData' && (
           <InitialDataPage data={initialData} result={initialImportResult} onUpload={uploadInitialData} />
         )}
-        {activeTab === 'dimensionLibrary' && (
+        {canAccessPage(user, 'dimensionLibrary') && activeTab === 'dimensionLibrary' && (
           <DimensionLibraryPage
             slots={DIMENSION_LIBRARY_SLOTS}
             library={dimensionLibrary}
@@ -1516,7 +1604,7 @@ function ReportUploadPage({ records, savingId, onSave }) {
   );
 }
 
-function FeedbackPage({ records, savingId, importPreview, onUpload, onConfirmImport, onClearImportPreview, onSave }) {
+function FeedbackPage({ records, savingId, canImport, importPreview, onUpload, onConfirmImport, onClearImportPreview, onSave }) {
   const previewRows = importPreview?.items || [];
   const previewLimitedRows = previewRows.slice(0, 10);
   const matchedCount = previewRows.filter((item) => item.recordId).length;
@@ -1525,8 +1613,29 @@ function FeedbackPage({ records, savingId, importPreview, onUpload, onConfirmImp
       <div className="section-heading-row">
         <h2>验货反馈</h2>
         <span className="section-count">待反馈 {records.length} 条</span>
-        <label className="upload-button">
-          批量上传
+        {canImport && (
+          <label className="upload-button">
+            批量上传
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={(event) => {
+                onUpload(event.target.files);
+                event.target.value = '';
+              }}
+            />
+          </label>
+        )}
+      </div>
+      {canImport && (
+        <label
+          className="feedback-upload-zone"
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={(event) => {
+            event.preventDefault();
+            onUpload(event.dataTransfer.files);
+          }}
+        >
           <input
             type="file"
             accept=".xlsx,.xls,.csv"
@@ -1535,28 +1644,11 @@ function FeedbackPage({ records, savingId, importPreview, onUpload, onConfirmImp
               event.target.value = '';
             }}
           />
+          <strong>拖拽历史验货反馈文件到这里，或点击选择文件</strong>
+          <span>支持 .xlsx / .xls / .csv，解析后先预览，确认后写入已匹配的验货反馈</span>
         </label>
-      </div>
-      <label
-        className="feedback-upload-zone"
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={(event) => {
-          event.preventDefault();
-          onUpload(event.dataTransfer.files);
-        }}
-      >
-        <input
-          type="file"
-          accept=".xlsx,.xls,.csv"
-          onChange={(event) => {
-            onUpload(event.target.files);
-            event.target.value = '';
-          }}
-        />
-        <strong>拖拽历史验货反馈文件到这里，或点击选择文件</strong>
-        <span>支持 .xlsx / .xls / .csv，解析后先预览，确认后写入已匹配的验货反馈</span>
-      </label>
-      {importPreview && (
+      )}
+      {canImport && importPreview && (
         <section className="feedback-import-preview">
           <div className="section-heading-row">
             <h3>批量上传预览</h3>
@@ -1699,7 +1791,7 @@ function ReportQueryPage({ records, query, statusFilter, onQuery, onStatusFilter
   );
 }
 
-function SummaryPage({ summary, records, importPreview, onUpload, onConfirmImport, onClearImportPreview }) {
+function SummaryPage({ summary, records, canImport, importPreview, onUpload, onConfirmImport, onClearImportPreview }) {
   const previewRows = importPreview?.items || [];
   const previewLimitedRows = previewRows.slice(0, 10);
   return (
@@ -1708,16 +1800,18 @@ function SummaryPage({ summary, records, importPreview, onUpload, onConfirmImpor
         <h2>验货信息汇总表</h2>
         <span className="section-count">按当前数据实时汇总</span>
       </div>
-      <label
-        className="summary-upload-zone"
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={(event) => { event.preventDefault(); onUpload(event.dataTransfer.files); }}
-      >
-        <input type="file" accept=".xlsx,.xls,.csv" onChange={(event) => onUpload(event.target.files)} />
-        <strong>拖拽汇总表文件到这里，或点击批量上传</strong>
-        <span>支持 .xlsx / .xls / .csv，解析后先预览，确认后追加到现有汇总信息</span>
-      </label>
-      {importPreview && (
+      {canImport && (
+        <label
+          className="summary-upload-zone"
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={(event) => { event.preventDefault(); onUpload(event.dataTransfer.files); }}
+        >
+          <input type="file" accept=".xlsx,.xls,.csv" onChange={(event) => onUpload(event.target.files)} />
+          <strong>拖拽汇总表文件到这里，或点击批量上传</strong>
+          <span>支持 .xlsx / .xls / .csv，解析后先预览，确认后追加到现有汇总信息</span>
+        </label>
+      )}
+      {canImport && importPreview && (
         <section className="summary-import-preview">
           <div className="section-heading-row">
             <h3>批量上传预览</h3>
