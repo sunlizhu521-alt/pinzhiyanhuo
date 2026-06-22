@@ -1580,6 +1580,7 @@ function FeedbackPage({ records, savingId, importPreview, onUpload, onConfirmImp
           '问题分类',
           '问题分类',
           '问题反馈',
+          '检验报告单编码',
           '检验报告单上传功能',
           '验货员',
           '实际验货人',
@@ -1613,6 +1614,7 @@ function FeedbackPage({ records, savingId, importPreview, onUpload, onConfirmImp
           <input name="issueCategoryPrimary" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.issueCategoryPrimary || ''} />,
           <input name="issueCategorySecondary" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.issueCategorySecondary || ''} />,
           <textarea name="feedbackText" form={`feedback-form-${record.id}`} className="table-textarea wide-textarea" defaultValue={record.feedback?.feedbackText || ''} />,
+          record.report?.reportNo || '',
           <div className="feedback-report-cell">
             {reportHref(record) && <a href={reportHref(record)} target="_blank" rel="noreferrer">{record.report?.originalName || '查看报告'}</a>}
             <input name="reportFile" form={`feedback-form-${record.id}`} type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx" />
