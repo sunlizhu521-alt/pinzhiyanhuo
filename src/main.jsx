@@ -89,10 +89,10 @@ const MENU_PAGES = [
   { tab: 'inspectionSchedule', label: '验货安排' },
   { tab: 'inspectionFeedback', label: '验货反馈' },
   { tab: 'inspectionStamp', label: '加盖检验章' },
-  { tab: 'inspectionReportLibrary', label: '检验报告单文件库' },
   { tab: 'inspectionReportQuery', label: '检验报告单查询' },
   { tab: 'inspectionSummary', label: '验货信息汇总表' },
-  { tab: 'dimensionLibrary', label: '维度表库存' },
+  { tab: 'dimensionLibrary', label: '维度表文件库' },
+  { tab: 'inspectionReportLibrary', label: '报告单文件库' },
   { tab: 'permissionManagement', label: '权限管理' }
 ];
 
@@ -1220,10 +1220,10 @@ function App() {
       const saved = saveDimensionLibrary(next);
       setDimensionLibrary(next);
       setMessage(saved
-        ? `维度表库存已读取：${file.name}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行，请确认后应用刷新。`
-        : `维度表库存已读取：${file.name}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行；文件较大，已保留预览信息但浏览器缓存保存失败。`);
+        ? `维度表文件库已读取：${file.name}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行，请确认后应用刷新。`
+        : `维度表文件库已读取：${file.name}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行；文件较大，已保留预览信息但浏览器缓存保存失败。`);
     } catch {
-      setMessage('维度表库存读取失败，请检查文件格式。');
+      setMessage('维度表文件库读取失败，请检查文件格式。');
     }
   }
 
@@ -1472,7 +1472,7 @@ function App() {
         return;
       }
       await refreshRecords();
-      setMessage('检验章已加盖，文件已覆盖保存到检验报告单文件库。');
+      setMessage('检验章已加盖，文件已覆盖保存到报告单文件库。');
     } catch {
       setMessage('检验章加盖失败，请确认报告单图片可以正常打开。');
     } finally {
@@ -2305,7 +2305,7 @@ function ReportFileLibraryPage({ files, savingId, onUpload, onRename, onDelete }
   return (
     <section className="report-library-page">
       <div className="section-heading-row">
-        <h2>检验报告单文件库</h2>
+        <h2>报告单文件库</h2>
         <span className="section-count">共 {files.length} 个文件</span>
       </div>
       <div
@@ -2545,7 +2545,7 @@ function DimensionLibraryPage({ slots, library, onUpload, onApply, onDelete }) {
   return (
     <>
       <div className="section-heading-row">
-        <h2>维度表库存</h2>
+        <h2>维度表文件库</h2>
         <span className="section-count">4 个槽位，已上传 {filledCount} 个，已应用 {appliedCount} 个</span>
       </div>
       <section className="dimension-library-grid">
