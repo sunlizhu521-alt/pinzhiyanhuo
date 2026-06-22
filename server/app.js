@@ -47,6 +47,24 @@ const DEFAULT_USERS = [
   { id: 'u-settlement', name: '结算员', password: '123456', role: ROLE_SETTLEMENT }
 ];
 const PURCHASE_WORK_DIVISION_SLOT_ID = 'dimension-slot-2';
+const DIMENSION_SUPPLIER_ALIASES = ['供应商简称', '供应商', '供应商名称', '厂家简称', '厂商简称', '工厂简称'];
+const DIMENSION_ADDRESS_ALIASES = ['产品线明细地址', '供应商地址', '验货地址', '工厂地址', '详细地址', '地址', '所在地'];
+const NOTICE_REQUIRED_FIELDS = [
+  { key: 'inspectionApplicant', label: '验货填写人' },
+  { key: 'inspectionNotifier', label: '验货通知人' },
+  { key: 'inspectionFillTime', label: '验货填写时间' },
+  { key: 'supplierFinishTime', label: '供应商完工时间' },
+  { key: 'shipmentTime', label: '可验货时间' },
+  { key: 'kingdeeOrderNo', label: '金蝶采购订单' },
+  { key: 'supplierShortName', label: '供应商简称' },
+  { key: 'supplierAddress', label: '供应商地址' },
+  { key: 'businessDepartments', label: '事业部' },
+  { key: 'operation', label: '运营' },
+  { key: 'firstInspection', label: '是否首批验货' },
+  { key: 'salesProductLine', label: '产品线' },
+  { key: 'series', label: '系列' },
+  { key: 'totalQuantity', label: '合计数量' }
+];
 
 await mkdir(uploadDir, { recursive: true });
 await mkdir(dimensionUploadDir, { recursive: true });
@@ -352,6 +370,108 @@ function hasObjectValue(value) {
   return Object.values(value || {}).some((item) => String(item || '').trim());
 }
 
+function normalizeText(value) {
+  return String(value ?? '').trim();
+}
+
+function normalizeHeader(value) {
+  return normalizeText(value).replace(/\s+/g, '').toLowerCase();
+}
+
+function normalizeSupplierKey(value) {
+  return normalizeHeader(value)
+    .replace(/有限责任公司|股份有限公司|有限公司|公司|工厂|厂/g, '');
+}
+
+function normalizedSourceMap(sourceRow = {}) {
+  const normalizedSource = new Map();
+  Object.entries(sourceRow || {}).forEach(([key, value]) => {
+    if (key === 'id' || key === '__cells') return;
+    normalizedSource.set(normalizeHeader(key), value);
+  });
+  return normalizedSource;
+}
+
+function readImportedValue(normalizedSource, aliases) {
+  const match = aliases
+    .map(normalizeHeader)
+    .find((alias) => normalizedSource.has(alias));
+  return match ? normalizeText(normalizedSource.get(match)) : '';
+}
+
+function addSupplierRecord(map, supplier, address = '') {
+  const supplierShortName = normalizeText(supplier);
+  if (!supplierShortName) return;
+  const record = {
+    supplierShortName,
+    address: normalizeText(address)
+  };
+  [normalizeHeader(supplierShortName), normalizeSupplierKey(supplierShortName)]
+    .filter(Boolean)
+    .forEach((key) => {
+      const existing = map.get(key);
+      if (!existing || (!existing.address && record.address)) map.set(key, record);
+    });
+}
+
+function buildSupplierRecordMap(db) {
+  const map = new Map();
+  const record = db.qualityInspection.dimensionLibrary?.[PURCHASE_WORK_DIVISION_SLOT_ID] || {};
+  const indexedRows = Array.isArray(record.supplierAddressLookup) ? record.supplierAddressLookup : [];
+  indexedRows.forEach((item) => {
+    addSupplierRecord(map, item.supplierShortName || item.supplier, item.provinceCity || item.address);
+  });
+  const sheets = Array.isArray(record.sheets) ? record.sheets : [];
+  sheets.forEach((sheet) => {
+    (sheet.rows || []).forEach((row) => {
+      const normalizedSource = normalizedSourceMap(row);
+      addSupplierRecord(
+        map,
+        readImportedValue(normalizedSource, DIMENSION_SUPPLIER_ALIASES),
+        readImportedValue(normalizedSource, DIMENSION_ADDRESS_ALIASES)
+      );
+    });
+  });
+  return map;
+}
+
+function findSupplierRecord(value, supplierMap) {
+  const text = normalizeText(value);
+  if (!text) return null;
+  return supplierMap.get(normalizeHeader(text))
+    || supplierMap.get(normalizeSupplierKey(text))
+    || null;
+}
+
+function prepareNoticeRows(rows, user, supplierMap) {
+  return rows.map((row) => {
+    const supplierRecord = findSupplierRecord(row.supplierShortName, supplierMap);
+    return {
+      id: row.id || randomUUID(),
+      ...row,
+      inspectionApplicant: user.role === ROLE_ADMIN ? row.inspectionApplicant : user.name,
+      supplierShortName: supplierRecord?.supplierShortName || normalizeText(row.supplierShortName),
+      supplierAddress: supplierRecord?.address || normalizeText(row.supplierAddress)
+    };
+  });
+}
+
+function validateNoticeRows(rows, supplierMap) {
+  if (!supplierMap.size) {
+    return '请先在维度表文件库上传并应用“采购分工明细”，系统需要从里面读取供应商简称。';
+  }
+  const invalidSupplierIndex = rows.findIndex((row) => !findSupplierRecord(row.supplierShortName, supplierMap));
+  if (invalidSupplierIndex >= 0) {
+    return `第 ${invalidSupplierIndex + 1} 行供应商简称不在采购分工明细中，请从供应商简称匹配结果里选择。`;
+  }
+  const missingIndex = rows.findIndex((row) => NOTICE_REQUIRED_FIELDS.some((field) => !normalizeText(row[field.key])));
+  if (missingIndex >= 0) {
+    const missingField = NOTICE_REQUIRED_FIELDS.find((field) => !normalizeText(rows[missingIndex][field.key]));
+    return `第 ${missingIndex + 1} 行“${missingField.label}”不能为空，除 SKU及数量、备注 外其余字段都必填。`;
+  }
+  return '';
+}
+
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, service: 'quality-inspection', time: new Date().toISOString() });
 });
@@ -551,11 +671,10 @@ app.post('/api/quality-inspection/notices', requireAuth, requirePages('inspectio
   const db = await readDb();
   const user = req.authUser || requestUser(db, req);
   const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
-  const preparedRows = rows.map((row) => ({
-    id: row.id || randomUUID(),
-    ...row,
-    inspectionApplicant: user.role === ROLE_ADMIN ? row.inspectionApplicant : user.name
-  }));
+  const supplierMap = buildSupplierRecordMap(db);
+  const preparedRows = prepareNoticeRows(rows, user, supplierMap);
+  const validationMessage = validateNoticeRows(preparedRows, supplierMap);
+  if (validationMessage) return res.status(400).json({ error: validationMessage });
   const existingRows = db.qualityInspection.notices.rows || [];
   const nextRows = user.role === ROLE_ADMIN
     ? preparedRows

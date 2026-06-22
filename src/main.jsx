@@ -248,6 +248,8 @@ const NOTICE_IMPORT_MERGE_KEYS = [
   'skuQuantity'
 ];
 
+const NOTICE_OPTIONAL_KEYS = new Set(['skuQuantity', 'remark']);
+
 function noticeImportMergeKey(row) {
   if (!normalize(row.series)) return `${row.id || createId()}`;
   return NOTICE_IMPORT_MERGE_KEYS.map((key) => normalize(row[key])).join('\u0001');
@@ -632,6 +634,77 @@ function supplierProvinceCityForName(supplierShortName, dimensionLibrary = {}) {
   return lookup.get(supplierKey) || lookup.get(normalizeHeader(supplierShortName)) || '';
 }
 
+function addSupplierOption(options, supplier) {
+  const value = normalize(supplier);
+  if (!value) return;
+  const key = normalizeSupplierKey(value) || normalizeHeader(value);
+  if (!key || options.has(key)) return;
+  options.set(key, value);
+}
+
+function buildSupplierShortNameOptions(dimensionLibrary = {}) {
+  const record = dimensionLibrary[PURCHASE_WORK_DIVISION_SLOT_ID];
+  const options = new Map();
+  const indexedRows = Array.isArray(record?.supplierAddressLookup) ? record.supplierAddressLookup : [];
+  indexedRows.forEach((item) => addSupplierOption(options, item.supplierShortName || item.supplier));
+  const sheets = Array.isArray(record?.sheets) ? record.sheets : [];
+  sheets.forEach((sheet) => {
+    (sheet.rows || []).forEach((row) => {
+      const normalizedSource = normalizedSourceMap(row);
+      addSupplierOption(options, readImportedValue(normalizedSource, DIMENSION_SUPPLIER_ALIASES));
+    });
+  });
+  return Array.from(options.values()).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
+}
+
+function supplierMatchesQuery(supplier, query) {
+  const supplierText = normalizeHeader(supplier);
+  const supplierKey = normalizeSupplierKey(supplier);
+  const queryText = normalizeHeader(query);
+  const queryKey = normalizeSupplierKey(query);
+  if (!queryText) return true;
+  return supplierText.includes(queryText)
+    || (queryKey && supplierKey.includes(queryKey))
+    || queryText.includes(supplierText)
+    || (queryKey && supplierKey && queryKey.includes(supplierKey));
+}
+
+function findSupplierShortNameOption(value, supplierOptions = []) {
+  const text = normalize(value);
+  if (!text) return '';
+  const header = normalizeHeader(text);
+  const key = normalizeSupplierKey(text) || header;
+  return supplierOptions.find((supplier) => normalizeHeader(supplier) === header)
+    || supplierOptions.find((supplier) => normalizeSupplierKey(supplier) === key)
+    || '';
+}
+
+function normalizeNoticeSupplier(row, supplierOptions, dimensionLibrary) {
+  const supplierShortName = findSupplierShortNameOption(row.supplierShortName, supplierOptions) || normalize(row.supplierShortName);
+  return {
+    ...row,
+    supplierShortName,
+    supplierAddress: supplierProvinceCityForName(supplierShortName, dimensionLibrary)
+  };
+}
+
+function validateNoticeRows(rows, supplierOptions = []) {
+  if (!supplierOptions.length) {
+    return '请先在维度表文件库上传并应用“采购分工明细”，系统需要从里面读取供应商简称。';
+  }
+  const requiredFields = NOTICE_FIELDS.filter((field) => !NOTICE_OPTIONAL_KEYS.has(field.key));
+  const invalidSupplierIndex = rows.findIndex((row) => !findSupplierShortNameOption(row.supplierShortName, supplierOptions));
+  if (invalidSupplierIndex >= 0) {
+    return `第 ${invalidSupplierIndex + 1} 行供应商简称不在采购分工明细中，请从模糊匹配结果里选择。`;
+  }
+  const missingIndex = rows.findIndex((row) => requiredFields.some((field) => !normalize(row[field.key])));
+  if (missingIndex >= 0) {
+    const missingField = requiredFields.find((field) => !normalize(rows[missingIndex][field.key]));
+    return `第 ${missingIndex + 1} 行“${missingField.label}”不能为空，除 SKU及数量、备注 外其余字段都必填。`;
+  }
+  return '';
+}
+
 function buildSupplierAddressLookupRows(sheets = []) {
   const lookup = new Map();
   sheets.forEach((sheet) => {
@@ -984,6 +1057,10 @@ function App() {
     () => MENU_PAGES.filter((page) => canAccessPage(user, page.tab)),
     [user]
   );
+  const supplierOptions = useMemo(
+    () => buildSupplierShortNameOptions(dimensionLibrary),
+    [dimensionLibrary]
+  );
 
   function authFetch(url, options = {}) {
     const headers = {
@@ -1134,7 +1211,8 @@ function App() {
       if (row.id !== id) return row;
       const next = { ...row, [key]: value };
       if (key === 'supplierShortName') {
-        next.supplierAddress = supplierProvinceCityForName(value, dimensionLibrary);
+        const supplierShortName = findSupplierShortNameOption(value, supplierOptions) || value;
+        next.supplierAddress = supplierProvinceCityForName(supplierShortName, dimensionLibrary);
       }
       return next;
     }));
@@ -1173,7 +1251,13 @@ function App() {
       setMessage('暂无可导入的预览数据。');
       return;
     }
-    const mergedRows = mergeNoticeRowsForImport(previewRows);
+    const normalizedRows = previewRows.map((row) => normalizeNoticeSupplier(row, supplierOptions, dimensionLibrary));
+    const validationMessage = validateNoticeRows(normalizedRows, supplierOptions);
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return;
+    }
+    const mergedRows = mergeNoticeRowsForImport(normalizedRows);
     setNoticeRows((rows) => {
       const activeRows = rows.filter((row) => NOTICE_FIELDS.some((field) => !field.readonly && normalize(row[field.key])));
       return [...activeRows, ...mergedRows];
@@ -1363,12 +1447,17 @@ function App() {
       .map((row) => ({
         ...row,
         businessDepartments: joinBusinessDepartments(splitMultiValue(row.businessDepartments)),
-        inspectionApplicant: user.name,
-        supplierAddress: supplierProvinceCityForName(row.supplierShortName, dimensionLibrary)
+        inspectionApplicant: user.name
       }))
+      .map((row) => normalizeNoticeSupplier(row, supplierOptions, dimensionLibrary))
       .filter((row) => NOTICE_FIELDS.some((field) => !field.readonly && normalize(row[field.key]))));
     if (!rows.length) {
       setMessage('请至少填写一条验货通知后再提交。');
+      return;
+    }
+    const validationMessage = validateNoticeRows(rows, supplierOptions);
+    if (validationMessage) {
+      setMessage(validationMessage);
       return;
     }
     if (STATIC_MODE) {
@@ -1402,7 +1491,8 @@ function App() {
       body: JSON.stringify({ rows, user: user.name })
     });
     if (!res.ok) {
-      setMessage('验货通知提交失败。');
+      const payload = await res.json().catch(() => ({}));
+      setMessage(payload.error || '验货通知提交失败。');
       return;
     }
     const payload = await res.json();
@@ -2172,6 +2262,7 @@ function App() {
             rows={noticeRows}
             submission={noticeSubmission}
             user={user}
+            supplierOptions={supplierOptions}
             onAdd={addNoticeRow}
             onDelete={deleteNoticeRow}
             onChange={updateNoticeRow}
@@ -2265,6 +2356,7 @@ function InspectionNoticePage({
   rows,
   submission,
   user,
+  supplierOptions = [],
   importPreview,
   onAdd,
   onDelete,
@@ -2274,6 +2366,7 @@ function InspectionNoticePage({
   onClearImportPreview,
   onSubmit
 }) {
+  const [focusedSupplierRowId, setFocusedSupplierRowId] = useState('');
   const previewRows = importPreview?.rows || [];
   const previewColumns = NOTICE_FIELDS.map((field) => field.label);
   const previewLimitedRows = previewRows.slice(0, 10);
@@ -2347,6 +2440,46 @@ function InspectionNoticePage({
             if (field.readonly) return <span className="readonly-cell">{user.name}</span>;
             if (field.key === 'supplierAddress') {
               return <span className="readonly-cell">{row[field.key] || '自动带出'}</span>;
+            }
+            if (field.key === 'supplierShortName') {
+              const value = row[field.key] || '';
+              const matchedSupplier = findSupplierShortNameOption(value, supplierOptions);
+              const suggestions = supplierOptions
+                .filter((supplier) => supplierMatchesQuery(supplier, value))
+                .slice(0, 12);
+              const showSuggestions = focusedSupplierRowId === row.id && Boolean(value) && suggestions.length > 0;
+              const showInvalid = Boolean(value) && !matchedSupplier;
+              return (
+                <div className="supplier-combobox">
+                  <input
+                    type="text"
+                    className={`table-input inspection-notice-input supplier-combobox-input${showInvalid ? ' invalid-input' : ''}`}
+                    value={value}
+                    onFocus={() => setFocusedSupplierRowId(row.id)}
+                    onBlur={() => window.setTimeout(() => setFocusedSupplierRowId(''), 120)}
+                    onChange={(event) => onChange(row.id, field.key, event.target.value)}
+                    placeholder="输入简称搜索"
+                  />
+                  {showSuggestions && (
+                    <div className="supplier-suggestion-list">
+                      {suggestions.map((supplier) => (
+                        <button
+                          key={supplier}
+                          type="button"
+                          className="supplier-suggestion"
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            onChange(row.id, field.key, supplier);
+                            setFocusedSupplierRowId('');
+                          }}
+                        >
+                          {supplier}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
             }
             if (field.multiple && field.options) {
               const selectedValues = splitMultiValue(row[field.key]);
