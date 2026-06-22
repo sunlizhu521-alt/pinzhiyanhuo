@@ -28,6 +28,14 @@ function nowText() {
   return format(new Date(), 'yyyy-MM-dd HH:mm:ss');
 }
 
+function safeFileBaseName(value, fallback) {
+  const cleaned = String(value || '')
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, '_')
+    .replace(/\s+/g, '_');
+  return cleaned || fallback;
+}
+
 function normalizeDb(db = {}) {
   const qualityInspection = db.qualityInspection || {};
   const users = Array.isArray(db.users) && db.users.length ? db.users : [
@@ -280,19 +288,26 @@ app.patch('/api/quality-inspection/schedules/:id', async (req, res) => {
 app.post('/api/quality-inspection/reports/:id', upload.single('file'), async (req, res) => {
   const db = await readDb();
   const previous = db.qualityInspection.reports[req.params.id] || {};
+  const reportNo = String(req.body.reportNo || previous.reportNo || '').trim();
   const next = {
     ...previous,
-    reportNo: String(req.body.reportNo || previous.reportNo || '').trim(),
+    reportNo,
     conclusion: String(req.body.conclusion || previous.conclusion || '').trim(),
     updatedAt: nowText()
   };
   if (req.file) {
     const ext = path.extname(req.file.originalname || '');
-    const storedName = `${req.params.id}-${Date.now()}${ext}`;
+    const originalBase = path.basename(req.file.originalname || 'report', ext);
+    const storedBase = safeFileBaseName(reportNo || originalBase, `${req.params.id}-${Date.now()}`);
+    const storedName = `${storedBase}${ext}`;
     const target = path.join(uploadDir, storedName);
+    await unlink(target).catch(() => {});
     await rename(req.file.path, target);
+    if (previous.fileName && previous.fileName !== storedName) {
+      await unlink(path.join(uploadDir, path.basename(previous.fileName))).catch(() => {});
+    }
     next.fileName = storedName;
-    next.originalName = req.file.originalname;
+    next.originalName = storedName;
     next.uploadedAt = nowText();
   }
   db.qualityInspection.reports[req.params.id] = next;

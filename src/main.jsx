@@ -436,6 +436,13 @@ function reportHref(record) {
   return '';
 }
 
+function reportFileNameFromCode(reportNo, fileName) {
+  const code = normalize(reportNo);
+  if (!code) return fileName;
+  const ext = String(fileName || '').match(/\.[^.]+$/)?.[0] || '';
+  return `${code.replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_')}${ext}`;
+}
+
 function shouldShowFeedbackRecord(record) {
   const result = normalize(record.feedback?.result);
   if (['通过', '让步', '合格', '让步接收'].includes(result)) return false;
@@ -993,11 +1000,12 @@ function App() {
         fileDataUrl = await readFileAsDataUrl(file);
       }
       const db = readStaticDb();
+      const reportNo = normalize(form.get('reportNo'));
       db.qualityInspection.reports[record.id] = {
         ...(db.qualityInspection.reports[record.id] || {}),
-        reportNo: normalize(form.get('reportNo')),
+        reportNo,
         conclusion: normalize(form.get('conclusion')),
-        originalName: file instanceof File && file.size > 0 ? file.name : record.report?.originalName || '',
+        originalName: file instanceof File && file.size > 0 ? reportFileNameFromCode(reportNo, file.name) : record.report?.originalName || '',
         fileDataUrl,
         uploadedAt: file instanceof File && file.size > 0 ? nowText() : record.report?.uploadedAt || '',
         updatedAt: nowText()
@@ -1028,6 +1036,12 @@ function App() {
     setSavingId(record.id);
     const form = new FormData(formElement);
     const file = form.get('reportFile');
+    const reportNo = normalize(form.get('reportNo')) || normalize(record.report?.reportNo);
+    if (file instanceof File && file.size > 0 && !reportNo) {
+      setSavingId('');
+      setMessage('请先填写检验报告单编码，再上传检验报告单。');
+      return;
+    }
     const feedbackPatch = {
       actualInspectionTime: normalize(form.get('actualInspectionTime')),
       inspectionDays: normalize(form.get('inspectionDays')),
@@ -1049,11 +1063,19 @@ function App() {
         updatedAt: nowText()
       };
       if (file instanceof File && file.size > 0) {
+        const reportFileName = reportFileNameFromCode(reportNo, file.name);
         db.qualityInspection.reports[record.id] = {
           ...(db.qualityInspection.reports[record.id] || {}),
-          originalName: file.name,
+          reportNo,
+          originalName: reportFileName,
           fileDataUrl: await readFileAsDataUrl(file),
           uploadedAt: nowText(),
+          updatedAt: nowText()
+        };
+      } else if (reportNo) {
+        db.qualityInspection.reports[record.id] = {
+          ...(db.qualityInspection.reports[record.id] || {}),
+          reportNo,
           updatedAt: nowText()
         };
       }
@@ -1076,12 +1098,25 @@ function App() {
     if (file instanceof File && file.size > 0) {
       const reportForm = new FormData();
       reportForm.append('file', file);
+      reportForm.append('reportNo', reportNo);
       const reportRes = await fetch(`${API}/api/quality-inspection/reports/${encodeURIComponent(record.id)}`, {
         method: 'POST',
         body: reportForm
       });
       if (!reportRes.ok) {
         setMessage('验货反馈已保存，但检验报告单上传失败。');
+        await refreshRecords();
+        return;
+      }
+    } else if (reportNo && reportNo !== normalize(record.report?.reportNo)) {
+      const reportForm = new FormData();
+      reportForm.append('reportNo', reportNo);
+      const reportRes = await fetch(`${API}/api/quality-inspection/reports/${encodeURIComponent(record.id)}`, {
+        method: 'POST',
+        body: reportForm
+      });
+      if (!reportRes.ok) {
+        setMessage('验货反馈已保存，但检验报告单编码保存失败。');
         await refreshRecords();
         return;
       }
@@ -1614,7 +1649,7 @@ function FeedbackPage({ records, savingId, importPreview, onUpload, onConfirmImp
           <input name="issueCategoryPrimary" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.issueCategoryPrimary || ''} />,
           <input name="issueCategorySecondary" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.issueCategorySecondary || ''} />,
           <textarea name="feedbackText" form={`feedback-form-${record.id}`} className="table-textarea wide-textarea" defaultValue={record.feedback?.feedbackText || ''} />,
-          record.report?.reportNo || '',
+          <input name="reportNo" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.report?.reportNo || ''} />,
           <div className="feedback-report-cell">
             {reportHref(record) && <a href={reportHref(record)} target="_blank" rel="noreferrer">{record.report?.originalName || '查看报告'}</a>}
             <input name="reportFile" form={`feedback-form-${record.id}`} type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx" />
