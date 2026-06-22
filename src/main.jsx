@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx';
 import './styles.css';
 
 const API = import.meta.env.DEV ? 'http://localhost:4002' : '';
-const STATIC_MODE = import.meta.env.PROD;
+const STATIC_MODE = import.meta.env.VITE_STATIC_MODE === '1';
 const STATIC_DB_KEY = 'qualityInspectionStaticDb';
 const DIMENSION_LIBRARY_KEY = 'qualityInspectionDimensionLibrary';
 const DIMENSION_PREVIEW_ROW_LIMIT = 20;
