@@ -297,6 +297,11 @@ th {
   min-width: 220px;
 }
 
+.narrow-input {
+  min-width: 96px;
+  width: 96px;
+}
+
 .wide-textarea {
   min-width: 280px;
 }
@@ -391,6 +396,25 @@ th {
 
 .inspection-schedule-table table {
   min-width: 1500px;
+}
+
+.inspection-feedback-table table {
+  min-width: 2300px;
+}
+
+.feedback-report-cell {
+  display: grid;
+  gap: 6px;
+  min-width: 180px;
+}
+
+.feedback-report-cell a {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.feedback-report-cell input {
+  min-width: 180px;
 }
 
 .inspection-initial-table {

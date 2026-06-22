@@ -218,6 +218,12 @@ function reportHref(record) {
   return '';
 }
 
+function shouldShowFeedbackRecord(record) {
+  const result = normalize(record.feedback?.result);
+  if (['通过', '让步', '合格', '让步接收'].includes(result)) return false;
+  return !normalize(record.feedback?.actualInspectionTime) || result === '返工';
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState('inspectionNotice');
   const [authMode, setAuthMode] = useState('login');
@@ -568,15 +574,38 @@ function App() {
     setMessage('检验报告单已回传。');
   }
 
-  async function saveFeedback(record, patch) {
+  async function saveFeedback(record, formElement) {
     setSavingId(record.id);
+    const form = new FormData(formElement);
+    const file = form.get('reportFile');
+    const feedbackPatch = {
+      actualInspectionTime: normalize(form.get('actualInspectionTime')),
+      inspectionDays: normalize(form.get('inspectionDays')),
+      inspectionMethod: normalize(form.get('inspectionMethod')),
+      inspectionQuantity: normalize(form.get('inspectionQuantity')),
+      qualifiedQuantity: normalize(form.get('qualifiedQuantity')),
+      result: normalize(form.get('result')),
+      issueLevel: normalize(form.get('issueLevel')),
+      issueCategoryPrimary: normalize(form.get('issueCategoryPrimary')),
+      issueCategorySecondary: normalize(form.get('issueCategorySecondary')),
+      feedbackText: normalize(form.get('feedbackText'))
+    };
     if (STATIC_MODE) {
       const db = readStaticDb();
       db.qualityInspection.feedback[record.id] = {
         ...(db.qualityInspection.feedback[record.id] || {}),
-        ...patch,
+        ...feedbackPatch,
         updatedAt: nowText()
       };
+      if (file instanceof File && file.size > 0) {
+        db.qualityInspection.reports[record.id] = {
+          ...(db.qualityInspection.reports[record.id] || {}),
+          originalName: file.name,
+          fileDataUrl: await readFileAsDataUrl(file),
+          uploadedAt: nowText(),
+          updatedAt: nowText()
+        };
+      }
       saveStaticDb(db);
       setSavingId('');
       setRecords(composedStaticRecords(db));
@@ -586,12 +615,25 @@ function App() {
     const res = await fetch(`${API}/api/quality-inspection/feedback/${encodeURIComponent(record.id)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...(record.feedback || {}), ...patch })
+      body: JSON.stringify({ ...(record.feedback || {}), ...feedbackPatch })
     });
     setSavingId('');
     if (!res.ok) {
       setMessage('验货反馈保存失败。');
       return;
+    }
+    if (file instanceof File && file.size > 0) {
+      const reportForm = new FormData();
+      reportForm.append('file', file);
+      const reportRes = await fetch(`${API}/api/quality-inspection/reports/${encodeURIComponent(record.id)}`, {
+        method: 'POST',
+        body: reportForm
+      });
+      if (!reportRes.ok) {
+        setMessage('验货反馈已保存，但检验报告单上传失败。');
+        await refreshRecords();
+        return;
+      }
     }
     await refreshRecords();
     setMessage('验货反馈已保存。');
@@ -714,7 +756,7 @@ function App() {
           <ReportUploadPage records={records} savingId={savingId} onSave={saveReport} />
         )}
         {activeTab === 'inspectionFeedback' && (
-          <FeedbackPage records={records} savingId={savingId} onSave={saveFeedback} />
+          <FeedbackPage records={records.filter(shouldShowFeedbackRecord)} savingId={savingId} onSave={saveFeedback} />
         )}
         {activeTab === 'inspectionReportQuery' && (
           <ReportQueryPage
@@ -969,40 +1011,67 @@ function FeedbackPage({ records, savingId, onSave }) {
     <>
       <div className="section-heading-row">
         <h2>验货反馈</h2>
-        <span className="section-count">共 {records.length} 条</span>
+        <span className="section-count">待反馈 {records.length} 条</span>
       </div>
       <DataTable
+        className="inspection-feedback-table"
         rows={records}
-        columns={['供应商', '采购订单', '验货结果', '问题等级', '反馈内容', '操作']}
+        columns={[
+          '供应商简称',
+          '产品线',
+          '系列',
+          '数量',
+          '事业部',
+          '运营',
+          '验货通知人',
+          '实际验货时间',
+          '验货天数',
+          '验货方式',
+          '验货数量',
+          '验货合格数量',
+          '验货结果',
+          '问题等级',
+          '问题分类',
+          '问题分类',
+          '问题反馈',
+          '检验报告单上传功能',
+          '操作'
+        ]}
         render={(record) => [
           record.supplierShortName,
-          record.kingdeeOrderNo,
-          <select id={`feedback-result-${record.id}`} className="table-input" defaultValue={record.feedback?.result || ''}>
+          record.salesProductLine,
+          record.series,
+          record.totalQuantity,
+          record.businessDepartments,
+          record.operation,
+          record.inspectionApplicant,
+          <input name="actualInspectionTime" form={`feedback-form-${record.id}`} className="table-input" type="date" defaultValue={formatDate(record.feedback?.actualInspectionTime)} />,
+          <input name="inspectionDays" form={`feedback-form-${record.id}`} className="table-input narrow-input" defaultValue={record.feedback?.inspectionDays || ''} />,
+          <input name="inspectionMethod" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.inspectionMethod || ''} />,
+          <input name="inspectionQuantity" form={`feedback-form-${record.id}`} className="table-input narrow-input" defaultValue={record.feedback?.inspectionQuantity || ''} />,
+          <input name="qualifiedQuantity" form={`feedback-form-${record.id}`} className="table-input narrow-input" defaultValue={record.feedback?.qualifiedQuantity || ''} />,
+          <select name="result" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.result || ''}>
             <option value="">选择</option>
-            <option value="合格">合格</option>
-            <option value="不合格">不合格</option>
-            <option value="待整改">待整改</option>
-            <option value="待复检">待复检</option>
+            <option value="通过">通过</option>
+            <option value="让步">让步</option>
+            <option value="返工">返工</option>
           </select>,
-          <select id={`feedback-level-${record.id}`} className="table-input" defaultValue={record.feedback?.issueLevel || ''}>
+          <select name="issueLevel" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.issueLevel || ''}>
             <option value="">选择</option>
             <option value="一般">一般</option>
             <option value="重要">重要</option>
             <option value="严重">严重</option>
           </select>,
-          <textarea id={`feedback-text-${record.id}`} className="table-textarea wide-textarea" defaultValue={record.feedback?.feedbackText || ''} />,
-          <button
-            type="button"
-            className="compact-button"
-            disabled={savingId === record.id}
-            onClick={() => onSave(record, {
-              result: document.getElementById(`feedback-result-${record.id}`).value,
-              issueLevel: document.getElementById(`feedback-level-${record.id}`).value,
-              feedbackText: document.getElementById(`feedback-text-${record.id}`).value
-            })}
-          >
-            保存
-          </button>
+          <input name="issueCategoryPrimary" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.issueCategoryPrimary || ''} />,
+          <input name="issueCategorySecondary" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.issueCategorySecondary || ''} />,
+          <textarea name="feedbackText" form={`feedback-form-${record.id}`} className="table-textarea wide-textarea" defaultValue={record.feedback?.feedbackText || ''} />,
+          <div className="feedback-report-cell">
+            {reportHref(record) && <a href={reportHref(record)} target="_blank" rel="noreferrer">{record.report?.originalName || '查看报告'}</a>}
+            <input name="reportFile" form={`feedback-form-${record.id}`} type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx" />
+          </div>,
+          <form id={`feedback-form-${record.id}`} onSubmit={(event) => { event.preventDefault(); onSave(record, event.currentTarget); }}>
+            <button type="submit" className="compact-button" disabled={savingId === record.id}>保存</button>
+          </form>
         ]}
       />
     </>
@@ -1130,7 +1199,7 @@ function DataTable({ rows, columns, render, className = '' }) {
   return (
     <div className={`table-wrap ${className}`}>
       <table>
-        <thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr></thead>
+        <thead><tr>{columns.map((column, index) => <th key={`${column}-${index}`}>{column}</th>)}</tr></thead>
         <tbody>
           {rows.length === 0 && <tr><td colSpan={columns.length} className="empty">暂无数据</td></tr>}
           {rows.map((row) => (
