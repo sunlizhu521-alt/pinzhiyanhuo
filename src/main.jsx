@@ -7,6 +7,7 @@ const API = import.meta.env.DEV ? 'http://localhost:4002' : '';
 const STATIC_MODE = import.meta.env.PROD;
 const STATIC_DB_KEY = 'qualityInspectionStaticDb';
 const DIMENSION_LIBRARY_KEY = 'qualityInspectionDimensionLibrary';
+const DIMENSION_PREVIEW_ROW_LIMIT = 20;
 const DEFAULT_ADMIN_USER = { id: 'u-admin', name: '孙立柱', password: '521sunlizhu', role: '管理员' };
 
 const NOTICE_FIELDS = [
@@ -163,7 +164,12 @@ function readDimensionLibrary() {
 }
 
 function saveDimensionLibrary(library) {
-  localStorage.setItem(DIMENSION_LIBRARY_KEY, JSON.stringify(library));
+  try {
+    localStorage.setItem(DIMENSION_LIBRARY_KEY, JSON.stringify(library));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function composedStaticRecords(db) {
@@ -678,47 +684,44 @@ function App() {
         fileType: file.type || '未知类型',
         sheetName: result.sheetName || '',
         columns: result.columns || [],
-        rows: result.rows || [],
+        rows: (result.rows || []).slice(0, DIMENSION_PREVIEW_ROW_LIMIT),
         importedCount: result.importedCount || 0,
+        previewCount: Math.min(result.importedCount || 0, DIMENSION_PREVIEW_ROW_LIMIT),
         savedAt: nowText(),
         applied: false,
         appliedAt: ''
       };
-      setDimensionLibrary((current) => {
-        const next = { ...current, [slotId]: record };
-        saveDimensionLibrary(next);
-        return next;
-      });
-      setMessage(`维度表库存已读取：${file.name}，共 ${record.importedCount} 行，请确认后应用刷新。`);
+      const next = { ...dimensionLibrary, [slotId]: record };
+      const saved = saveDimensionLibrary(next);
+      setDimensionLibrary(next);
+      setMessage(saved
+        ? `维度表库存已读取：${file.name}，共 ${record.importedCount} 行，请确认后应用刷新。`
+        : `维度表库存已读取：${file.name}，共 ${record.importedCount} 行；文件较大，已保留预览信息但浏览器缓存保存失败。`);
     } catch {
       setMessage('维度表库存读取失败，请检查文件格式。');
     }
   }
 
   function applyDimensionSlot(slotId) {
-    setDimensionLibrary((current) => {
-      const existing = current[slotId];
-      if (!existing) {
-        setMessage('该槽位暂无可应用文件。');
-        return current;
-      }
-      const next = {
-        ...current,
-        [slotId]: { ...existing, applied: true, appliedAt: nowText() }
-      };
-      saveDimensionLibrary(next);
-      setMessage(`${existing.fileName} 已应用刷新。`);
-      return next;
-    });
+    const existing = dimensionLibrary[slotId];
+    if (!existing) {
+      setMessage('该槽位暂无可应用文件。');
+      return;
+    }
+    const next = {
+      ...dimensionLibrary,
+      [slotId]: { ...existing, applied: true, appliedAt: nowText() }
+    };
+    const saved = saveDimensionLibrary(next);
+    setDimensionLibrary(next);
+    setMessage(saved ? `${existing.fileName} 已应用刷新。` : `${existing.fileName} 已应用刷新，但浏览器缓存保存失败。`);
   }
 
   function deleteDimensionSlot(slotId) {
-    setDimensionLibrary((current) => {
-      const next = { ...current, [slotId]: null };
-      saveDimensionLibrary(next);
-      return next;
-    });
-    setMessage('已清除该维度表槽位。');
+    const next = { ...dimensionLibrary, [slotId]: null };
+    const saved = saveDimensionLibrary(next);
+    setDimensionLibrary(next);
+    setMessage(saved ? '已清除该维度表槽位。' : '已清除该维度表槽位，但浏览器缓存保存失败。');
   }
 
   async function saveSchedules(scheduleDrafts) {
@@ -1522,6 +1525,7 @@ function DimensionLibraryPage({ slots, library, onUpload, onApply, onDelete }) {
                     <span>文件：{record.fileName}</span>
                     <span>工作表：{record.sheetName || '未识别'}</span>
                     <span>行数：{record.importedCount || 0}</span>
+                    <span>预览：{record.rows?.length || 0} 行</span>
                     <span>保存：{record.savedAt}</span>
                     {record.appliedAt && <span>应用：{record.appliedAt}</span>}
                   </div>
