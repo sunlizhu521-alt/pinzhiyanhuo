@@ -23,6 +23,8 @@ const DEFAULT_USERS = [
   { id: 'u-settlement', name: '结算员', password: '123456', role: ROLE_SETTLEMENT }
 ];
 
+const BUSINESS_DEPARTMENT_OPTIONS = ['海外事业一部', '海外事业二部', '全球招商部', '国内事业部', '其他'];
+
 const NOTICE_FIELDS = [
   { key: 'inspectionApplicant', label: '验货填写人', readonly: true },
   { key: 'inspectionNotifier', label: '验货通知人' },
@@ -32,7 +34,7 @@ const NOTICE_FIELDS = [
   { key: 'kingdeeOrderNo', label: '金蝶采购订单' },
   { key: 'supplierShortName', label: '供应商简称' },
   { key: 'supplierAddress', label: '供应商地址' },
-  { key: 'businessDepartments', label: '事业部' },
+  { key: 'businessDepartments', label: '事业部', options: BUSINESS_DEPARTMENT_OPTIONS, multiple: true },
   { key: 'operation', label: '运营' },
   { key: 'firstInspection', label: '是否首批验货', options: ['是', '否'] },
   { key: 'salesProductLine', label: '产品线' },
@@ -186,6 +188,114 @@ function fixMojibakeText(value) {
 
 function normalizeHeader(value) {
   return normalize(value).replace(/\s+/g, '').toLowerCase();
+}
+
+function splitMultiValue(value) {
+  return normalize(value)
+    .split(/[、,，;；/|]+/)
+    .map(normalize)
+    .filter(Boolean);
+}
+
+function joinBusinessDepartments(values) {
+  const seen = new Set();
+  const items = values.map(normalize).filter(Boolean);
+  const ordered = [
+    ...BUSINESS_DEPARTMENT_OPTIONS.filter((option) => items.includes(option)),
+    ...items.filter((item) => !BUSINESS_DEPARTMENT_OPTIONS.includes(item))
+  ];
+  return ordered.filter((item) => {
+    if (seen.has(item)) return false;
+    seen.add(item);
+    return true;
+  }).join('、');
+}
+
+function toggleMultiValue(currentValue, option) {
+  const values = splitMultiValue(currentValue);
+  const nextValues = values.includes(option)
+    ? values.filter((item) => item !== option)
+    : [...values, option];
+  return joinBusinessDepartments(nextValues);
+}
+
+function parseQuantity(value) {
+  const text = normalize(value).replace(/,/g, '');
+  if (!text) return null;
+  const number = Number(text);
+  return Number.isFinite(number) ? number : null;
+}
+
+function formatQuantity(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '';
+  return Number.isInteger(number) ? String(number) : String(Number(number.toFixed(4)));
+}
+
+const NOTICE_IMPORT_MERGE_KEYS = [
+  'inspectionApplicant',
+  'inspectionNotifier',
+  'inspectionFillTime',
+  'supplierFinishTime',
+  'shipmentTime',
+  'kingdeeOrderNo',
+  'supplierShortName',
+  'supplierAddress',
+  'operation',
+  'firstInspection',
+  'salesProductLine',
+  'series',
+  'skuQuantity'
+];
+
+function noticeImportMergeKey(row) {
+  if (!normalize(row.series)) return `${row.id || createId()}`;
+  return NOTICE_IMPORT_MERGE_KEYS.map((key) => normalize(row[key])).join('\u0001');
+}
+
+function mergeNoticeRowsForImport(rows) {
+  const groups = new Map();
+  rows.forEach((row) => {
+    const key = noticeImportMergeKey(row);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  });
+
+  return Array.from(groups.values()).map((group) => {
+    const first = group[0] || {};
+    const quantityTotal = group.reduce((sum, row) => sum + (parseQuantity(row.totalQuantity) || 0), 0);
+    const hasQuantity = group.some((row) => parseQuantity(row.totalQuantity) !== null);
+    const remarks = new Set();
+    const departmentQuantityMap = new Map();
+    const departmentValues = [];
+
+    group.forEach((row) => {
+      if (normalize(row.remark)) remarks.add(normalize(row.remark));
+      const departments = splitMultiValue(row.businessDepartments);
+      departmentValues.push(...departments);
+      const quantity = parseQuantity(row.totalQuantity);
+      const departmentKey = departments.length ? joinBusinessDepartments(departments) : '未填写事业部';
+      if (quantity !== null) {
+        departmentQuantityMap.set(departmentKey, (departmentQuantityMap.get(departmentKey) || 0) + quantity);
+      }
+    });
+
+    const departmentQuantityText = Array.from(departmentQuantityMap.entries())
+      .map(([department, quantity]) => `${department}${formatQuantity(quantity)}`)
+      .join('；');
+    const remarkParts = [...remarks];
+    if (group.length > 1 && departmentQuantityText && !remarkParts.some((part) => part.includes('事业部数量：'))) {
+      remarkParts.push(`事业部数量：${departmentQuantityText}`);
+    }
+
+    return {
+      ...first,
+      id: first.id || createId(),
+      businessDepartments: joinBusinessDepartments(departmentValues),
+      totalQuantity: hasQuantity ? formatQuantity(quantityTotal) : normalize(first.totalQuantity),
+      remark: remarkParts.join('；')
+    };
+  });
 }
 
 function normalizeSupplierKey(value) {
@@ -1063,11 +1173,13 @@ function App() {
       setMessage('暂无可导入的预览数据。');
       return;
     }
+    const mergedRows = mergeNoticeRowsForImport(previewRows);
     setNoticeRows((rows) => {
       const activeRows = rows.filter((row) => NOTICE_FIELDS.some((field) => !field.readonly && normalize(row[field.key])));
-      return [...activeRows, ...previewRows];
+      return [...activeRows, ...mergedRows];
     });
-    setMessage(`批量导入成功：已加入 ${previewRows.length} 条验货通知。`);
+    const mergeText = mergedRows.length === previewRows.length ? '' : `，由 ${previewRows.length} 条合并为 ${mergedRows.length} 条`;
+    setMessage(`批量导入成功：已加入 ${mergedRows.length} 条验货通知${mergeText}。`);
     setNoticeImportPreview(null);
   }
 
@@ -1247,13 +1359,14 @@ function App() {
   }
 
   async function submitNotices() {
-    const rows = noticeRows
+    const rows = mergeNoticeRowsForImport(noticeRows
       .map((row) => ({
         ...row,
+        businessDepartments: joinBusinessDepartments(splitMultiValue(row.businessDepartments)),
         inspectionApplicant: user.name,
         supplierAddress: supplierProvinceCityForName(row.supplierShortName, dimensionLibrary)
       }))
-      .filter((row) => NOTICE_FIELDS.some((field) => !field.readonly && normalize(row[field.key])));
+      .filter((row) => NOTICE_FIELDS.some((field) => !field.readonly && normalize(row[field.key]))));
     if (!rows.length) {
       setMessage('请至少填写一条验货通知后再提交。');
       return;
@@ -2234,6 +2347,23 @@ function InspectionNoticePage({
             if (field.readonly) return <span className="readonly-cell">{user.name}</span>;
             if (field.key === 'supplierAddress') {
               return <span className="readonly-cell">{row[field.key] || '自动带出'}</span>;
+            }
+            if (field.multiple && field.options) {
+              const selectedValues = splitMultiValue(row[field.key]);
+              return (
+                <div className="table-multi-select inspection-notice-multi-select">
+                  {field.options.map((option) => (
+                    <label key={option} className="table-multi-option">
+                      <input
+                        type="checkbox"
+                        checked={selectedValues.includes(option)}
+                        onChange={() => onChange(row.id, field.key, toggleMultiValue(row[field.key], option))}
+                      />
+                      <span>{option}</span>
+                    </label>
+                  ))}
+                </div>
+              );
             }
             if (field.options) {
               return (
