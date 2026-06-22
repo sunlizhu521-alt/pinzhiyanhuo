@@ -387,6 +387,34 @@ th {
   display: none;
 }
 
+.feedback-upload-zone {
+  min-height: 86px;
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  margin: 0 0 14px;
+  padding: 14px;
+  border: 1px dashed #9db4d5;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #475569;
+  text-align: center;
+  cursor: pointer;
+}
+
+.feedback-upload-zone strong {
+  color: #1e293b;
+}
+
+.feedback-upload-zone span {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.feedback-upload-zone input {
+  display: none;
+}
+
 .notice-import-preview {
   display: grid;
   gap: 10px;
@@ -394,6 +422,12 @@ th {
 }
 
 .summary-import-preview {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.feedback-import-preview {
   display: grid;
   gap: 10px;
   margin-bottom: 16px;
@@ -407,8 +441,16 @@ th {
   max-height: 320px;
 }
 
+.feedback-preview-table {
+  max-height: 320px;
+}
+
 .inspection-notice-preview-table table {
   min-width: 1540px;
+}
+
+.feedback-preview-table table {
+  min-width: 1780px;
 }
 
 .preview-note {

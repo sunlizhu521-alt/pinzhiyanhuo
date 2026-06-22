@@ -57,6 +57,20 @@ const SUMMARY_IMPORT_ALIASES = {
   actualInspector: ['实际验货人']
 };
 
+const FEEDBACK_IMPORT_ALIASES = {
+  actualInspectionTime: ['实际验货时间', '验货时间', '实际检验时间', '检验时间'],
+  inspectionDays: ['验货天数', '检验天数'],
+  inspectionMethod: ['验货方式', '检验方式'],
+  inspectionQuantity: ['验货数量', '检验数量'],
+  qualifiedQuantity: ['验货合格数量', '合格数量', '检验合格数量'],
+  result: ['验货结果', '检验结果', '反馈结果'],
+  issueLevel: ['问题等级', '异常等级'],
+  issueCategoryPrimary: ['问题分类', '一级问题分类', '问题大类'],
+  issueCategorySecondary: ['问题分类2', '问题分类二', '二级问题分类', '问题小类'],
+  feedbackText: ['问题反馈', '反馈内容', '问题描述', '验货反馈'],
+  actualInspector: ['实际验货人', '实际检验人']
+};
+
 const MENU_PAGES = [
   { tab: 'inspectionNotice', label: '验货通知' },
   { tab: 'inspectionSchedule', label: '验货安排' },
@@ -330,6 +344,75 @@ function importedRowsToSummaryItems(importedRows, currentUserName) {
     ].some(normalize));
 }
 
+function feedbackMatchKey(values = {}) {
+  return [
+    values.kingdeeOrderNo,
+    values.supplierShortName,
+    values.salesProductLine,
+    values.series,
+    values.totalQuantity
+  ].map(normalizeHeader).join('|');
+}
+
+function feedbackFallbackMatchKey(values = {}) {
+  return [
+    values.supplierShortName,
+    values.salesProductLine,
+    values.series,
+    values.totalQuantity,
+    values.businessDepartments,
+    values.operation
+  ].map(normalizeHeader).join('|');
+}
+
+function importedRowsToFeedbackItems(importedRows, records) {
+  const recordByMainKey = new Map();
+  const recordByFallbackKey = new Map();
+  records.forEach((record) => {
+    const mainKey = feedbackMatchKey(record);
+    const fallbackKey = feedbackFallbackMatchKey(record);
+    if (mainKey.replace(/\|/g, '')) recordByMainKey.set(mainKey, record);
+    if (fallbackKey.replace(/\|/g, '')) recordByFallbackKey.set(fallbackKey, record);
+  });
+
+  return importedRows
+    .map((sourceRow) => {
+      const normalizedSource = new Map();
+      Object.entries(sourceRow || {}).forEach(([key, value]) => {
+        if (key === 'id' || key === '__cells') return;
+        normalizedSource.set(normalizeHeader(key), value);
+      });
+      const noticeValues = {};
+      NOTICE_FIELDS.forEach((field) => {
+        const aliases = [field.label, field.key, ...(NOTICE_IMPORT_ALIASES[field.key] || [])];
+        noticeValues[field.key] = readImportedValue(normalizedSource, aliases);
+      });
+      const feedback = Object.fromEntries(Object.entries(FEEDBACK_IMPORT_ALIASES)
+        .map(([key, aliases]) => [
+          key,
+          readImportedValue(normalizedSource, [key, ...aliases])
+        ])
+        .filter(([, value]) => normalize(value)));
+      const matchedRecord = recordByMainKey.get(feedbackMatchKey(noticeValues))
+        || recordByFallbackKey.get(feedbackFallbackMatchKey(noticeValues));
+      return {
+        id: createId(),
+        recordId: matchedRecord?.id || '',
+        matchStatus: matchedRecord ? '已匹配' : '未匹配',
+        notice: {
+          supplierShortName: noticeValues.supplierShortName || matchedRecord?.supplierShortName || '',
+          salesProductLine: noticeValues.salesProductLine || matchedRecord?.salesProductLine || '',
+          series: noticeValues.series || matchedRecord?.series || '',
+          totalQuantity: noticeValues.totalQuantity || matchedRecord?.totalQuantity || '',
+          businessDepartments: noticeValues.businessDepartments || matchedRecord?.businessDepartments || '',
+          operation: noticeValues.operation || matchedRecord?.operation || ''
+        },
+        feedback
+      };
+    })
+    .filter((item) => hasObjectValue(item.feedback));
+}
+
 function hasObjectValue(value) {
   return Object.values(value || {}).some(normalize);
 }
@@ -373,6 +456,7 @@ function App() {
   const [noticeSubmission, setNoticeSubmission] = useState({ rows: [], submittedAt: '', submittedBy: '' });
   const [noticeImportPreview, setNoticeImportPreview] = useState(null);
   const [summaryImportPreview, setSummaryImportPreview] = useState(null);
+  const [feedbackImportPreview, setFeedbackImportPreview] = useState(null);
   const [initialData, setInitialData] = useState({ sheetName: '', columns: [], rows: [], updatedAt: '' });
   const [initialImportResult, setInitialImportResult] = useState(null);
   const [dimensionLibrary, setDimensionLibrary] = useState(readDimensionLibrary);
@@ -625,6 +709,76 @@ function App() {
     setRecords(payload.rows || []);
     setSummaryImportPreview(null);
     setMessage(`验货信息汇总表已追加：新增 ${items.length} 条，原有信息已保留。`);
+  }
+
+  async function previewFeedbackRows(files) {
+    const file = files?.[0];
+    if (!file) return;
+    try {
+      const result = await parseWorkbookInBrowser(file);
+      const items = importedRowsToFeedbackItems(result.rows || [], records);
+      if (!items.length) {
+        setMessage('未识别到可导入的验货反馈数据，请检查表头。');
+        return;
+      }
+      setFeedbackImportPreview({
+        fileName: file.name,
+        sheetName: result.sheetName || '',
+        items,
+        parsedAt: nowText()
+      });
+      const matchedCount = items.filter((item) => item.recordId).length;
+      setMessage(`验货反馈已解析：共 ${items.length} 条，已匹配 ${matchedCount} 条，请检查预览后确认导入。`);
+    } catch {
+      setMessage('验货反馈批量上传失败，请检查文件格式。');
+    }
+  }
+
+  function clearFeedbackImportPreview() {
+    setFeedbackImportPreview(null);
+    setMessage('已清空验货反馈导入预览。');
+  }
+
+  async function confirmFeedbackImport() {
+    const items = feedbackImportPreview?.items || [];
+    const matchedItems = items.filter((item) => item.recordId);
+    if (!matchedItems.length) {
+      setMessage('暂无已匹配的验货反馈数据可导入。');
+      return;
+    }
+    if (STATIC_MODE) {
+      const db = readStaticDb();
+      const inspection = db.qualityInspection;
+      matchedItems.forEach((item) => {
+        inspection.feedback[item.recordId] = {
+          ...(inspection.feedback[item.recordId] || {}),
+          ...item.feedback,
+          updatedAt: nowText()
+        };
+      });
+      saveStaticDb(db);
+      setRecords(composedStaticRecords(db));
+      setFeedbackImportPreview(null);
+      setMessage(`验货反馈批量导入成功：已更新 ${matchedItems.length} 条。`);
+      return;
+    }
+
+    const recordById = new Map(records.map((record) => [record.id, record]));
+    const responses = await Promise.all(matchedItems.map((item) => {
+      const current = recordById.get(item.recordId);
+      return fetch(`${API}/api/quality-inspection/feedback/${encodeURIComponent(item.recordId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...(current?.feedback || {}), ...item.feedback })
+      });
+    }));
+    if (responses.some((res) => !res.ok)) {
+      setMessage('验货反馈批量导入失败，请稍后重试。');
+      return;
+    }
+    await refreshRecords();
+    setFeedbackImportPreview(null);
+    setMessage(`验货反馈批量导入成功：已更新 ${matchedItems.length} 条。`);
   }
 
   function deleteNoticeRow(id) {
@@ -1053,7 +1207,15 @@ function App() {
           <ReportUploadPage records={records} savingId={savingId} onSave={saveReport} />
         )}
         {activeTab === 'inspectionFeedback' && (
-          <FeedbackPage records={records.filter(shouldShowFeedbackRecord)} savingId={savingId} onSave={saveFeedback} />
+          <FeedbackPage
+            records={records.filter(shouldShowFeedbackRecord)}
+            savingId={savingId}
+            importPreview={feedbackImportPreview}
+            onUpload={previewFeedbackRows}
+            onConfirmImport={confirmFeedbackImport}
+            onClearImportPreview={clearFeedbackImportPreview}
+            onSave={saveFeedback}
+          />
         )}
         {activeTab === 'inspectionReportQuery' && (
           <ReportQueryPage
@@ -1319,13 +1481,84 @@ function ReportUploadPage({ records, savingId, onSave }) {
   );
 }
 
-function FeedbackPage({ records, savingId, onSave }) {
+function FeedbackPage({ records, savingId, importPreview, onUpload, onConfirmImport, onClearImportPreview, onSave }) {
+  const previewRows = importPreview?.items || [];
+  const previewLimitedRows = previewRows.slice(0, 10);
+  const matchedCount = previewRows.filter((item) => item.recordId).length;
   return (
     <>
       <div className="section-heading-row">
         <h2>验货反馈</h2>
         <span className="section-count">待反馈 {records.length} 条</span>
+        <label className="upload-button">
+          批量上传
+          <input
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            onChange={(event) => {
+              onUpload(event.target.files);
+              event.target.value = '';
+            }}
+          />
+        </label>
       </div>
+      <label
+        className="feedback-upload-zone"
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault();
+          onUpload(event.dataTransfer.files);
+        }}
+      >
+        <input
+          type="file"
+          accept=".xlsx,.xls,.csv"
+          onChange={(event) => {
+            onUpload(event.target.files);
+            event.target.value = '';
+          }}
+        />
+        <strong>拖拽历史验货反馈文件到这里，或点击选择文件</strong>
+        <span>支持 .xlsx / .xls / .csv，解析后先预览，确认后写入已匹配的验货反馈</span>
+      </label>
+      {importPreview && (
+        <section className="feedback-import-preview">
+          <div className="section-heading-row">
+            <h3>批量上传预览</h3>
+            <span className="section-count">
+              {importPreview.fileName}，工作表 {importPreview.sheetName || '未识别'}，共 {previewRows.length} 条，已匹配 {matchedCount} 条
+            </span>
+            <button type="button" className="compact-button" onClick={onConfirmImport}>确认导入</button>
+            <button type="button" className="ghost compact-button" onClick={onClearImportPreview}>清空预览</button>
+          </div>
+          <DataTable
+            className="feedback-preview-table"
+            rows={previewLimitedRows}
+            columns={['匹配状态', '供应商简称', '产品线', '系列', '数量', '实际验货时间', '验货天数', '验货方式', '验货数量', '合格数量', '验货结果', '问题等级', '问题分类', '问题分类', '问题反馈', '实际验货人']}
+            render={(item) => [
+              item.matchStatus,
+              item.notice.supplierShortName,
+              item.notice.salesProductLine,
+              item.notice.series,
+              item.notice.totalQuantity,
+              item.feedback.actualInspectionTime,
+              item.feedback.inspectionDays,
+              item.feedback.inspectionMethod,
+              item.feedback.inspectionQuantity,
+              item.feedback.qualifiedQuantity,
+              item.feedback.result,
+              item.feedback.issueLevel,
+              item.feedback.issueCategoryPrimary,
+              item.feedback.issueCategorySecondary,
+              item.feedback.feedbackText,
+              item.feedback.actualInspector
+            ]}
+          />
+          {previewRows.length > previewLimitedRows.length && (
+            <p className="preview-note">仅展示前 {previewLimitedRows.length} 条，确认后会导入全部已匹配数据。</p>
+          )}
+        </section>
+      )}
       <DataTable
         className="inspection-feedback-table"
         rows={records}
