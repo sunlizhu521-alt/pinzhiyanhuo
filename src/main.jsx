@@ -91,11 +91,17 @@ const MENU_PAGES = [
   { tab: 'inspectionReportLibrary', label: '检验报告单文件库' },
   { tab: 'inspectionReportQuery', label: '检验报告单查询' },
   { tab: 'inspectionSummary', label: '验货信息汇总表' },
-  { tab: 'dimensionLibrary', label: '维度表库存' }
+  { tab: 'dimensionLibrary', label: '维度表库存' },
+  { tab: 'permissionManagement', label: '权限管理' }
+];
+
+const PAGE_OPTIONS = [
+  ...MENU_PAGES,
+  { tab: 'inspectionInitialData', label: '验货信息初始数据' }
 ];
 
 const ROLE_PAGE_ACCESS = {
-  [ROLE_ADMIN]: ['inspectionNotice', 'inspectionSchedule', 'inspectionReportUpload', 'inspectionFeedback', 'inspectionStamp', 'inspectionReportLibrary', 'inspectionReportQuery', 'inspectionSummary', 'inspectionInitialData', 'dimensionLibrary'],
+  [ROLE_ADMIN]: PAGE_OPTIONS.map((page) => page.tab),
   [ROLE_PURCHASER]: ['inspectionNotice'],
   [ROLE_INSPECTOR]: ['inspectionFeedback'],
   [ROLE_SETTLEMENT]: ['inspectionReportQuery', 'inspectionSummary'],
@@ -104,11 +110,13 @@ const ROLE_PAGE_ACCESS = {
 
 function canAccessPage(user, tab) {
   if (!user) return false;
-  return (ROLE_PAGE_ACCESS[user.role] || []).includes(tab);
+  const access = Array.isArray(user.pageAccess) ? user.pageAccess : (ROLE_PAGE_ACCESS[user.role] || []);
+  return access.includes(tab);
 }
 
-function homeTabForRole(role) {
-  return (ROLE_PAGE_ACCESS[role] || [])[0] || 'inspectionNotice';
+function homeTabForUser(user) {
+  const access = Array.isArray(user?.pageAccess) ? user.pageAccess : (ROLE_PAGE_ACCESS[user?.role] || []);
+  return access.find((tab) => MENU_PAGES.some((page) => page.tab === tab)) || '';
 }
 
 function isAdminUser(user) {
@@ -117,9 +125,16 @@ function isAdminUser(user) {
 
 function canReadClientRecord(user, record) {
   if (!user) return false;
-  if (user.role === ROLE_ADMIN || user.role === ROLE_SETTLEMENT) return true;
-  if (user.role === ROLE_PURCHASER) return record.inspectionApplicant === user.name;
-  if (user.role === ROLE_INSPECTOR) return record.schedule?.inspector === user.name;
+  if (
+    user.role === ROLE_ADMIN
+    || canAccessPage(user, 'inspectionReportQuery')
+    || canAccessPage(user, 'inspectionSummary')
+    || canAccessPage(user, 'inspectionSchedule')
+    || canAccessPage(user, 'inspectionStamp')
+    || canAccessPage(user, 'inspectionReportLibrary')
+  ) return true;
+  if (canAccessPage(user, 'inspectionNotice')) return record.inspectionApplicant === user.name;
+  if (canAccessPage(user, 'inspectionFeedback')) return record.schedule?.inspector === user.name;
   return false;
 }
 
@@ -187,12 +202,15 @@ function normalizeStaticDb(db = {}) {
   return {
     users: users.map((user) => {
       if (user.id === DEFAULT_ADMIN_USER.id || user.name === DEFAULT_ADMIN_USER.name || user.role === ROLE_ADMIN) {
-        return { ...user, ...DEFAULT_ADMIN_USER };
+        return { ...user, ...DEFAULT_ADMIN_USER, pageAccess: ROLE_PAGE_ACCESS[ROLE_ADMIN] };
       }
       const role = [ROLE_PURCHASER, ROLE_INSPECTOR, ROLE_SETTLEMENT, ROLE_USER].includes(user.role)
         ? user.role
         : ROLE_USER;
-      return { ...user, id: user.id || createId(), role };
+      const pageAccess = Array.isArray(user.pageAccess)
+        ? user.pageAccess.filter((page) => PAGE_OPTIONS.some((item) => item.tab === page))
+        : (ROLE_PAGE_ACCESS[role] || []);
+      return { ...user, id: user.id || createId(), role, pageAccess };
     }),
     qualityInspection: {
       initialData: { ...fallback.qualityInspection.initialData, ...(inspection.initialData || {}) },
@@ -621,6 +639,7 @@ function App() {
   const [initialImportResult, setInitialImportResult] = useState(null);
   const [dimensionLibrary, setDimensionLibrary] = useState(readDimensionLibrary);
   const [reportFiles, setReportFiles] = useState(() => readReportFileLibrary());
+  const [permissionUsers, setPermissionUsers] = useState([]);
   const [records, setRecords] = useState([]);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -656,12 +675,17 @@ function App() {
 
   useEffect(() => {
     if (!user) return;
-    if (!canAccessPage(user, activeTab)) setActiveTab(homeTabForRole(user.role));
+    if (!canAccessPage(user, activeTab)) setActiveTab(homeTabForUser(user));
   }, [activeTab, user]);
 
   useEffect(() => {
     if (!user || activeTab !== 'inspectionReportLibrary') return;
     refreshReportFiles();
+  }, [activeTab, user]);
+
+  useEffect(() => {
+    if (!user || activeTab !== 'permissionManagement') return;
+    refreshPermissionUsers();
   }, [activeTab, user]);
 
   async function loadData() {
@@ -718,23 +742,24 @@ function App() {
           setMessage('账号或密码不正确。');
           return;
         }
-        const payload = { id: matchedUser.id, name: matchedUser.name, role: matchedUser.role };
+        const payload = { id: matchedUser.id, name: matchedUser.name, role: matchedUser.role, pageAccess: matchedUser.pageAccess || [] };
         localStorage.setItem('qualityInspectionUser', JSON.stringify(payload));
         setUser(payload);
-        setActiveTab(homeTabForRole(payload.role));
+        setActiveTab(homeTabForUser(payload));
         return;
       }
       if (db.users.some((item) => item.name === name)) {
         setMessage('该姓名已存在。');
         return;
       }
-      const newUser = { id: createId(), name, password: inputPassword, role: ROLE_USER };
+      const newUser = { id: createId(), name, password: inputPassword, role: ROLE_USER, pageAccess: [] };
       db.users.push(newUser);
       saveStaticDb(db);
-      const payload = { id: newUser.id, name: newUser.name, role: newUser.role };
+      const payload = { id: newUser.id, name: newUser.name, role: newUser.role, pageAccess: newUser.pageAccess };
       localStorage.setItem('qualityInspectionUser', JSON.stringify(payload));
       setUser(payload);
-      setActiveTab(homeTabForRole(payload.role));
+      setActiveTab(homeTabForUser(payload));
+      setMessage('注册成功，请等待管理员孙立柱授权可访问页面。');
       return;
     }
     const res = await fetch(`${API}/api/auth/${isLogin ? 'login' : 'register'}`, {
@@ -752,7 +777,8 @@ function App() {
     }
     localStorage.setItem('qualityInspectionUser', JSON.stringify(payload));
     setUser(payload);
-    setActiveTab(homeTabForRole(payload.role));
+    setActiveTab(homeTabForUser(payload));
+    if (!payload.pageAccess?.length) setMessage('注册成功，请等待管理员孙立柱授权可访问页面。');
   }
 
   function logout() {
@@ -1044,6 +1070,50 @@ function App() {
     }
     const res = await authFetch(`${API}/api/quality-inspection/report-files`, { cache: 'no-store' });
     if (res.ok) setReportFiles((await res.json()).files || []);
+  }
+
+  async function refreshPermissionUsers() {
+    if (STATIC_MODE) {
+      setPermissionUsers(readStaticDb().users || []);
+      return;
+    }
+    const res = await authFetch(`${API}/api/auth/users`, { cache: 'no-store' });
+    if (res.ok) setPermissionUsers((await res.json()).users || []);
+  }
+
+  async function saveUserPageAccess(targetUser, pageAccess) {
+    if (!targetUser?.id) return;
+    setSavingId(targetUser.id);
+    if (STATIC_MODE) {
+      const db = readStaticDb();
+      const target = db.users.find((item) => item.id === targetUser.id);
+      if (target) {
+        target.pageAccess = target.name === DEFAULT_ADMIN_USER.name ? ROLE_PAGE_ACCESS[ROLE_ADMIN] : pageAccess;
+        saveStaticDb(db);
+        setPermissionUsers(db.users);
+        if (target.id === user.id) {
+          const nextUser = { ...user, pageAccess: target.pageAccess };
+          localStorage.setItem('qualityInspectionUser', JSON.stringify(nextUser));
+          setUser(nextUser);
+        }
+      }
+      setSavingId('');
+      setMessage('用户页面权限已保存。');
+      return;
+    }
+    const res = await authFetch(`${API}/api/auth/users/${encodeURIComponent(targetUser.id)}/access`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pageAccess })
+    });
+    setSavingId('');
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      setMessage(payload.error || '用户页面权限保存失败。');
+      return;
+    }
+    await refreshPermissionUsers();
+    setMessage('用户页面权限已保存。');
   }
 
   async function uploadInitialData(files) {
@@ -1558,6 +1628,7 @@ function App() {
       <main className="login-shell">
         <form className="login-panel" onSubmit={submitAuth}>
           <h1>品质验货</h1>
+          <p className="auth-note">首次使用请先注册账号，注册后需要管理员孙立柱授权页面后才能进入系统。</p>
           {message && <p className="message">{message}</p>}
           {authMode === 'login' ? (
             <>
@@ -1587,6 +1658,19 @@ function App() {
             </>
           )}
         </form>
+      </main>
+    );
+  }
+
+  if (accessibleMenuPages.length === 0) {
+    return (
+      <main className="login-shell">
+        <section className="login-panel waiting-panel">
+          <h1>等待授权</h1>
+          <p className="auth-note">账号 {user.name} 已注册，请联系管理员孙立柱在“权限管理”页面授权可访问页面。</p>
+          {message && <p className="message">{message}</p>}
+          <button type="button" onClick={logout}>退出登录</button>
+        </section>
       </main>
     );
   }
@@ -1699,6 +1783,13 @@ function App() {
             onUpload={uploadDimensionSlot}
             onApply={applyDimensionSlot}
             onDelete={deleteDimensionSlot}
+          />
+        )}
+        {canAccessPage(user, 'permissionManagement') && activeTab === 'permissionManagement' && (
+          <PermissionManagementPage
+            users={permissionUsers}
+            savingId={savingId}
+            onSave={saveUserPageAccess}
           />
         )}
       </section>
@@ -2484,6 +2575,66 @@ function DimensionLibraryPage({ slots, library, onUpload, onApply, onDelete }) {
         })}
       </section>
     </>
+  );
+}
+
+function PermissionManagementPage({ users, savingId, onSave }) {
+  const [drafts, setDrafts] = useState({});
+
+  useEffect(() => {
+    setDrafts(Object.fromEntries(users.map((user) => [user.id, user.pageAccess || []])));
+  }, [users]);
+
+  function togglePage(userId, page, checked) {
+    setDrafts((current) => {
+      const selected = new Set(current[userId] || []);
+      if (checked) selected.add(page);
+      else selected.delete(page);
+      return { ...current, [userId]: [...selected] };
+    });
+  }
+
+  return (
+    <section className="permission-page">
+      <div className="section-heading-row">
+        <h2>权限管理</h2>
+        <span className="section-count">注册用户 {users.length} 个</span>
+      </div>
+      <DataTable
+        className="permission-table"
+        rows={users}
+        columns={['用户', '角色', '可访问页面', '操作']}
+        render={(targetUser) => {
+          const selected = drafts[targetUser.id] || [];
+          const isBuiltInAdmin = targetUser.name === DEFAULT_ADMIN_USER.name;
+          return [
+            targetUser.name,
+            targetUser.role,
+            <div className="permission-checkbox-grid">
+              {PAGE_OPTIONS.map((page) => (
+                <label key={page.tab} className="permission-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(page.tab)}
+                    disabled={isBuiltInAdmin}
+                    onChange={(event) => togglePage(targetUser.id, page.tab, event.target.checked)}
+                  />
+                  <span>{page.label}</span>
+                </label>
+              ))}
+            </div>,
+            <button
+              type="button"
+              className="compact-button"
+              disabled={savingId === targetUser.id || isBuiltInAdmin}
+              onClick={() => onSave(targetUser, selected)}
+            >
+              保存授权
+            </button>
+          ];
+        }}
+      />
+    </section>
   );
 }
 

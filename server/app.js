@@ -20,6 +20,25 @@ const ROLE_PURCHASER = '采购跟单员';
 const ROLE_INSPECTOR = '验货员';
 const ROLE_SETTLEMENT = '结算员';
 const ROLE_USER = '普通用户';
+const PAGE_KEYS = [
+  'inspectionNotice',
+  'inspectionSchedule',
+  'inspectionFeedback',
+  'inspectionStamp',
+  'inspectionReportLibrary',
+  'inspectionReportQuery',
+  'inspectionSummary',
+  'inspectionInitialData',
+  'dimensionLibrary',
+  'permissionManagement'
+];
+const DEFAULT_PAGE_ACCESS_BY_ROLE = {
+  [ROLE_ADMIN]: PAGE_KEYS,
+  [ROLE_PURCHASER]: ['inspectionNotice'],
+  [ROLE_INSPECTOR]: ['inspectionFeedback'],
+  [ROLE_SETTLEMENT]: ['inspectionReportQuery', 'inspectionSummary'],
+  [ROLE_USER]: []
+};
 const DEFAULT_USERS = [
   DEFAULT_ADMIN_USER,
   { id: 'u-purchaser', name: '采购跟单员', password: '123456', role: ROLE_PURCHASER },
@@ -57,6 +76,14 @@ function normalizeRole(role, name) {
   return ROLE_USER;
 }
 
+function normalizePageAccess(user) {
+  if (user.name === DEFAULT_ADMIN_USER.name || user.role === ROLE_ADMIN) return PAGE_KEYS;
+  const existing = Array.isArray(user.pageAccess) ? user.pageAccess : null;
+  const fallback = DEFAULT_PAGE_ACCESS_BY_ROLE[normalizeRole(user.role, user.name)] || [];
+  const source = existing || fallback;
+  return [...new Set(source.filter((page) => PAGE_KEYS.includes(page)))];
+}
+
 function normalizeDb(db = {}) {
   const qualityInspection = db.qualityInspection || {};
   const sourceUsers = Array.isArray(db.users) && db.users.length ? db.users : DEFAULT_USERS;
@@ -73,7 +100,8 @@ function normalizeDb(db = {}) {
       return {
         ...normalized,
         id: normalized.id || randomUUID(),
-        role: normalizeRole(normalized.role, normalized.name)
+        role: normalizeRole(normalized.role, normalized.name),
+        pageAccess: normalizePageAccess(normalized)
       };
     }),
     sessions: db.sessions || {},
@@ -172,18 +200,36 @@ function requireRoles(...roles) {
   };
 }
 
+function hasPageAccess(user, page) {
+  return Array.isArray(user?.pageAccess) && user.pageAccess.includes(page);
+}
+
+function requirePages(...pages) {
+  return (req, res, next) => {
+    if (pages.some((page) => hasPageAccess(req.authUser, page))) return next();
+    return res.status(403).json({ error: '该账号尚未授权访问此页面' });
+  };
+}
+
 function canReadRecord(user, record) {
   if (!user) return false;
-  if (user.role === ROLE_ADMIN || user.role === ROLE_SETTLEMENT) return true;
-  if (user.role === ROLE_PURCHASER) return record.inspectionApplicant === user.name;
-  if (user.role === ROLE_INSPECTOR) return record.schedule?.inspector === user.name;
+  if (
+    user.role === ROLE_ADMIN
+    || hasPageAccess(user, 'inspectionReportQuery')
+    || hasPageAccess(user, 'inspectionSummary')
+    || hasPageAccess(user, 'inspectionSchedule')
+    || hasPageAccess(user, 'inspectionStamp')
+    || hasPageAccess(user, 'inspectionReportLibrary')
+  ) return true;
+  if (hasPageAccess(user, 'inspectionNotice')) return record.inspectionApplicant === user.name;
+  if (hasPageAccess(user, 'inspectionFeedback')) return record.schedule?.inspector === user.name;
   return false;
 }
 
 function canWriteFeedback(user, record) {
   if (!user || !record) return false;
   if (user.role === ROLE_ADMIN) return true;
-  return user.role === ROLE_INSPECTOR && record.schedule?.inspector === user.name;
+  return hasPageAccess(user, 'inspectionFeedback') && record.schedule?.inspector === user.name;
 }
 
 function reportFilePath(fileName) {
@@ -298,7 +344,7 @@ app.post('/api/auth/login', async (req, res) => {
   const token = randomUUID();
   db.sessions[token] = { userId: user.id, createdAt: nowText() };
   await saveDb(db);
-  res.json({ id: user.id, name: user.name, role: user.role, token });
+  res.json({ id: user.id, name: user.name, role: user.role, pageAccess: user.pageAccess || [], token });
 });
 
 app.post('/api/auth/register', async (req, res) => {
@@ -307,20 +353,52 @@ app.post('/api/auth/register', async (req, res) => {
   const password = String(req.body.password || '').trim();
   if (!name || !password) return res.status(400).json({ error: '请输入姓名和密码' });
   if (db.users.some((user) => user.name === name)) return res.status(409).json({ error: '该姓名已存在' });
-  const user = { id: randomUUID(), name, password, role: ROLE_USER };
+  const user = { id: randomUUID(), name, password, role: ROLE_USER, pageAccess: [] };
   db.users.push(user);
   const token = randomUUID();
   db.sessions[token] = { userId: user.id, createdAt: nowText() };
   await saveDb(db);
-  res.json({ id: user.id, name: user.name, role: user.role, token });
+  res.json({ id: user.id, name: user.name, role: user.role, pageAccess: user.pageAccess || [], token });
 });
 
-app.get('/api/quality-inspection/initial-data', requireAuth, requireRoles(ROLE_ADMIN), async (req, res) => {
+app.get('/api/auth/users', requireAuth, requirePages('permissionManagement'), requireRoles(ROLE_ADMIN), async (req, res) => {
+  const db = await readDb();
+  res.json({
+    pages: PAGE_KEYS,
+    users: db.users.map((user) => ({
+      id: user.id,
+      name: user.name,
+      role: user.role,
+      pageAccess: user.pageAccess || []
+    }))
+  });
+});
+
+app.patch('/api/auth/users/:id/access', requireAuth, requirePages('permissionManagement'), requireRoles(ROLE_ADMIN), async (req, res) => {
+  const db = await readDb();
+  const target = db.users.find((user) => user.id === req.params.id);
+  if (!target) return res.status(404).json({ error: '用户不存在' });
+  const pageAccess = Array.isArray(req.body.pageAccess)
+    ? [...new Set(req.body.pageAccess.filter((page) => PAGE_KEYS.includes(page)))]
+    : [];
+  target.pageAccess = target.name === DEFAULT_ADMIN_USER.name
+    ? PAGE_KEYS
+    : pageAccess;
+  await saveDb(db);
+  res.json({
+    id: target.id,
+    name: target.name,
+    role: target.role,
+    pageAccess: target.pageAccess
+  });
+});
+
+app.get('/api/quality-inspection/initial-data', requireAuth, requirePages('inspectionInitialData'), requireRoles(ROLE_ADMIN), async (req, res) => {
   const db = await readDb();
   res.json(db.qualityInspection.initialData);
 });
 
-app.post('/api/quality-inspection/initial-data/import', requireAuth, requireRoles(ROLE_ADMIN), upload.single('file'), async (req, res) => {
+app.post('/api/quality-inspection/initial-data/import', requireAuth, requirePages('inspectionInitialData'), requireRoles(ROLE_ADMIN), upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'missing file' });
   const db = await readDb();
   try {
@@ -338,7 +416,7 @@ app.post('/api/quality-inspection/initial-data/import', requireAuth, requireRole
   }
 });
 
-app.get('/api/quality-inspection/notices', requireAuth, requireRoles(ROLE_ADMIN, ROLE_PURCHASER), async (req, res) => {
+app.get('/api/quality-inspection/notices', requireAuth, requirePages('inspectionNotice'), async (req, res) => {
   const db = await readDb();
   if (req.authUser.role === ROLE_ADMIN) {
     res.json(db.qualityInspection.notices);
@@ -350,14 +428,14 @@ app.get('/api/quality-inspection/notices', requireAuth, requireRoles(ROLE_ADMIN,
   });
 });
 
-app.post('/api/quality-inspection/notices', requireAuth, requireRoles(ROLE_ADMIN, ROLE_PURCHASER), async (req, res) => {
+app.post('/api/quality-inspection/notices', requireAuth, requirePages('inspectionNotice'), async (req, res) => {
   const db = await readDb();
   const user = req.authUser || requestUser(db, req);
   const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
   const preparedRows = rows.map((row) => ({
     id: row.id || randomUUID(),
     ...row,
-    inspectionApplicant: user.role === ROLE_PURCHASER ? user.name : row.inspectionApplicant
+    inspectionApplicant: user.role === ROLE_ADMIN ? row.inspectionApplicant : user.name
   }));
   const existingRows = db.qualityInspection.notices.rows || [];
   const nextRows = user.role === ROLE_ADMIN
@@ -385,12 +463,12 @@ app.post('/api/quality-inspection/notices', requireAuth, requireRoles(ROLE_ADMIN
   });
 });
 
-app.get('/api/quality-inspection/records', requireAuth, async (req, res) => {
+app.get('/api/quality-inspection/records', requireAuth, requirePages('inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'inspectionStamp', 'inspectionReportLibrary', 'inspectionReportQuery', 'inspectionSummary'), async (req, res) => {
   const db = await readDb();
   res.json({ rows: composedRecords(db).filter((record) => canReadRecord(req.authUser, record)) });
 });
 
-app.post('/api/quality-inspection/summary-import', requireAuth, requireRoles(ROLE_ADMIN), async (req, res) => {
+app.post('/api/quality-inspection/summary-import', requireAuth, requirePages('inspectionSummary'), requireRoles(ROLE_ADMIN), async (req, res) => {
   const db = await readDb();
   const user = req.authUser || requestUser(db, req);
   const items = Array.isArray(req.body.items) ? req.body.items : [];
@@ -438,7 +516,7 @@ app.post('/api/quality-inspection/summary-import', requireAuth, requireRoles(ROL
   res.json({ notices: inspection.notices, rows: composedRecords(db) });
 });
 
-app.patch('/api/quality-inspection/schedules/:id', requireAuth, requireRoles(ROLE_ADMIN), async (req, res) => {
+app.patch('/api/quality-inspection/schedules/:id', requireAuth, requirePages('inspectionSchedule'), requireRoles(ROLE_ADMIN), async (req, res) => {
   const db = await readDb();
   db.qualityInspection.schedules[req.params.id] = {
     ...(db.qualityInspection.schedules[req.params.id] || {}),
@@ -449,7 +527,7 @@ app.patch('/api/quality-inspection/schedules/:id', requireAuth, requireRoles(ROL
   res.json(db.qualityInspection.schedules[req.params.id]);
 });
 
-app.post('/api/quality-inspection/reports/:id', requireAuth, upload.single('file'), async (req, res) => {
+app.post('/api/quality-inspection/reports/:id', requireAuth, requirePages('inspectionFeedback'), upload.single('file'), async (req, res) => {
   const db = await readDb();
   const record = composedRecords(db).find((item) => item.id === req.params.id);
   if (!canWriteFeedback(req.authUser, record)) {
@@ -484,7 +562,7 @@ app.post('/api/quality-inspection/reports/:id', requireAuth, upload.single('file
   res.json(next);
 });
 
-app.get('/api/quality-inspection/stamp-reports', requireAuth, requireRoles(ROLE_ADMIN), async (req, res) => {
+app.get('/api/quality-inspection/stamp-reports', requireAuth, requirePages('inspectionStamp'), requireRoles(ROLE_ADMIN), async (req, res) => {
   const db = await readDb();
   const rows = composedRecords(db)
     .filter((record) => record.report?.fileName && !record.report?.stampedAt)
@@ -498,7 +576,7 @@ app.get('/api/quality-inspection/stamp-reports', requireAuth, requireRoles(ROLE_
   res.json({ rows });
 });
 
-app.post('/api/quality-inspection/reports/:id/stamp', requireAuth, requireRoles(ROLE_ADMIN), async (req, res) => {
+app.post('/api/quality-inspection/reports/:id/stamp', requireAuth, requirePages('inspectionStamp'), requireRoles(ROLE_ADMIN), async (req, res) => {
   const db = await readDb();
   const record = composedRecords(db).find((item) => item.id === req.params.id);
   const previous = db.qualityInspection.reports[req.params.id] || {};
@@ -523,12 +601,12 @@ app.post('/api/quality-inspection/reports/:id/stamp', requireAuth, requireRoles(
   res.json(next);
 });
 
-app.get('/api/quality-inspection/report-files', requireAuth, requireRoles(ROLE_ADMIN), async (req, res) => {
+app.get('/api/quality-inspection/report-files', requireAuth, requirePages('inspectionReportLibrary'), requireRoles(ROLE_ADMIN), async (req, res) => {
   const db = await readDb();
   res.json({ files: await reportFileItems(db) });
 });
 
-app.post('/api/quality-inspection/report-files', requireAuth, requireRoles(ROLE_ADMIN), upload.array('files', 30), async (req, res) => {
+app.post('/api/quality-inspection/report-files', requireAuth, requirePages('inspectionReportLibrary'), requireRoles(ROLE_ADMIN), upload.array('files', 30), async (req, res) => {
   const db = await readDb();
   const files = Array.isArray(req.files) ? req.files : [];
   if (!files.length) return res.status(400).json({ error: 'missing files' });
@@ -541,7 +619,7 @@ app.post('/api/quality-inspection/report-files', requireAuth, requireRoles(ROLE_
   res.json({ uploaded, files: await reportFileItems(db) });
 });
 
-app.patch('/api/quality-inspection/report-files/:fileName', requireAuth, requireRoles(ROLE_ADMIN), async (req, res) => {
+app.patch('/api/quality-inspection/report-files/:fileName', requireAuth, requirePages('inspectionReportLibrary'), requireRoles(ROLE_ADMIN), async (req, res) => {
   const db = await readDb();
   const currentName = path.basename(req.params.fileName || '');
   const currentPath = reportFilePath(currentName);
@@ -576,7 +654,7 @@ app.patch('/api/quality-inspection/report-files/:fileName', requireAuth, require
   res.json({ files: await reportFileItems(db) });
 });
 
-app.delete('/api/quality-inspection/report-files/:fileName', requireAuth, requireRoles(ROLE_ADMIN), async (req, res) => {
+app.delete('/api/quality-inspection/report-files/:fileName', requireAuth, requirePages('inspectionReportLibrary'), requireRoles(ROLE_ADMIN), async (req, res) => {
   const db = await readDb();
   const fileName = path.basename(req.params.fileName || '');
   if (!fileName) return res.status(400).json({ error: '文件名不能为空' });
@@ -596,7 +674,7 @@ app.delete('/api/quality-inspection/report-files/:fileName', requireAuth, requir
   res.json({ files: await reportFileItems(db) });
 });
 
-app.patch('/api/quality-inspection/feedback/:id', requireAuth, async (req, res) => {
+app.patch('/api/quality-inspection/feedback/:id', requireAuth, requirePages('inspectionFeedback'), async (req, res) => {
   const db = await readDb();
   const record = composedRecords(db).find((item) => item.id === req.params.id);
   if (!canWriteFeedback(req.authUser, record)) return res.status(403).json({ error: '无权保存该验货反馈' });

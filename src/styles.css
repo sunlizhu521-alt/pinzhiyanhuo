@@ -65,6 +65,17 @@ button.danger-button {
   margin-top: 10px;
 }
 
+.auth-note {
+  margin: -12px 0 18px;
+  color: #64748b;
+  line-height: 1.6;
+}
+
+.waiting-panel {
+  display: grid;
+  gap: 14px;
+}
+
 label {
   display: grid;
   gap: 8px;
@@ -457,6 +468,29 @@ th {
   gap: 8px;
   justify-content: center;
   white-space: nowrap;
+}
+
+.permission-table table {
+  min-width: 1120px;
+}
+
+.permission-checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+  gap: 8px 12px;
+  text-align: left;
+}
+
+.permission-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: #334155;
+}
+
+.permission-checkbox input {
+  width: auto;
 }
 
 .notice-import-preview {
