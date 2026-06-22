@@ -6,6 +6,7 @@ import './styles.css';
 const API = import.meta.env.DEV ? 'http://localhost:4002' : '';
 const STATIC_MODE = import.meta.env.PROD;
 const STATIC_DB_KEY = 'qualityInspectionStaticDb';
+const DIMENSION_LIBRARY_KEY = 'qualityInspectionDimensionLibrary';
 const DEFAULT_ADMIN_USER = { id: 'u-admin', name: '孙立柱', password: '521sunlizhu', role: '管理员' };
 
 const NOTICE_FIELDS = [
@@ -51,7 +52,15 @@ const MENU_PAGES = [
   { tab: 'inspectionFeedback', label: '验货反馈' },
   { tab: 'inspectionReportQuery', label: '检验报告单查询' },
   { tab: 'inspectionSummary', label: '验货信息汇总表' },
-  { tab: 'inspectionInitialData', label: '验货信息初始数据' }
+  { tab: 'inspectionInitialData', label: '验货信息初始数据' },
+  { tab: 'dimensionLibrary', label: '维度表库存' }
+];
+
+const DIMENSION_LIBRARY_SLOTS = [
+  { id: 'dimension-slot-1', title: '维度表槽位 1' },
+  { id: 'dimension-slot-2', title: '维度表槽位 2' },
+  { id: 'dimension-slot-3', title: '维度表槽位 3' },
+  { id: 'dimension-slot-4', title: '维度表槽位 4' }
 ];
 
 function createId() {
@@ -130,6 +139,22 @@ function readStaticDb() {
 
 function saveStaticDb(db) {
   localStorage.setItem(STATIC_DB_KEY, JSON.stringify(normalizeStaticDb(db)));
+}
+
+function readDimensionLibrary() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DIMENSION_LIBRARY_KEY) || '{}');
+    return DIMENSION_LIBRARY_SLOTS.reduce((library, slot) => ({
+      ...library,
+      [slot.id]: saved[slot.id] || null
+    }), {});
+  } catch {
+    return DIMENSION_LIBRARY_SLOTS.reduce((library, slot) => ({ ...library, [slot.id]: null }), {});
+  }
+}
+
+function saveDimensionLibrary(library) {
+  localStorage.setItem(DIMENSION_LIBRARY_KEY, JSON.stringify(library));
 }
 
 function composedStaticRecords(db) {
@@ -239,6 +264,7 @@ function App() {
   const [noticeImportPreview, setNoticeImportPreview] = useState(null);
   const [initialData, setInitialData] = useState({ sheetName: '', columns: [], rows: [], updatedAt: '' });
   const [initialImportResult, setInitialImportResult] = useState(null);
+  const [dimensionLibrary, setDimensionLibrary] = useState(readDimensionLibrary);
   const [records, setRecords] = useState([]);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -481,6 +507,61 @@ function App() {
     setInitialData(payload);
     setInitialImportResult(payload);
     setMessage(`验货信息初始数据已读取：成功 ${payload.importedCount || 0} 行。`);
+  }
+
+  async function uploadDimensionSlot(slotId, files) {
+    const file = files?.[0];
+    if (!file) return;
+    try {
+      const result = await parseWorkbookInBrowser(file);
+      const record = {
+        id: slotId,
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type || '未知类型',
+        sheetName: result.sheetName || '',
+        columns: result.columns || [],
+        rows: result.rows || [],
+        importedCount: result.importedCount || 0,
+        savedAt: nowText(),
+        applied: false,
+        appliedAt: ''
+      };
+      setDimensionLibrary((current) => {
+        const next = { ...current, [slotId]: record };
+        saveDimensionLibrary(next);
+        return next;
+      });
+      setMessage(`维度表库存已读取：${file.name}，共 ${record.importedCount} 行，请确认后应用刷新。`);
+    } catch {
+      setMessage('维度表库存读取失败，请检查文件格式。');
+    }
+  }
+
+  function applyDimensionSlot(slotId) {
+    setDimensionLibrary((current) => {
+      const existing = current[slotId];
+      if (!existing) {
+        setMessage('该槽位暂无可应用文件。');
+        return current;
+      }
+      const next = {
+        ...current,
+        [slotId]: { ...existing, applied: true, appliedAt: nowText() }
+      };
+      saveDimensionLibrary(next);
+      setMessage(`${existing.fileName} 已应用刷新。`);
+      return next;
+    });
+  }
+
+  function deleteDimensionSlot(slotId) {
+    setDimensionLibrary((current) => {
+      const next = { ...current, [slotId]: null };
+      saveDimensionLibrary(next);
+      return next;
+    });
+    setMessage('已清除该维度表槽位。');
   }
 
   async function saveSchedules(scheduleDrafts) {
@@ -772,6 +853,15 @@ function App() {
         )}
         {activeTab === 'inspectionInitialData' && (
           <InitialDataPage data={initialData} result={initialImportResult} onUpload={uploadInitialData} />
+        )}
+        {activeTab === 'dimensionLibrary' && (
+          <DimensionLibraryPage
+            slots={DIMENSION_LIBRARY_SLOTS}
+            library={dimensionLibrary}
+            onUpload={uploadDimensionSlot}
+            onApply={applyDimensionSlot}
+            onDelete={deleteDimensionSlot}
+          />
         )}
       </section>
     </main>
@@ -1177,6 +1267,71 @@ function InitialDataPage({ data, result, onUpload }) {
           columns={columns}
           render={(row) => columns.map((column) => row[column] || '')}
         />
+      </section>
+    </>
+  );
+}
+
+function DimensionLibraryPage({ slots, library, onUpload, onApply, onDelete }) {
+  const filledCount = slots.filter((slot) => library[slot.id]).length;
+  const appliedCount = slots.filter((slot) => library[slot.id]?.applied).length;
+  return (
+    <>
+      <div className="section-heading-row">
+        <h2>维度表库存</h2>
+        <span className="section-count">4 个槽位，已上传 {filledCount} 个，已应用 {appliedCount} 个</span>
+      </div>
+      <section className="dimension-library-grid">
+        {slots.map((slot, index) => {
+          const record = library[slot.id];
+          const columns = record?.columns?.length ? record.columns.slice(0, 8) : ['暂无字段'];
+          const previewRows = record?.rows?.slice(0, 5) || [];
+          return (
+            <article key={slot.id} className="dimension-slot-card">
+              <div className="slot-head">
+                <div>
+                  <span className="slot-kicker">槽位 {index + 1}</span>
+                  <h3>{slot.title}</h3>
+                </div>
+                <span className={`slot-state ${record?.applied ? 'applied' : record ? 'pending' : ''}`}>
+                  {record?.applied ? '已应用' : record ? '待应用' : '缺失'}
+                </span>
+              </div>
+              <label
+                className="dimension-drop-zone"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => { event.preventDefault(); onUpload(slot.id, event.dataTransfer.files); }}
+              >
+                <input type="file" accept=".xlsx,.xls,.csv" onChange={(event) => onUpload(slot.id, event.target.files)} />
+                <strong>{record ? '替换维度表文件' : '上传维度表文件'}</strong>
+                <span>点击或拖拽 Excel / CSV 到此槽位</span>
+              </label>
+              {record ? (
+                <>
+                  <div className="slot-info">
+                    <span>文件：{record.fileName}</span>
+                    <span>工作表：{record.sheetName || '未识别'}</span>
+                    <span>行数：{record.importedCount || 0}</span>
+                    <span>保存：{record.savedAt}</span>
+                    {record.appliedAt && <span>应用：{record.appliedAt}</span>}
+                  </div>
+                  <DataTable
+                    className="dimension-preview-table"
+                    rows={previewRows}
+                    columns={columns}
+                    render={(row) => columns.map((column) => row[column] || '')}
+                  />
+                  <div className="card-actions">
+                    <button type="button" className="compact-button" onClick={() => onApply(slot.id)}>应用刷新</button>
+                    <button type="button" className="ghost compact-button" onClick={() => onDelete(slot.id)}>删除</button>
+                  </div>
+                </>
+              ) : (
+                <EmptyState text="暂无维度表文件" />
+              )}
+            </article>
+          );
+        })}
       </section>
     </>
   );
