@@ -4,7 +4,7 @@ import multer from 'multer';
 import xlsx from 'xlsx';
 import { format } from 'date-fns';
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -188,6 +188,68 @@ function canWriteFeedback(user, record) {
 
 function reportFilePath(fileName) {
   return path.join(uploadDir, path.basename(fileName || ''));
+}
+
+async function uniqueUploadName(fileName) {
+  const ext = path.extname(fileName || '');
+  const base = safeFileBaseName(path.basename(fileName || 'report', ext), `report-${Date.now()}`);
+  let candidate = `${base}${ext}`;
+  let index = 1;
+  while (true) {
+    try {
+      await stat(reportFilePath(candidate));
+      candidate = `${base}-${index}${ext}`;
+      index += 1;
+    } catch {
+      return candidate;
+    }
+  }
+}
+
+function fileUrl(fileName) {
+  return `/uploads/${encodeURIComponent(fileName)}`;
+}
+
+function reportReferenceMap(db) {
+  const map = new Map();
+  composedRecords(db).forEach((record) => {
+    const fileName = record.report?.fileName;
+    if (!fileName) return;
+    map.set(fileName, {
+      recordId: record.id,
+      reportNo: record.report.reportNo || '',
+      supplierShortName: record.supplierShortName || '',
+      productLine: record.salesProductLine || '',
+      series: record.series || '',
+      stampedAt: record.report.stampedAt || '',
+      stampedBy: record.report.stampedBy || '',
+      uploadedAt: record.report.uploadedAt || '',
+      updatedAt: record.report.updatedAt || ''
+    });
+  });
+  return map;
+}
+
+async function reportFileItems(db) {
+  await mkdir(uploadDir, { recursive: true });
+  const references = reportReferenceMap(db);
+  const entries = await readdir(uploadDir, { withFileTypes: true }).catch(() => []);
+  const files = await Promise.all(entries
+    .filter((entry) => entry.isFile())
+    .map(async (entry) => {
+      const stats = await stat(reportFilePath(entry.name));
+      const linked = references.get(entry.name) || {};
+      return {
+        id: entry.name,
+        fileName: entry.name,
+        fileUrl: fileUrl(entry.name),
+        size: stats.size,
+        modifiedAt: format(stats.mtime, 'yyyy-MM-dd HH:mm:ss'),
+        source: linked.recordId ? '验货报告' : '历史上传',
+        ...linked
+      };
+    }));
+  return files.sort((a, b) => String(b.modifiedAt).localeCompare(String(a.modifiedAt)));
 }
 
 function composedRecords(db) {
@@ -459,6 +521,79 @@ app.post('/api/quality-inspection/reports/:id/stamp', requireAuth, requireRoles(
   db.qualityInspection.reports[req.params.id] = next;
   await saveDb(db);
   res.json(next);
+});
+
+app.get('/api/quality-inspection/report-files', requireAuth, requireRoles(ROLE_ADMIN), async (req, res) => {
+  const db = await readDb();
+  res.json({ files: await reportFileItems(db) });
+});
+
+app.post('/api/quality-inspection/report-files', requireAuth, requireRoles(ROLE_ADMIN), upload.array('files', 30), async (req, res) => {
+  const db = await readDb();
+  const files = Array.isArray(req.files) ? req.files : [];
+  if (!files.length) return res.status(400).json({ error: 'missing files' });
+  const uploaded = [];
+  for (const file of files) {
+    const storedName = await uniqueUploadName(file.originalname || `report-${Date.now()}`);
+    await rename(file.path, reportFilePath(storedName));
+    uploaded.push(storedName);
+  }
+  res.json({ uploaded, files: await reportFileItems(db) });
+});
+
+app.patch('/api/quality-inspection/report-files/:fileName', requireAuth, requireRoles(ROLE_ADMIN), async (req, res) => {
+  const db = await readDb();
+  const currentName = path.basename(req.params.fileName || '');
+  const currentPath = reportFilePath(currentName);
+  const ext = path.extname(currentName);
+  const requestedName = String(req.body.fileName || '').trim();
+  const requestedExt = path.extname(requestedName);
+  const targetBase = safeFileBaseName(path.basename(requestedName, requestedExt || ext), '');
+  if (!currentName || !targetBase) return res.status(400).json({ error: '文件名不能为空' });
+  const nextName = `${targetBase}${requestedExt || ext}`;
+  if (nextName !== currentName) {
+    const nextPath = reportFilePath(nextName);
+    try {
+      await stat(currentPath);
+    } catch {
+      return res.status(404).json({ error: '文件不存在' });
+    }
+    try {
+      await stat(nextPath);
+      return res.status(409).json({ error: '目标文件名已存在' });
+    } catch {
+      await rename(currentPath, nextPath);
+    }
+    Object.values(db.qualityInspection.reports || {}).forEach((report) => {
+      if (report.fileName === currentName) {
+        report.fileName = nextName;
+        report.originalName = nextName;
+        report.updatedAt = nowText();
+      }
+    });
+    await saveDb(db);
+  }
+  res.json({ files: await reportFileItems(db) });
+});
+
+app.delete('/api/quality-inspection/report-files/:fileName', requireAuth, requireRoles(ROLE_ADMIN), async (req, res) => {
+  const db = await readDb();
+  const fileName = path.basename(req.params.fileName || '');
+  if (!fileName) return res.status(400).json({ error: '文件名不能为空' });
+  await unlink(reportFilePath(fileName)).catch(() => {});
+  Object.values(db.qualityInspection.reports || {}).forEach((report) => {
+    if (report.fileName === fileName) {
+      delete report.fileName;
+      delete report.originalName;
+      delete report.uploadedAt;
+      delete report.stampedAt;
+      delete report.stampedBy;
+      delete report.stampRotation;
+      report.updatedAt = nowText();
+    }
+  });
+  await saveDb(db);
+  res.json({ files: await reportFileItems(db) });
 });
 
 app.patch('/api/quality-inspection/feedback/:id', requireAuth, async (req, res) => {

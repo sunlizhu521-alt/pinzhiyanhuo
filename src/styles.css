@@ -415,6 +415,50 @@ th {
   display: none;
 }
 
+.report-library-upload-zone {
+  min-height: 96px;
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  margin: 0 0 14px;
+  padding: 14px;
+  border: 1px dashed #9db4d5;
+  border-radius: 8px;
+  background: white;
+  color: #475569;
+  text-align: center;
+  cursor: pointer;
+}
+
+.report-library-upload-zone strong {
+  color: #1e293b;
+}
+
+.report-library-upload-zone span {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.report-library-upload-zone input {
+  display: none;
+}
+
+.report-library-table table {
+  min-width: 1480px;
+}
+
+.report-library-table a {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.table-action-row {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  white-space: nowrap;
+}
+
 .notice-import-preview {
   display: grid;
   gap: 10px;

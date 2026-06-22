@@ -7,6 +7,7 @@ const API = import.meta.env.DEV ? 'http://localhost:4002' : '';
 const STATIC_MODE = import.meta.env.VITE_STATIC_MODE === '1';
 const STATIC_DB_KEY = 'qualityInspectionStaticDb';
 const DIMENSION_LIBRARY_KEY = 'qualityInspectionDimensionLibrary';
+const REPORT_FILE_LIBRARY_KEY = 'qualityInspectionReportFileLibrary';
 const DIMENSION_PREVIEW_ROW_LIMIT = 20;
 const DEFAULT_ADMIN_USER = { id: 'u-admin', name: '孙立柱', password: '521sunlizhu', role: '管理员' };
 const ROLE_ADMIN = '管理员';
@@ -87,13 +88,14 @@ const MENU_PAGES = [
   { tab: 'inspectionSchedule', label: '验货安排' },
   { tab: 'inspectionFeedback', label: '验货反馈' },
   { tab: 'inspectionStamp', label: '加盖检验章' },
+  { tab: 'inspectionReportLibrary', label: '检验报告单文件库' },
   { tab: 'inspectionReportQuery', label: '检验报告单查询' },
   { tab: 'inspectionSummary', label: '验货信息汇总表' },
   { tab: 'dimensionLibrary', label: '维度表库存' }
 ];
 
 const ROLE_PAGE_ACCESS = {
-  [ROLE_ADMIN]: ['inspectionNotice', 'inspectionSchedule', 'inspectionReportUpload', 'inspectionFeedback', 'inspectionStamp', 'inspectionReportQuery', 'inspectionSummary', 'inspectionInitialData', 'dimensionLibrary'],
+  [ROLE_ADMIN]: ['inspectionNotice', 'inspectionSchedule', 'inspectionReportUpload', 'inspectionFeedback', 'inspectionStamp', 'inspectionReportLibrary', 'inspectionReportQuery', 'inspectionSummary', 'inspectionInitialData', 'dimensionLibrary'],
   [ROLE_PURCHASER]: ['inspectionNotice'],
   [ROLE_INSPECTOR]: ['inspectionFeedback'],
   [ROLE_SETTLEMENT]: ['inspectionReportQuery', 'inspectionSummary'],
@@ -229,6 +231,24 @@ function readDimensionLibrary() {
 function saveDimensionLibrary(library) {
   try {
     localStorage.setItem(DIMENSION_LIBRARY_KEY, JSON.stringify(library));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readReportFileLibrary() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(REPORT_FILE_LIBRARY_KEY) || '[]');
+    return Array.isArray(saved) ? saved : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveReportFileLibrary(files) {
+  try {
+    localStorage.setItem(REPORT_FILE_LIBRARY_KEY, JSON.stringify(files));
     return true;
   } catch {
     return false;
@@ -512,6 +532,14 @@ function imageMimeForReport(record) {
   return 'image/png';
 }
 
+function formatFileSize(size) {
+  const value = Number(size || 0);
+  if (!value) return '';
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
 function loadImageElement(src) {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -592,6 +620,7 @@ function App() {
   const [initialData, setInitialData] = useState({ sheetName: '', columns: [], rows: [], updatedAt: '' });
   const [initialImportResult, setInitialImportResult] = useState(null);
   const [dimensionLibrary, setDimensionLibrary] = useState(readDimensionLibrary);
+  const [reportFiles, setReportFiles] = useState(() => readReportFileLibrary());
   const [records, setRecords] = useState([]);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -628,6 +657,11 @@ function App() {
   useEffect(() => {
     if (!user) return;
     if (!canAccessPage(user, activeTab)) setActiveTab(homeTabForRole(user.role));
+  }, [activeTab, user]);
+
+  useEffect(() => {
+    if (!user || activeTab !== 'inspectionReportLibrary') return;
+    refreshReportFiles();
   }, [activeTab, user]);
 
   async function loadData() {
@@ -1003,6 +1037,15 @@ function App() {
     if (res.ok) setRecords((await res.json()).rows || []);
   }
 
+  async function refreshReportFiles() {
+    if (STATIC_MODE) {
+      setReportFiles(readReportFileLibrary());
+      return;
+    }
+    const res = await authFetch(`${API}/api/quality-inspection/report-files`, { cache: 'no-store' });
+    if (res.ok) setReportFiles((await res.json()).files || []);
+  }
+
   async function uploadInitialData(files) {
     const file = files?.[0];
     if (!file) return;
@@ -1334,6 +1377,154 @@ function App() {
     }
   }
 
+  const reportLibraryItems = useMemo(() => {
+    if (!STATIC_MODE) return reportFiles;
+    const linkedFiles = records
+      .filter((record) => reportHref(record))
+      .map((record) => ({
+        id: `record-${record.id}`,
+        recordId: record.id,
+        fileName: record.report?.originalName || record.report?.fileName || record.report?.reportNo || '检验报告单',
+        fileUrl: reportHref(record),
+        source: record.report?.stampedAt ? '已盖章报告' : '验货报告',
+        reportNo: record.report?.reportNo || '',
+        supplierShortName: record.supplierShortName || '',
+        productLine: record.salesProductLine || '',
+        series: record.series || '',
+        stampedAt: record.report?.stampedAt || '',
+        stampedBy: record.report?.stampedBy || '',
+        uploadedAt: record.report?.uploadedAt || '',
+        modifiedAt: record.report?.updatedAt || record.report?.uploadedAt || ''
+      }));
+    return [...reportFiles, ...linkedFiles];
+  }, [reportFiles, records]);
+
+  async function uploadReportLibraryFiles(files) {
+    const selectedFiles = Array.from(files || []);
+    if (!selectedFiles.length) return;
+    setSavingId('inspectionReportLibrary');
+    if (STATIC_MODE) {
+      try {
+        const uploaded = await Promise.all(selectedFiles.map(async (file) => ({
+          id: createId(),
+          fileName: file.name,
+          fileUrl: await readFileAsDataUrl(file),
+          size: file.size,
+          source: '历史上传',
+          modifiedAt: nowText()
+        })));
+        const nextFiles = [...readReportFileLibrary(), ...uploaded];
+        saveReportFileLibrary(nextFiles);
+        setReportFiles(nextFiles);
+        setMessage(`检验报告单文件已上传：${uploaded.length} 个。`);
+      } catch {
+        setMessage('检验报告单文件上传失败。');
+      } finally {
+        setSavingId('');
+      }
+      return;
+    }
+    const form = new FormData();
+    selectedFiles.forEach((file) => form.append('files', file));
+    const res = await authFetch(`${API}/api/quality-inspection/report-files`, { method: 'POST', body: form });
+    setSavingId('');
+    if (!res.ok) {
+      setMessage('检验报告单文件上传失败。');
+      return;
+    }
+    const payload = await res.json();
+    setReportFiles(payload.files || []);
+    setMessage(`检验报告单文件已上传：${selectedFiles.length} 个。`);
+  }
+
+  async function renameReportLibraryFile(file, nextName) {
+    const fileName = normalize(nextName);
+    if (!fileName) {
+      setMessage('文件名不能为空。');
+      return;
+    }
+    setSavingId(file.id || file.fileName);
+    if (STATIC_MODE) {
+      if (file.recordId) {
+        const db = readStaticDb();
+        db.qualityInspection.reports[file.recordId] = {
+          ...(db.qualityInspection.reports[file.recordId] || {}),
+          fileName,
+          originalName: fileName,
+          updatedAt: nowText()
+        };
+        saveStaticDb(db);
+        setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
+      } else {
+        const nextFiles = readReportFileLibrary().map((item) => (
+          item.id === file.id ? { ...item, fileName, modifiedAt: nowText() } : item
+        ));
+        saveReportFileLibrary(nextFiles);
+        setReportFiles(nextFiles);
+      }
+      setSavingId('');
+      setMessage('文件名已修改。');
+      return;
+    }
+    const res = await authFetch(`${API}/api/quality-inspection/report-files/${encodeURIComponent(file.fileName)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileName })
+    });
+    setSavingId('');
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      setMessage(payload.error || '文件名修改失败。');
+      return;
+    }
+    const payload = await res.json();
+    setReportFiles(payload.files || []);
+    await refreshRecords();
+    setMessage('文件名已修改。');
+  }
+
+  async function deleteReportLibraryFile(file) {
+    if (!window.confirm(`确认删除文件：${file.fileName}？`)) return;
+    setSavingId(file.id || file.fileName);
+    if (STATIC_MODE) {
+      if (file.recordId) {
+        const db = readStaticDb();
+        const report = db.qualityInspection.reports[file.recordId] || {};
+        delete report.fileName;
+        delete report.originalName;
+        delete report.fileDataUrl;
+        delete report.uploadedAt;
+        delete report.stampedAt;
+        delete report.stampedBy;
+        delete report.stampRotation;
+        report.updatedAt = nowText();
+        db.qualityInspection.reports[file.recordId] = report;
+        saveStaticDb(db);
+        setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
+      } else {
+        const nextFiles = readReportFileLibrary().filter((item) => item.id !== file.id);
+        saveReportFileLibrary(nextFiles);
+        setReportFiles(nextFiles);
+      }
+      setSavingId('');
+      setMessage('文件已删除。');
+      return;
+    }
+    const res = await authFetch(`${API}/api/quality-inspection/report-files/${encodeURIComponent(file.fileName)}`, {
+      method: 'DELETE'
+    });
+    setSavingId('');
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      setMessage(payload.error || '文件删除失败。');
+      return;
+    }
+    const payload = await res.json();
+    setReportFiles(payload.files || []);
+    await refreshRecords();
+    setMessage('文件已删除。');
+  }
+
   const filteredRecords = useMemo(() => {
     const keyword = normalize(query).toLowerCase();
     return records.filter((record) => {
@@ -1467,6 +1658,15 @@ function App() {
             records={records.filter((record) => reportHref(record) && !record.report?.stampedAt)}
             savingId={savingId}
             onStamp={stampReport}
+          />
+        )}
+        {canAccessPage(user, 'inspectionReportLibrary') && activeTab === 'inspectionReportLibrary' && (
+          <ReportFileLibraryPage
+            files={reportLibraryItems}
+            savingId={savingId}
+            onUpload={uploadReportLibraryFiles}
+            onRename={renameReportLibraryFile}
+            onDelete={deleteReportLibraryFile}
           />
         )}
         {canAccessPage(user, 'inspectionReportQuery') && activeTab === 'inspectionReportQuery' && (
@@ -1964,6 +2164,85 @@ function InspectionStampPage({ records, savingId, onStamp }) {
           </section>
         </div>
       )}
+    </section>
+  );
+}
+
+function ReportFileLibraryPage({ files, savingId, onUpload, onRename, onDelete }) {
+  const [drafts, setDrafts] = useState({});
+
+  useEffect(() => {
+    setDrafts(Object.fromEntries(files.map((file) => [file.id || file.fileName, file.fileName || ''])));
+  }, [files]);
+
+  return (
+    <section className="report-library-page">
+      <div className="section-heading-row">
+        <h2>检验报告单文件库</h2>
+        <span className="section-count">共 {files.length} 个文件</span>
+      </div>
+      <label
+        className="report-library-upload-zone"
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault();
+          onUpload(event.dataTransfer.files);
+        }}
+      >
+        <input
+          type="file"
+          multiple
+          accept=".pdf,.png,.jpg,.jpeg,.webp,.xlsx,.xls,.doc,.docx"
+          onChange={(event) => {
+            onUpload(event.target.files);
+            event.target.value = '';
+          }}
+        />
+        <strong>拖拽历史检验报告单到这里，或点击上传</strong>
+        <span>支持图片、PDF、Excel、Word；加盖章后的报告单也会在这里展示</span>
+      </label>
+      <DataTable
+        className="report-library-table"
+        rows={files}
+        columns={['文件名', '来源', '报告编码', '供应商', '产品线/系列', '盖章状态', '大小', '更新时间', '查看', '操作']}
+        render={(file) => {
+          const key = file.id || file.fileName;
+          const draftName = drafts[key] ?? file.fileName ?? '';
+          return [
+            <input
+              className="table-input wide-input"
+              value={draftName}
+              onChange={(event) => setDrafts((current) => ({ ...current, [key]: event.target.value }))}
+            />,
+            file.source || '',
+            file.reportNo || '',
+            file.supplierShortName || '',
+            [file.productLine, file.series].filter(Boolean).join(' / '),
+            file.stampedAt ? `已盖章 ${file.stampedAt}` : '未盖章',
+            formatFileSize(file.size),
+            file.modifiedAt || file.updatedAt || file.uploadedAt || '',
+            file.fileUrl ? <a href={file.fileUrl} target="_blank" rel="noreferrer">查看文件</a> : '',
+            <div className="table-action-row">
+              <button
+                type="button"
+                className="compact-button"
+                disabled={savingId === key || draftName === file.fileName}
+                onClick={() => onRename(file, draftName)}
+              >
+                保存
+              </button>
+              <button
+                type="button"
+                className="danger-button compact-button"
+                disabled={savingId === key}
+                onClick={() => onDelete(file)}
+              >
+                删除
+              </button>
+            </div>
+          ];
+        }}
+      />
     </section>
   );
 }
