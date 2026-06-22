@@ -667,6 +667,7 @@ function App() {
       issueLevel: normalize(form.get('issueLevel')),
       issueCategoryPrimary: normalize(form.get('issueCategoryPrimary')),
       issueCategorySecondary: normalize(form.get('issueCategorySecondary')),
+      actualInspector: normalize(form.get('actualInspector')),
       feedbackText: normalize(form.get('feedbackText'))
     };
     if (STATIC_MODE) {
@@ -1123,7 +1124,9 @@ function FeedbackPage({ records, savingId, onSave }) {
           '问题分类',
           '问题反馈',
           '检验报告单上传功能',
-          '操作'
+          '验货员',
+          '实际验货人',
+          '提交按钮'
         ]}
         render={(record) => [
           record.supplierShortName,
@@ -1157,8 +1160,10 @@ function FeedbackPage({ records, savingId, onSave }) {
             {reportHref(record) && <a href={reportHref(record)} target="_blank" rel="noreferrer">{record.report?.originalName || '查看报告'}</a>}
             <input name="reportFile" form={`feedback-form-${record.id}`} type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx" />
           </div>,
+          record.schedule?.inspector || '',
+          <input name="actualInspector" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.actualInspector || ''} />,
           <form id={`feedback-form-${record.id}`} onSubmit={(event) => { event.preventDefault(); onSave(record, event.currentTarget); }}>
-            <button type="submit" className="compact-button" disabled={savingId === record.id}>保存</button>
+            <button type="submit" className="compact-button" disabled={savingId === record.id}>提交</button>
           </form>
         ]}
       />
