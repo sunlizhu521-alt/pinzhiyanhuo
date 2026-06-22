@@ -66,8 +66,8 @@ const MENU_PAGES = [
 ];
 
 const DIMENSION_LIBRARY_SLOTS = [
-  { id: 'dimension-slot-1', title: '维度表槽位 1' },
-  { id: 'dimension-slot-2', title: '维度表槽位 2' },
+  { id: 'dimension-slot-1', title: '商品分类维表' },
+  { id: 'dimension-slot-2', title: '采购分工明细' },
   { id: 'dimension-slot-3', title: '维度表槽位 3' },
   { id: 'dimension-slot-4', title: '维度表槽位 4' }
 ];
