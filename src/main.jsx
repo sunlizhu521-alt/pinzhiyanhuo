@@ -25,6 +25,7 @@ const DEFAULT_USERS = [
 
 const NOTICE_FIELDS = [
   { key: 'inspectionApplicant', label: '验货填写人', readonly: true },
+  { key: 'inspectionNotifier', label: '验货通知人' },
   { key: 'inspectionFillTime', label: '验货填写时间', type: 'date' },
   { key: 'supplierFinishTime', label: '供应商完工时间', type: 'date' },
   { key: 'shipmentTime', label: '可验货时间', type: 'date' },
@@ -42,7 +43,8 @@ const NOTICE_FIELDS = [
 ];
 
 const NOTICE_IMPORT_ALIASES = {
-  inspectionApplicant: ['验货填写人', '填写人', '申请人', '提报人', '验货通知人'],
+  inspectionApplicant: ['验货填写人', '填写人', '申请人', '提报人'],
+  inspectionNotifier: ['验货通知人', '通知人', '验货联系人', '联系人'],
   inspectionFillTime: ['验货填写时间', '填写时间', '申请时间', '提报时间', '通知时间'],
   supplierFinishTime: ['供应商完工时间', '完工时间', '供应商完成时间'],
   shipmentTime: ['可验货时间', '发货时间', '出货时间', '计划发货时间'],
@@ -2299,7 +2301,7 @@ function InspectionSchedulePage({ records, savingId, onSubmit }) {
           record.totalQuantity,
           record.businessDepartments,
           record.operation,
-          record.inspectionApplicant,
+          record.inspectionNotifier || record.inspectionApplicant,
           <input
             className="table-input"
             type="date"
@@ -2473,7 +2475,7 @@ function FeedbackPage({ records, savingId, canImport, importPreview, onUpload, o
           record.totalQuantity,
           record.businessDepartments,
           record.operation,
-          record.inspectionApplicant,
+          record.inspectionNotifier || record.inspectionApplicant,
           <input name="actualInspectionTime" form={`feedback-form-${record.id}`} className="table-input" type="date" defaultValue={formatDate(record.feedback?.actualInspectionTime)} />,
           <input name="inspectionDays" form={`feedback-form-${record.id}`} className="table-input narrow-input" defaultValue={record.feedback?.inspectionDays || ''} />,
           <input name="inspectionMethod" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.inspectionMethod || ''} />,
