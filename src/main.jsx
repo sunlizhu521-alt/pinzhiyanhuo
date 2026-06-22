@@ -169,6 +169,19 @@ function normalize(value) {
   return String(value ?? '').trim();
 }
 
+function fixMojibakeText(value) {
+  const text = normalize(value);
+  if (!/[ÃÂÄÅéèç¤¥¦§¨©ª«¬®¯°±²³´µ¶·¸¹º»¼½¾¿]/.test(text)) return text;
+  try {
+    const decoded = decodeURIComponent(Array.from(text)
+      .map((char) => `%${char.charCodeAt(0).toString(16).padStart(2, '0').slice(-2)}`)
+      .join(''));
+    return /[\u4e00-\u9fff]/.test(decoded) ? decoded : text;
+  } catch {
+    return text;
+  }
+}
+
 function normalizeHeader(value) {
   return normalize(value).replace(/\s+/g, '').toLowerCase();
 }
@@ -238,7 +251,10 @@ function normalizeStaticDb(db = {}) {
 function normalizeDimensionLibrary(library = {}) {
   return DIMENSION_LIBRARY_SLOTS.reduce((normalized, slot) => ({
     ...normalized,
-    [slot.id]: library[slot.id] || null
+    [slot.id]: library[slot.id] ? {
+      ...library[slot.id],
+      fileName: fixMojibakeText(library[slot.id].fileName)
+    } : null
   }), {});
 }
 
@@ -344,22 +360,7 @@ function parseWorkbookSheetsInBrowser(file) {
         const workbook = XLSX.read(reader.result, { type: 'array', cellDates: true });
         const sheets = workbook.SheetNames.map((sheetName) => {
           const sheet = workbook.Sheets[sheetName];
-          const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false });
-          const headerIndex = matrix.findIndex((row) => row.some((cell) => normalize(cell)));
-          if (headerIndex === -1) {
-            return { sheetName, columns: [], rows: [], importedCount: 0 };
-          }
-          const columns = matrix[headerIndex].map((cell, index) => normalize(cell) || `字段${index + 1}`);
-          const rows = matrix.slice(headerIndex + 1)
-            .filter((row) => row.some((cell) => normalize(cell)))
-            .map((row) => {
-              const item = { id: createId(), __cells: row.map((cell) => normalize(cell)) };
-              columns.forEach((column, index) => {
-                item[column] = normalize(row[index]);
-              });
-              return item;
-            });
-          return { sheetName, columns, rows, importedCount: rows.length };
+          return parseDimensionSheet(sheetName, sheet);
         });
 
         resolve({
@@ -377,6 +378,44 @@ function parseWorkbookSheetsInBrowser(file) {
     };
     reader.readAsArrayBuffer(file);
   });
+}
+
+function scoreDimensionHeaderRow(row = []) {
+  const cells = row.map(normalize).filter(Boolean);
+  if (!cells.length) return -1;
+  const uniqueCount = new Set(cells.map(normalizeHeader)).size;
+  const keywordScore = cells.reduce((score, cell) => {
+    const header = normalizeHeader(cell);
+    if (['供应商', '供应商简称', '供应商名称', '产品线', '商品分类', '分类', '地址', '省', '市', '采购', '运营'].some((keyword) => header.includes(normalizeHeader(keyword)))) {
+      return score + 3;
+    }
+    return score;
+  }, 0);
+  return uniqueCount + keywordScore + Math.min(cells.length, 12);
+}
+
+function parseDimensionSheet(sheetName, sheet) {
+  const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false });
+  const candidateRows = matrix.slice(0, 10);
+  const scored = candidateRows
+    .map((row, index) => ({ index, score: scoreDimensionHeaderRow(row) }))
+    .filter((item) => item.score >= 0)
+    .sort((a, b) => b.score - a.score);
+  const headerIndex = scored[0]?.index ?? -1;
+  if (headerIndex === -1) {
+    return { sheetName, columns: [], rows: [], importedCount: 0, headerRow: 0 };
+  }
+  const columns = matrix[headerIndex].map((cell, index) => normalize(cell) || `字段${index + 1}`);
+  const rows = matrix.slice(headerIndex + 1)
+    .filter((row) => row.some((cell) => normalize(cell)))
+    .map((row) => {
+      const item = { id: createId(), __cells: row.map((cell) => normalize(cell)) };
+      columns.forEach((column, index) => {
+        item[column] = normalize(row[index]);
+      });
+      return item;
+    });
+  return { sheetName, columns, rows, importedCount: rows.length, headerRow: headerIndex + 1 };
 }
 
 function normalizedSourceMap(sourceRow = {}) {
@@ -1324,8 +1363,12 @@ function App() {
   async function uploadDimensionSlot(slotId, files) {
     const file = files?.[0];
     if (!file) return;
+    const displayFileName = fixMojibakeText(file.name);
     try {
       const result = await parseWorkbookSheetsInBrowser(file);
+      if (!(result.sheets || []).some((sheet) => (sheet.rows || []).length)) {
+        throw new Error('未识别到有效表头或数据，请确认前 10 行内包含字段名。');
+      }
       const supplierAddressLookup = slotId === PURCHASE_WORK_DIVISION_SLOT_ID
         ? buildSupplierAddressLookupRows(result.sheets || [])
         : [];
@@ -1339,7 +1382,7 @@ function App() {
       const firstSheet = sheets[0] || { sheetName: '', columns: [], rows: [] };
       const record = {
         id: slotId,
-        fileName: file.name,
+        fileName: displayFileName,
         fileSize: file.size,
         fileType: file.type || '未知类型',
         sheetName: firstSheet.sheetName || '',
@@ -1360,10 +1403,10 @@ function App() {
       setDimensionLibrary(next);
       setDimensionPendingFiles((current) => ({ ...current, [slotId]: file }));
       setMessage(saved
-        ? `维度表文件库已读取：${file.name}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行，请点击应用刷新同步。`
-        : `维度表文件库已读取：${file.name}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行；文件较大，已保留预览信息但浏览器缓存保存失败。`);
-    } catch {
-      setMessage('维度表文件库读取失败，请检查文件格式。');
+        ? `维度表文件库已读取：${displayFileName}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行，请点击应用刷新同步。`
+        : `维度表文件库已读取：${displayFileName}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行；文件较大，已保留预览信息但浏览器缓存保存失败。`);
+    } catch (error) {
+      setMessage(`维度表文件库读取失败：${error?.message || '请检查文件格式、工作表内容或表头位置。'}`);
     }
   }
 
@@ -1395,7 +1438,7 @@ function App() {
     }
     setSavingId(slotId);
     const form = new FormData();
-    form.append('file', pendingFile);
+    form.append('file', pendingFile, existing.fileName || fixMojibakeText(pendingFile.name));
     form.append('record', JSON.stringify(next[slotId]));
     const res = await authFetch(`${API}/api/quality-inspection/dimension-library/${encodeURIComponent(slotId)}/apply`, {
       method: 'POST',
@@ -2840,7 +2883,7 @@ function DimensionLibraryPage({ slots, library, savingId, onUpload, onApply, onD
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={(event) => { event.preventDefault(); onUpload(slot.id, event.dataTransfer.files); }}
               >
-                <input type="file" accept=".xlsx,.xls,.csv" onChange={(event) => onUpload(slot.id, event.target.files)} />
+                <input type="file" accept=".xlsx,.xlsm,.xls,.csv" onChange={(event) => onUpload(slot.id, event.target.files)} />
                 <strong>{record ? '替换维度表文件' : '上传维度表文件'}</strong>
                 <span>点击或拖拽 Excel / CSV 到此槽位</span>
               </label>

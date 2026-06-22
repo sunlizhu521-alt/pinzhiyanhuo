@@ -72,6 +72,17 @@ function safeFileBaseName(value, fallback) {
   return cleaned || fallback;
 }
 
+function fixMojibakeText(value) {
+  const text = String(value || '').trim();
+  if (!/[ÃÂÄÅéèç¤¥¦§¨©ª«¬®¯°±²³´µ¶·¸¹º»¼½¾¿]/.test(text)) return text;
+  try {
+    const decoded = Buffer.from(text, 'latin1').toString('utf8');
+    return /[\u4e00-\u9fff]/.test(decoded) ? decoded : text;
+  } catch {
+    return text;
+  }
+}
+
 function normalizeRole(role, name) {
   if (name === DEFAULT_ADMIN_USER.name || role === ROLE_ADMIN) return ROLE_ADMIN;
   if ([ROLE_PURCHASER, ROLE_INSPECTOR, ROLE_SETTLEMENT, ROLE_USER].includes(role)) return role;
@@ -484,7 +495,8 @@ app.post('/api/quality-inspection/dimension-library/:slotId/apply', requireAuth,
 
   const existing = db.qualityInspection.dimensionLibrary?.[slotId] || {};
   const previousStoredName = existing.storedFileName || '';
-  const storedName = await uniqueDimensionUploadName(`${slotId}-${req.file.originalname || `file-${Date.now()}`}`);
+  const originalName = fixMojibakeText(req.file.originalname || '');
+  const storedName = await uniqueDimensionUploadName(`${slotId}-${originalName || `file-${Date.now()}`}`);
   await rename(req.file.path, dimensionFilePath(storedName));
   if (previousStoredName && previousStoredName !== storedName) {
     await unlink(dimensionFilePath(previousStoredName)).catch(() => {});
@@ -493,7 +505,7 @@ app.post('/api/quality-inspection/dimension-library/:slotId/apply', requireAuth,
   const next = {
     ...record,
     id: slotId,
-    fileName: req.file.originalname || record.fileName || storedName,
+    fileName: originalName || fixMojibakeText(record.fileName) || storedName,
     storedFileName: storedName,
     fileUrl: dimensionFileUrl(storedName),
     fileSize: req.file.size || record.fileSize || 0,
