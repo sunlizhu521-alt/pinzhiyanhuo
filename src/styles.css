@@ -497,6 +497,106 @@ th {
   min-width: 180px;
 }
 
+.stamp-page {
+  min-height: calc(100vh - 56px);
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.stamp-workspace {
+  min-height: calc(100vh - 132px);
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 14px;
+}
+
+.stamp-list {
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #dde5f0;
+  border-radius: 8px;
+  background: white;
+}
+
+.stamp-list button {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 10px;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #334155;
+  text-align: left;
+}
+
+.stamp-list button.active,
+.stamp-list button:hover {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.stamp-list span {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stamp-viewer {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  border: 1px solid #dde5f0;
+  border-radius: 8px;
+  background: white;
+  overflow: hidden;
+}
+
+.stamp-meta {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-bottom: 1px solid #edf1f6;
+  color: #475569;
+}
+
+.stamp-warning {
+  color: #dc2626;
+}
+
+.stamp-canvas {
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: 18px;
+  background: #e5e7eb;
+}
+
+.stamp-canvas img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 190px);
+  object-fit: contain;
+  background: white;
+  box-shadow: 0 12px 35px rgba(15, 23, 42, .18);
+  transform-origin: center;
+}
+
+.stamp-canvas iframe {
+  width: 100%;
+  height: calc(100vh - 190px);
+  border: 0;
+  border-radius: 6px;
+  background: white;
+}
+
 .inspection-initial-table {
   max-height: 540px;
 }
@@ -737,8 +837,17 @@ th {
 
   .report-card,
   .metric-grid,
-  .dimension-library-grid {
+  .dimension-library-grid,
+  .stamp-workspace {
     grid-template-columns: 1fr;
+  }
+
+  .stamp-workspace {
+    min-height: auto;
+  }
+
+  .stamp-list {
+    max-height: 220px;
   }
 }
 

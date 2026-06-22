@@ -186,6 +186,10 @@ function canWriteFeedback(user, record) {
   return user.role === ROLE_INSPECTOR && record.schedule?.inspector === user.name;
 }
 
+function reportFilePath(fileName) {
+  return path.join(uploadDir, path.basename(fileName || ''));
+}
+
 function composedRecords(db) {
   const inspection = db.qualityInspection;
   return (inspection.notices.rows || []).map((row, index) => ({
@@ -418,6 +422,45 @@ app.post('/api/quality-inspection/reports/:id', requireAuth, upload.single('file
   res.json(next);
 });
 
+app.get('/api/quality-inspection/stamp-reports', requireAuth, requireRoles(ROLE_ADMIN), async (req, res) => {
+  const db = await readDb();
+  const rows = composedRecords(db)
+    .filter((record) => record.report?.fileName && !record.report?.stampedAt)
+    .map((record) => ({
+      ...record,
+      report: {
+        ...record.report,
+        fileUrl: `/uploads/${encodeURIComponent(record.report.fileName)}`
+      }
+    }));
+  res.json({ rows });
+});
+
+app.post('/api/quality-inspection/reports/:id/stamp', requireAuth, requireRoles(ROLE_ADMIN), async (req, res) => {
+  const db = await readDb();
+  const record = composedRecords(db).find((item) => item.id === req.params.id);
+  const previous = db.qualityInspection.reports[req.params.id] || {};
+  if (!record || !previous.fileName) return res.status(404).json({ error: '检验报告单不存在' });
+
+  const dataUrl = String(req.body.fileDataUrl || '');
+  const match = dataUrl.match(/^data:image\/(png|jpeg|jpg);base64,([a-zA-Z0-9+/=]+)$/);
+  if (!match) return res.status(400).json({ error: '仅支持图片格式检验报告单盖章' });
+
+  const target = reportFilePath(previous.fileName);
+  await writeFile(target, Buffer.from(match[2], 'base64'));
+
+  const next = {
+    ...previous,
+    stampedAt: nowText(),
+    stampedBy: req.authUser.name,
+    stampRotation: Number(req.body.rotation || 0),
+    updatedAt: nowText()
+  };
+  db.qualityInspection.reports[req.params.id] = next;
+  await saveDb(db);
+  res.json(next);
+});
+
 app.patch('/api/quality-inspection/feedback/:id', requireAuth, async (req, res) => {
   const db = await readDb();
   const record = composedRecords(db).find((item) => item.id === req.params.id);
@@ -433,7 +476,7 @@ app.patch('/api/quality-inspection/feedback/:id', requireAuth, async (req, res) 
 
 app.get('/uploads/:fileName', (req, res) => {
   const safeName = path.basename(req.params.fileName);
-  res.sendFile(path.join(uploadDir, safeName));
+  res.sendFile(reportFilePath(safeName));
 });
 
 const distDir = path.join(rootDir, 'dist');

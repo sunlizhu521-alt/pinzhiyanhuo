@@ -86,13 +86,14 @@ const MENU_PAGES = [
   { tab: 'inspectionNotice', label: '验货通知' },
   { tab: 'inspectionSchedule', label: '验货安排' },
   { tab: 'inspectionFeedback', label: '验货反馈' },
+  { tab: 'inspectionStamp', label: '加盖检验章' },
   { tab: 'inspectionReportQuery', label: '检验报告单查询' },
   { tab: 'inspectionSummary', label: '验货信息汇总表' },
   { tab: 'dimensionLibrary', label: '维度表库存' }
 ];
 
 const ROLE_PAGE_ACCESS = {
-  [ROLE_ADMIN]: ['inspectionNotice', 'inspectionSchedule', 'inspectionReportUpload', 'inspectionFeedback', 'inspectionReportQuery', 'inspectionSummary', 'inspectionInitialData', 'dimensionLibrary'],
+  [ROLE_ADMIN]: ['inspectionNotice', 'inspectionSchedule', 'inspectionReportUpload', 'inspectionFeedback', 'inspectionStamp', 'inspectionReportQuery', 'inspectionSummary', 'inspectionInitialData', 'dimensionLibrary'],
   [ROLE_PURCHASER]: ['inspectionNotice'],
   [ROLE_INSPECTOR]: ['inspectionFeedback'],
   [ROLE_SETTLEMENT]: ['inspectionReportQuery', 'inspectionSummary'],
@@ -480,7 +481,10 @@ function readFileAsDataUrl(file) {
 
 function reportHref(record) {
   if (record.report?.fileDataUrl) return record.report.fileDataUrl;
-  if (record.report?.fileName) return `${API}/uploads/${record.report.fileName}`;
+  if (record.report?.fileName) {
+    const version = encodeURIComponent(record.report?.stampedAt || record.report?.uploadedAt || record.report?.updatedAt || '');
+    return `${API}/uploads/${encodeURIComponent(record.report.fileName)}${version ? `?v=${version}` : ''}`;
+  }
   return '';
 }
 
@@ -489,6 +493,79 @@ function reportFileNameFromCode(reportNo, fileName) {
   if (!code) return fileName;
   const ext = String(fileName || '').match(/\.[^.]+$/)?.[0] || '';
   return `${code.replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_')}${ext}`;
+}
+
+function reportFileExt(record) {
+  return String(record?.report?.fileName || record?.report?.originalName || '')
+    .split('?')[0]
+    .match(/\.[^.]+$/)?.[0]?.toLowerCase() || '';
+}
+
+function isImageReport(record) {
+  return ['.png', '.jpg', '.jpeg', '.webp'].includes(reportFileExt(record));
+}
+
+function imageMimeForReport(record) {
+  const ext = reportFileExt(record);
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.webp') return 'image/webp';
+  return 'image/png';
+}
+
+function loadImageElement(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('image load failed'));
+    image.src = src;
+  });
+}
+
+async function createStampedImageDataUrl(record, rotation) {
+  const image = await loadImageElement(reportHref(record));
+  const normalizedRotation = ((rotation % 360) + 360) % 360;
+  const swapSize = normalizedRotation === 90 || normalizedRotation === 270;
+  const canvas = document.createElement('canvas');
+  canvas.width = swapSize ? image.naturalHeight : image.naturalWidth;
+  canvas.height = swapSize ? image.naturalWidth : image.naturalHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.save();
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.rotate((normalizedRotation * Math.PI) / 180);
+  ctx.drawImage(image, -image.naturalWidth / 2, -image.naturalHeight / 2);
+  ctx.restore();
+
+  const minSide = Math.min(canvas.width, canvas.height);
+  const radius = Math.max(72, Math.min(150, minSide * 0.12));
+  const x = canvas.width - radius * 1.45;
+  const y = canvas.height - radius * 1.45;
+  const red = '#d30f1f';
+
+  ctx.save();
+  ctx.globalAlpha = 0.92;
+  ctx.strokeStyle = red;
+  ctx.fillStyle = red;
+  ctx.lineWidth = Math.max(5, radius * 0.055);
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(x, y, radius * 0.72, 0, Math.PI * 2);
+  ctx.lineWidth = Math.max(2, radius * 0.025);
+  ctx.stroke();
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `700 ${Math.round(radius * 0.26)}px "Microsoft YaHei", Arial`;
+  ctx.fillText('品质验货', x, y - radius * 0.16);
+  ctx.font = `700 ${Math.round(radius * 0.30)}px "Microsoft YaHei", Arial`;
+  ctx.fillText('检验章', x, y + radius * 0.20);
+  ctx.font = `600 ${Math.round(radius * 0.14)}px "Microsoft YaHei", Arial`;
+  ctx.fillText(nowText().slice(0, 10), x, y + radius * 0.52);
+  ctx.restore();
+
+  return canvas.toDataURL(imageMimeForReport(record), 0.92);
 }
 
 function shouldShowFeedbackRecord(record) {
@@ -1211,6 +1288,52 @@ function App() {
     setMessage('验货反馈已保存。');
   }
 
+  async function stampReport(record, rotation) {
+    if (!record?.id || !reportHref(record)) {
+      setMessage('当前没有可盖章的检验报告单。');
+      return;
+    }
+    if (!isImageReport(record)) {
+      setMessage('当前文件不是图片格式，暂不支持直接盖章，请上传 JPG/PNG 图片版检验报告单。');
+      return;
+    }
+    setSavingId(record.id);
+    try {
+      const fileDataUrl = await createStampedImageDataUrl(record, rotation);
+      if (STATIC_MODE) {
+        const db = readStaticDb();
+        db.qualityInspection.reports[record.id] = {
+          ...(db.qualityInspection.reports[record.id] || {}),
+          fileDataUrl,
+          stampedAt: nowText(),
+          stampedBy: user.name,
+          stampRotation: rotation,
+          updatedAt: nowText()
+        };
+        saveStaticDb(db);
+        setRecords(composedStaticRecords(db).filter((item) => canReadClientRecord(user, item)));
+        setMessage('检验章已加盖，文件已覆盖保存。');
+        return;
+      }
+      const res = await authFetch(`${API}/api/quality-inspection/reports/${encodeURIComponent(record.id)}/stamp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileDataUrl, rotation })
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        setMessage(payload.error || '检验章加盖失败。');
+        return;
+      }
+      await refreshRecords();
+      setMessage('检验章已加盖，文件已覆盖保存到检验报告单文件库。');
+    } catch {
+      setMessage('检验章加盖失败，请确认报告单图片可以正常打开。');
+    } finally {
+      setSavingId('');
+    }
+  }
+
   const filteredRecords = useMemo(() => {
     const keyword = normalize(query).toLowerCase();
     return records.filter((record) => {
@@ -1337,6 +1460,13 @@ function App() {
             onConfirmImport={confirmFeedbackImport}
             onClearImportPreview={clearFeedbackImportPreview}
             onSave={saveFeedback}
+          />
+        )}
+        {canAccessPage(user, 'inspectionStamp') && activeTab === 'inspectionStamp' && (
+          <InspectionStampPage
+            records={records.filter((record) => reportHref(record) && !record.report?.stampedAt)}
+            savingId={savingId}
+            onStamp={stampReport}
           />
         )}
         {canAccessPage(user, 'inspectionReportQuery') && activeTab === 'inspectionReportQuery' && (
@@ -1754,6 +1884,87 @@ function FeedbackPage({ records, savingId, canImport, importPreview, onUpload, o
         ]}
       />
     </>
+  );
+}
+
+function InspectionStampPage({ records, savingId, onStamp }) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [rotation, setRotation] = useState(0);
+  const safeIndex = records.length ? Math.min(currentIndex, records.length - 1) : 0;
+  const current = records[safeIndex];
+  const canStamp = current && isImageReport(current);
+
+  useEffect(() => {
+    if (currentIndex > Math.max(records.length - 1, 0)) setCurrentIndex(0);
+  }, [records.length, currentIndex]);
+
+  useEffect(() => {
+    setRotation(0);
+  }, [current?.id]);
+
+  function go(delta) {
+    if (!records.length) return;
+    setCurrentIndex((index) => (index + delta + records.length) % records.length);
+  }
+
+  return (
+    <section className="stamp-page">
+      <div className="section-heading-row">
+        <h2>加盖检验章</h2>
+        <span className="section-count">待盖章 {records.length} 份</span>
+        <button type="button" className="ghost compact-button" onClick={() => go(-1)} disabled={records.length < 2}>上一张</button>
+        <button type="button" className="ghost compact-button" onClick={() => go(1)} disabled={records.length < 2}>下一张</button>
+        <button type="button" className="ghost compact-button" onClick={() => setRotation((value) => (value + 90) % 360)} disabled={!current}>旋转</button>
+        <button
+          type="button"
+          className="compact-button"
+          disabled={!canStamp || savingId === current?.id}
+          onClick={() => onStamp(current, rotation)}
+        >
+          {savingId === current?.id ? '加盖中' : '加盖印章'}
+        </button>
+      </div>
+
+      {!current ? (
+        <EmptyState text="暂无待加盖检验章的报告单" />
+      ) : (
+        <div className="stamp-workspace">
+          <aside className="stamp-list">
+            {records.map((record, index) => (
+              <button
+                type="button"
+                key={record.id}
+                className={index === safeIndex ? 'active' : ''}
+                onClick={() => setCurrentIndex(index)}
+              >
+                <strong>{record.report?.reportNo || '未填写报告编码'}</strong>
+                <span>{record.supplierShortName || '未填写供应商'}</span>
+                <span>{record.report?.originalName || record.report?.fileName}</span>
+              </button>
+            ))}
+          </aside>
+          <section className="stamp-viewer">
+            <div className="stamp-meta">
+              <strong>{current.report?.reportNo || '未填写报告编码'}</strong>
+              <span>{current.supplierShortName || ''}</span>
+              <span>{current.salesProductLine || ''} {current.series || ''}</span>
+              {!canStamp && <span className="stamp-warning">当前文件不是图片格式，只能查看，不能直接加盖图片印章。</span>}
+            </div>
+            <div className="stamp-canvas">
+              {isImageReport(current) ? (
+                <img
+                  src={reportHref(current)}
+                  alt="检验报告单"
+                  style={{ transform: `rotate(${rotation}deg)` }}
+                />
+              ) : (
+                <iframe title="检验报告单预览" src={reportHref(current)} />
+              )}
+            </div>
+          </section>
+        </div>
+      )}
+    </section>
   );
 }
 
