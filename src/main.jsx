@@ -28,7 +28,7 @@ const NOTICE_FIELDS = [
 ];
 
 const NOTICE_IMPORT_ALIASES = {
-  inspectionApplicant: ['验货填写人', '填写人', '申请人', '提报人'],
+  inspectionApplicant: ['验货填写人', '填写人', '申请人', '提报人', '验货通知人'],
   inspectionFillTime: ['验货填写时间', '填写时间', '申请时间', '提报时间', '通知时间'],
   supplierFinishTime: ['供应商完工时间', '完工时间', '供应商完成时间'],
   shipmentTime: ['发货时间', '出货时间', '计划发货时间'],
@@ -43,6 +43,17 @@ const NOTICE_IMPORT_ALIASES = {
   totalQuantity: ['合计数量', '总数量', '数量', '验货数量'],
   skuQuantity: ['SKU及数量', 'SKU数量', 'SKU明细', 'SKU及数量明细'],
   remark: ['备注', '备注信息', '说明']
+};
+
+const SUMMARY_IMPORT_ALIASES = {
+  scheduledDate: ['计划日期', '计划验货时间', '计划验货日期', '安排日期'],
+  status: ['状态', '安排状态'],
+  inspector: ['验货员'],
+  reportNo: ['报告单号', '报告编号'],
+  conclusion: ['报告结论', '检验报告结论'],
+  feedbackResult: ['反馈结果', '验货结果', '检验结果'],
+  actualInspectionTime: ['实际验货时间'],
+  actualInspector: ['实际验货人']
 };
 
 const MENU_PAGES = [
@@ -222,6 +233,57 @@ function importedRowsToNoticeRows(importedRows, currentUserName) {
     .filter((row) => NOTICE_FIELDS.some((field) => !field.readonly && normalize(row[field.key])));
 }
 
+function readImportedValue(normalizedSource, aliases) {
+  const match = aliases
+    .map(normalizeHeader)
+    .find((alias) => normalizedSource.has(alias));
+  return match ? normalize(normalizedSource.get(match)) : '';
+}
+
+function importedRowsToSummaryItems(importedRows, currentUserName) {
+  return importedRows
+    .map((sourceRow) => {
+      const normalizedSource = new Map();
+      Object.entries(sourceRow || {}).forEach(([key, value]) => {
+        if (key === 'id' || key === '__cells') return;
+        normalizedSource.set(normalizeHeader(key), value);
+      });
+      const noticeValues = {};
+      NOTICE_FIELDS.forEach((field) => {
+        const aliases = [field.label, field.key, ...(NOTICE_IMPORT_ALIASES[field.key] || [])];
+        noticeValues[field.key] = readImportedValue(normalizedSource, aliases);
+      });
+      if (!noticeValues.inspectionApplicant) noticeValues.inspectionApplicant = currentUserName;
+      const notice = createNoticeRow(noticeValues);
+      const schedule = {
+        scheduledDate: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.scheduledDate),
+        status: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.status),
+        inspector: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.inspector)
+      };
+      if (!schedule.status && (schedule.scheduledDate || schedule.inspector)) schedule.status = '已安排';
+      const report = {
+        reportNo: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.reportNo),
+        conclusion: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.conclusion)
+      };
+      const feedback = {
+        result: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.feedbackResult),
+        actualInspectionTime: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.actualInspectionTime),
+        actualInspector: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.actualInspector)
+      };
+      return { id: notice.id, notice, schedule, report, feedback };
+    })
+    .filter((item) => [
+      ...NOTICE_FIELDS.filter((field) => !field.readonly).map((field) => item.notice[field.key]),
+      ...Object.values(item.schedule),
+      ...Object.values(item.report),
+      ...Object.values(item.feedback)
+    ].some(normalize));
+}
+
+function hasObjectValue(value) {
+  return Object.values(value || {}).some(normalize);
+}
+
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
     if (!file || file.size === 0) {
@@ -260,6 +322,7 @@ function App() {
   const [noticeRows, setNoticeRows] = useState(() => [createNoticeRow()]);
   const [noticeSubmission, setNoticeSubmission] = useState({ rows: [], submittedAt: '', submittedBy: '' });
   const [noticeImportPreview, setNoticeImportPreview] = useState(null);
+  const [summaryImportPreview, setSummaryImportPreview] = useState(null);
   const [initialData, setInitialData] = useState({ sheetName: '', columns: [], rows: [], updatedAt: '' });
   const [initialImportResult, setInitialImportResult] = useState(null);
   const [dimensionLibrary, setDimensionLibrary] = useState(readDimensionLibrary);
@@ -416,6 +479,102 @@ function App() {
   function clearNoticeImportPreview() {
     setNoticeImportPreview(null);
     setMessage('已清空验货通知导入预览。');
+  }
+
+  async function previewSummaryRows(files) {
+    const file = files?.[0];
+    if (!file) return;
+    try {
+      const result = await parseWorkbookInBrowser(file);
+      const items = importedRowsToSummaryItems(result.rows || [], user.name);
+      if (!items.length) {
+        setMessage('未识别到可追加的汇总表数据，请检查表头。');
+        return;
+      }
+      setSummaryImportPreview({
+        fileName: file.name,
+        sheetName: result.sheetName || '',
+        items,
+        parsedAt: nowText()
+      });
+      setMessage(`验货信息汇总表已解析：共 ${items.length} 条，请检查预览后确认追加。`);
+    } catch {
+      setMessage('验货信息汇总表批量上传失败，请检查文件格式。');
+    }
+  }
+
+  function clearSummaryImportPreview() {
+    setSummaryImportPreview(null);
+    setMessage('已清空验货信息汇总表导入预览。');
+  }
+
+  async function confirmSummaryImport() {
+    const items = summaryImportPreview?.items || [];
+    if (!items.length) {
+      setMessage('暂无可追加的汇总表预览数据。');
+      return;
+    }
+    if (STATIC_MODE) {
+      const db = readStaticDb();
+      const inspection = db.qualityInspection;
+      const currentRows = inspection.notices.rows || [];
+      const appendedRows = items.map((item) => item.notice);
+      const rows = [...currentRows, ...appendedRows].map((row, index) => ({
+        ...row,
+        id: row.id || createId(),
+        rowNumber: index + 1
+      }));
+      inspection.notices = {
+        rows,
+        submittedAt: nowText(),
+        submittedBy: user.name
+      };
+      items.forEach((item) => {
+        if (hasObjectValue(item.schedule)) {
+          inspection.schedules[item.notice.id] = {
+            ...(inspection.schedules[item.notice.id] || {}),
+            ...item.schedule,
+            updatedAt: nowText()
+          };
+        }
+        if (hasObjectValue(item.report)) {
+          inspection.reports[item.notice.id] = {
+            ...(inspection.reports[item.notice.id] || {}),
+            ...item.report,
+            updatedAt: nowText()
+          };
+        }
+        if (hasObjectValue(item.feedback)) {
+          inspection.feedback[item.notice.id] = {
+            ...(inspection.feedback[item.notice.id] || {}),
+            ...item.feedback,
+            updatedAt: nowText()
+          };
+        }
+      });
+      saveStaticDb(db);
+      setNoticeSubmission(inspection.notices);
+      setNoticeRows(rows.map((row) => createNoticeRow(row)));
+      setRecords(composedStaticRecords(db));
+      setSummaryImportPreview(null);
+      setMessage(`验货信息汇总表已追加：新增 ${items.length} 条，原有信息已保留。`);
+      return;
+    }
+    const res = await fetch(`${API}/api/quality-inspection/summary-import?user=${encodeURIComponent(user.name)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items, user: user.name })
+    });
+    if (!res.ok) {
+      setMessage('验货信息汇总表追加失败。');
+      return;
+    }
+    const payload = await res.json();
+    setNoticeSubmission(payload.notices);
+    setNoticeRows(payload.notices.rows.map((row) => createNoticeRow(row)));
+    setRecords(payload.rows || []);
+    setSummaryImportPreview(null);
+    setMessage(`验货信息汇总表已追加：新增 ${items.length} 条，原有信息已保留。`);
   }
 
   function deleteNoticeRow(id) {
@@ -848,7 +1007,14 @@ function App() {
           />
         )}
         {activeTab === 'inspectionSummary' && (
-          <SummaryPage summary={summary} records={filteredRecords} />
+          <SummaryPage
+            summary={summary}
+            records={filteredRecords}
+            importPreview={summaryImportPreview}
+            onUpload={previewSummaryRows}
+            onConfirmImport={confirmSummaryImport}
+            onClearImportPreview={clearSummaryImportPreview}
+          />
         )}
         {activeTab === 'inspectionInitialData' && (
           <InitialDataPage data={initialData} result={initialImportResult} onUpload={uploadInitialData} />
@@ -1205,13 +1371,54 @@ function ReportQueryPage({ records, query, statusFilter, onQuery, onStatusFilter
   );
 }
 
-function SummaryPage({ summary, records }) {
+function SummaryPage({ summary, records, importPreview, onUpload, onConfirmImport, onClearImportPreview }) {
+  const previewRows = importPreview?.items || [];
+  const previewLimitedRows = previewRows.slice(0, 10);
   return (
     <>
       <div className="section-heading-row">
         <h2>验货信息汇总表</h2>
         <span className="section-count">按当前数据实时汇总</span>
       </div>
+      <label
+        className="summary-upload-zone"
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => { event.preventDefault(); onUpload(event.dataTransfer.files); }}
+      >
+        <input type="file" accept=".xlsx,.xls,.csv" onChange={(event) => onUpload(event.target.files)} />
+        <strong>拖拽汇总表文件到这里，或点击批量上传</strong>
+        <span>支持 .xlsx / .xls / .csv，解析后先预览，确认后追加到现有汇总信息</span>
+      </label>
+      {importPreview && (
+        <section className="summary-import-preview">
+          <div className="section-heading-row">
+            <h3>批量上传预览</h3>
+            <span className="section-count">
+              {importPreview.fileName}，工作表 {importPreview.sheetName || '未识别'}，共 {previewRows.length} 条
+            </span>
+            <button type="button" className="compact-button" onClick={onConfirmImport}>确认追加</button>
+            <button type="button" className="ghost compact-button" onClick={onClearImportPreview}>清空预览</button>
+          </div>
+          <DataTable
+            className="summary-preview-table"
+            rows={previewLimitedRows}
+            columns={['供应商', '事业部', '产品线', '系列', '数量', '计划日期', '状态', '验货员', '报告结论', '反馈结果']}
+            render={(item) => [
+              item.notice.supplierShortName,
+              item.notice.businessDepartments,
+              item.notice.salesProductLine,
+              item.notice.series,
+              item.notice.totalQuantity,
+              item.schedule.scheduledDate,
+              item.schedule.status,
+              item.schedule.inspector,
+              item.report.conclusion,
+              item.feedback.result
+            ]}
+          />
+          {previewRows.length > previewLimitedRows.length && <p className="preview-note">仅展示前 10 条，确认后会追加全部 {previewRows.length} 条。</p>}
+        </section>
+      )}
       <div className="metric-grid">
         <MetricCard label="验货通知" value={summary.total} />
         <MetricCard label="已安排" value={summary.scheduled} />

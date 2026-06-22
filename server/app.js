@@ -121,6 +121,10 @@ function composedRecords(db) {
   }));
 }
 
+function hasObjectValue(value) {
+  return Object.values(value || {}).some((item) => String(item || '').trim());
+}
+
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, service: 'quality-inspection', time: new Date().toISOString() });
 });
@@ -212,6 +216,54 @@ app.post('/api/quality-inspection/notices', async (req, res) => {
 app.get('/api/quality-inspection/records', async (req, res) => {
   const db = await readDb();
   res.json({ rows: composedRecords(db) });
+});
+
+app.post('/api/quality-inspection/summary-import', async (req, res) => {
+  const db = await readDb();
+  const user = requestUser(db, req);
+  const items = Array.isArray(req.body.items) ? req.body.items : [];
+  const inspection = db.qualityInspection;
+  const currentRows = inspection.notices.rows || [];
+  const appendedRows = items.map((item) => ({
+    ...(item.notice || {}),
+    id: item.notice?.id || randomUUID()
+  }));
+  inspection.notices = {
+    rows: [...currentRows, ...appendedRows].map((row, index) => ({
+      ...row,
+      id: row.id || randomUUID(),
+      rowNumber: index + 1
+    })),
+    submittedAt: nowText(),
+    submittedBy: user.name
+  };
+  items.forEach((item, index) => {
+    const recordId = appendedRows[index]?.id;
+    if (!recordId) return;
+    if (hasObjectValue(item.schedule)) {
+      inspection.schedules[recordId] = {
+        ...(inspection.schedules[recordId] || {}),
+        ...item.schedule,
+        updatedAt: nowText()
+      };
+    }
+    if (hasObjectValue(item.report)) {
+      inspection.reports[recordId] = {
+        ...(inspection.reports[recordId] || {}),
+        ...item.report,
+        updatedAt: nowText()
+      };
+    }
+    if (hasObjectValue(item.feedback)) {
+      inspection.feedback[recordId] = {
+        ...(inspection.feedback[recordId] || {}),
+        ...item.feedback,
+        updatedAt: nowText()
+      };
+    }
+  });
+  await saveDb(db);
+  res.json({ notices: inspection.notices, rows: composedRecords(db) });
 });
 
 app.patch('/api/quality-inspection/schedules/:id', async (req, res) => {
