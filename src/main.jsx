@@ -455,33 +455,54 @@ function App() {
     setMessage(`验货信息初始数据已读取：成功 ${payload.importedCount || 0} 行。`);
   }
 
-  async function saveSchedule(record, patch) {
-    setSavingId(record.id);
+  async function saveSchedules(scheduleDrafts) {
+    const entries = Object.entries(scheduleDrafts || {});
+    if (!entries.length) {
+      setMessage('暂无可提交的验货安排。');
+      return;
+    }
+    setSavingId('inspectionSchedule');
     if (STATIC_MODE) {
       const db = readStaticDb();
-      db.qualityInspection.schedules[record.id] = {
-        ...(db.qualityInspection.schedules[record.id] || {}),
-        ...patch,
-        updatedAt: nowText()
-      };
+      entries.forEach(([recordId, draft]) => {
+        const scheduledDate = normalize(draft.scheduledDate);
+        const inspector = normalize(draft.inspector);
+        db.qualityInspection.schedules[recordId] = {
+          ...(db.qualityInspection.schedules[recordId] || {}),
+          scheduledDate,
+          inspector,
+          remark: normalize(draft.remark),
+          status: scheduledDate || inspector ? '已安排' : '未安排',
+          updatedAt: nowText()
+        };
+      });
       saveStaticDb(db);
       setSavingId('');
       setRecords(composedStaticRecords(db));
-      setMessage('验货安排已保存。');
+      setMessage(`验货安排已一键提交：共 ${entries.length} 条。`);
       return;
     }
-    const res = await fetch(`${API}/api/quality-inspection/schedules/${encodeURIComponent(record.id)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...(record.schedule || {}), ...patch })
-    });
+    const responses = await Promise.all(entries.map(([recordId, draft]) => {
+      const scheduledDate = normalize(draft.scheduledDate);
+      const inspector = normalize(draft.inspector);
+      return fetch(`${API}/api/quality-inspection/schedules/${encodeURIComponent(recordId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scheduledDate,
+          inspector,
+          remark: normalize(draft.remark),
+          status: scheduledDate || inspector ? '已安排' : '未安排'
+        })
+      });
+    }));
     setSavingId('');
-    if (!res.ok) {
+    if (responses.some((res) => !res.ok)) {
       setMessage('验货安排保存失败。');
       return;
     }
     await refreshRecords();
-    setMessage('验货安排已保存。');
+    setMessage(`验货安排已一键提交：共 ${entries.length} 条。`);
   }
 
   async function saveReport(record, formElement) {
@@ -662,7 +683,7 @@ function App() {
           />
         )}
         {activeTab === 'inspectionSchedule' && (
-          <InspectionSchedulePage records={records} savingId={savingId} onSave={saveSchedule} />
+          <InspectionSchedulePage records={records} savingId={savingId} onSubmit={saveSchedules} />
         )}
         {activeTab === 'inspectionReportUpload' && (
           <ReportUploadPage records={records} savingId={savingId} onSave={saveReport} />
@@ -755,39 +776,72 @@ function InspectionNoticePage({ rows, submission, user, onAdd, onDelete, onChang
   );
 }
 
-function InspectionSchedulePage({ records, savingId, onSave }) {
+function InspectionSchedulePage({ records, savingId, onSubmit }) {
+  const [drafts, setDrafts] = useState({});
+
+  useEffect(() => {
+    setDrafts(Object.fromEntries(records.map((record) => [
+      record.id,
+      {
+        scheduledDate: formatDate(record.schedule?.scheduledDate),
+        inspector: record.schedule?.inspector || '',
+        remark: record.schedule?.remark || ''
+      }
+    ])));
+  }, [records]);
+
+  function updateDraft(recordId, key, value) {
+    setDrafts((current) => ({
+      ...current,
+      [recordId]: {
+        ...(current[recordId] || {}),
+        [key]: value
+      }
+    }));
+  }
+
   return (
     <>
       <div className="section-heading-row">
         <h2>验货安排</h2>
         <span className="section-count">来自验货通知 {records.length} 条</span>
+        <button
+          type="button"
+          disabled={savingId === 'inspectionSchedule' || records.length === 0}
+          onClick={() => onSubmit(drafts)}
+        >
+          一键提交
+        </button>
       </div>
       <DataTable
+        className="inspection-schedule-table"
         rows={records}
-        columns={['供应商', '采购订单', '产品线', '计划验货日期', '验货员', '状态', '安排备注', '操作']}
+        columns={['供应商简称', '地址', '产品线', '系列', '数量', '事业部', '运营', '验货通知人', '计划验货时间', '验货员', '安排备注']}
         render={(record) => [
           record.supplierShortName,
-          record.kingdeeOrderNo,
+          record.supplierAddress,
           record.salesProductLine,
-          <input id={`schedule-date-${record.id}`} className="table-input" type="date" defaultValue={formatDate(record.schedule?.scheduledDate)} />,
-          <input id={`schedule-inspector-${record.id}`} className="table-input" defaultValue={record.schedule?.inspector || ''} />,
-          <select id={`schedule-status-${record.id}`} className="table-input" defaultValue={record.schedule?.status || '未安排'}>
-            {['未安排', '已安排', '验货中', '已完成', '已取消'].map((item) => <option key={item} value={item}>{item}</option>)}
-          </select>,
-          <input id={`schedule-remark-${record.id}`} className="table-input wide-input" defaultValue={record.schedule?.remark || ''} />,
-          <button
-            type="button"
-            className="compact-button"
-            disabled={savingId === record.id}
-            onClick={() => onSave(record, {
-              scheduledDate: document.getElementById(`schedule-date-${record.id}`).value,
-              inspector: document.getElementById(`schedule-inspector-${record.id}`).value,
-              status: document.getElementById(`schedule-status-${record.id}`).value,
-              remark: document.getElementById(`schedule-remark-${record.id}`).value
-            })}
-          >
-            保存
-          </button>
+          record.series,
+          record.totalQuantity,
+          record.businessDepartments,
+          record.operation,
+          record.inspectionApplicant,
+          <input
+            className="table-input"
+            type="date"
+            value={drafts[record.id]?.scheduledDate || ''}
+            onChange={(event) => updateDraft(record.id, 'scheduledDate', event.target.value)}
+          />,
+          <input
+            className="table-input"
+            value={drafts[record.id]?.inspector || ''}
+            onChange={(event) => updateDraft(record.id, 'inspector', event.target.value)}
+          />,
+          <input
+            className="table-input wide-input"
+            value={drafts[record.id]?.remark || ''}
+            onChange={(event) => updateDraft(record.id, 'remark', event.target.value)}
+          />
         ]}
       />
     </>
