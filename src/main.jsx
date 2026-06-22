@@ -191,8 +191,41 @@ function normalizeSupplierKey(value) {
     .replace(/有限责任公司|股份有限公司|有限公司|公司|工厂|厂/g, '');
 }
 
+function padDatePart(value) {
+  return String(value).padStart(2, '0');
+}
+
+function excelSerialDateToIso(value) {
+  const serial = Number(value);
+  if (!Number.isFinite(serial) || serial <= 0) return '';
+  const utcDays = Math.floor(serial - 25569);
+  const date = new Date(utcDays * 86400 * 1000);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${date.getUTCFullYear()}-${padDatePart(date.getUTCMonth() + 1)}-${padDatePart(date.getUTCDate())}`;
+}
+
 function formatDate(value) {
-  return value ? String(value).slice(0, 10) : '';
+  if (!value) return '';
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return `${value.getFullYear()}-${padDatePart(value.getMonth() + 1)}-${padDatePart(value.getDate())}`;
+  }
+  const text = normalize(value);
+  if (!text) return '';
+  const iso = text.match(/^(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})/);
+  if (iso) return `${iso[1]}-${padDatePart(iso[2])}-${padDatePart(iso[3])}`;
+  const shortYear = text.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2})$/);
+  if (shortYear) {
+    const year = Number(shortYear[3]);
+    return `20${padDatePart(year)}-${padDatePart(shortYear[1])}-${padDatePart(shortYear[2])}`;
+  }
+  const slash = text.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if (slash) return `${slash[3]}-${padDatePart(slash[1])}-${padDatePart(slash[2])}`;
+  if (/^\d{5}(\.\d+)?$/.test(text)) return excelSerialDateToIso(text);
+  const parsed = new Date(text);
+  if (!Number.isNaN(parsed.getTime())) {
+    return `${parsed.getFullYear()}-${padDatePart(parsed.getMonth() + 1)}-${padDatePart(parsed.getDate())}`;
+  }
+  return text.slice(0, 10);
 }
 
 function nowText() {
@@ -513,7 +546,8 @@ function importedRowsToNoticeRows(importedRows, currentUserName, dimensionLibrar
         const match = aliases
           .map(normalizeHeader)
           .find((alias) => normalizedSource.has(alias));
-        values[field.key] = match ? normalize(normalizedSource.get(match)) : '';
+        const value = match ? normalizedSource.get(match) : '';
+        values[field.key] = field.type === 'date' ? formatDate(value) : normalize(value);
       });
       values.inspectionApplicant = currentUserName;
       const supplierKey = normalizeSupplierKey(values.supplierShortName) || normalizeHeader(values.supplierShortName);
@@ -2204,7 +2238,7 @@ function InspectionNoticePage({
               <input
                 type={field.type || 'text'}
                 className="table-input inspection-notice-input"
-                value={row[field.key] || ''}
+                value={field.type === 'date' ? formatDate(row[field.key]) : (row[field.key] || '')}
                 onChange={(event) => onChange(row.id, field.key, event.target.value)}
               />
             );
