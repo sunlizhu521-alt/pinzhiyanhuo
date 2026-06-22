@@ -217,6 +217,50 @@ function parseWorkbookInBrowser(file) {
   });
 }
 
+function parseWorkbookSheetsInBrowser(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('read failed'));
+    reader.onload = () => {
+      try {
+        const workbook = XLSX.read(reader.result, { type: 'array', cellDates: true });
+        const sheets = workbook.SheetNames.map((sheetName) => {
+          const sheet = workbook.Sheets[sheetName];
+          const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false });
+          const headerIndex = matrix.findIndex((row) => row.some((cell) => normalize(cell)));
+          if (headerIndex === -1) {
+            return { sheetName, columns: [], rows: [], importedCount: 0 };
+          }
+          const columns = matrix[headerIndex].map((cell, index) => normalize(cell) || `字段${index + 1}`);
+          const rows = matrix.slice(headerIndex + 1)
+            .filter((row) => row.some((cell) => normalize(cell)))
+            .map((row) => {
+              const item = { id: createId(), __cells: row.map((cell) => normalize(cell)) };
+              columns.forEach((column, index) => {
+                item[column] = normalize(row[index]);
+              });
+              return item;
+            });
+          return { sheetName, columns, rows, importedCount: rows.length };
+        });
+
+        resolve({
+          sheetName: sheets[0]?.sheetName || '',
+          sheetNames: sheets.map((sheet) => sheet.sheetName),
+          sheetCount: sheets.length,
+          sheets,
+          columns: sheets[0]?.columns || [],
+          rows: sheets[0]?.rows || [],
+          importedCount: sheets.reduce((sum, sheet) => sum + (sheet.importedCount || 0), 0)
+        });
+      } catch (error) {
+        reject(error);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 function importedRowsToNoticeRows(importedRows, currentUserName) {
   return importedRows
     .map((sourceRow) => {
@@ -676,17 +720,28 @@ function App() {
     const file = files?.[0];
     if (!file) return;
     try {
-      const result = await parseWorkbookInBrowser(file);
+      const result = await parseWorkbookSheetsInBrowser(file);
+      const sheets = (result.sheets || []).map((sheet) => ({
+        sheetName: sheet.sheetName,
+        columns: sheet.columns || [],
+        rows: (sheet.rows || []).slice(0, DIMENSION_PREVIEW_ROW_LIMIT),
+        importedCount: sheet.importedCount || 0,
+        previewCount: Math.min(sheet.importedCount || 0, DIMENSION_PREVIEW_ROW_LIMIT)
+      }));
+      const firstSheet = sheets[0] || { sheetName: '', columns: [], rows: [] };
       const record = {
         id: slotId,
         fileName: file.name,
         fileSize: file.size,
         fileType: file.type || '未知类型',
-        sheetName: result.sheetName || '',
-        columns: result.columns || [],
-        rows: (result.rows || []).slice(0, DIMENSION_PREVIEW_ROW_LIMIT),
+        sheetName: firstSheet.sheetName || '',
+        sheetNames: result.sheetNames || sheets.map((sheet) => sheet.sheetName),
+        sheetCount: result.sheetCount || sheets.length,
+        sheets,
+        columns: firstSheet.columns || [],
+        rows: firstSheet.rows || [],
         importedCount: result.importedCount || 0,
-        previewCount: Math.min(result.importedCount || 0, DIMENSION_PREVIEW_ROW_LIMIT),
+        previewCount: sheets.reduce((sum, sheet) => sum + (sheet.previewCount || 0), 0),
         savedAt: nowText(),
         applied: false,
         appliedAt: ''
@@ -695,8 +750,8 @@ function App() {
       const saved = saveDimensionLibrary(next);
       setDimensionLibrary(next);
       setMessage(saved
-        ? `维度表库存已读取：${file.name}，共 ${record.importedCount} 行，请确认后应用刷新。`
-        : `维度表库存已读取：${file.name}，共 ${record.importedCount} 行；文件较大，已保留预览信息但浏览器缓存保存失败。`);
+        ? `维度表库存已读取：${file.name}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行，请确认后应用刷新。`
+        : `维度表库存已读取：${file.name}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行；文件较大，已保留预览信息但浏览器缓存保存失败。`);
     } catch {
       setMessage('维度表库存读取失败，请检查文件格式。');
     }
@@ -1497,8 +1552,20 @@ function DimensionLibraryPage({ slots, library, onUpload, onApply, onDelete }) {
       <section className="dimension-library-grid">
         {slots.map((slot, index) => {
           const record = library[slot.id];
-          const columns = record?.columns?.length ? record.columns.slice(0, 8) : ['暂无字段'];
-          const previewRows = record?.rows?.slice(0, 5) || [];
+          const sheetPreviews = record?.sheets?.length
+            ? record.sheets
+            : record
+              ? [{
+                  sheetName: record.sheetName || '默认工作表',
+                  columns: record.columns || [],
+                  rows: record.rows || [],
+                  importedCount: record.importedCount || 0
+                }]
+              : [];
+          const sheetNames = record?.sheetNames?.length
+            ? record.sheetNames
+            : sheetPreviews.map((sheet) => sheet.sheetName).filter(Boolean);
+          const previewCount = sheetPreviews.reduce((sum, sheet) => sum + (sheet.rows?.length || 0), 0);
           return (
             <article key={slot.id} className="dimension-slot-card">
               <div className="slot-head">
@@ -1523,18 +1590,33 @@ function DimensionLibraryPage({ slots, library, onUpload, onApply, onDelete }) {
                 <>
                   <div className="slot-info">
                     <span>文件：{record.fileName}</span>
-                    <span>工作表：{record.sheetName || '未识别'}</span>
-                    <span>行数：{record.importedCount || 0}</span>
-                    <span>预览：{record.rows?.length || 0} 行</span>
+                    <span>工作表数：{record.sheetCount || sheetPreviews.length || 0}</span>
+                    <span>工作表：{sheetNames.join('、') || '未识别'}</span>
+                    <span>总行数：{record.importedCount || 0}</span>
+                    <span>预览：{previewCount} 行</span>
                     <span>保存：{record.savedAt}</span>
                     {record.appliedAt && <span>应用：{record.appliedAt}</span>}
                   </div>
-                  <DataTable
-                    className="dimension-preview-table"
-                    rows={previewRows}
-                    columns={columns}
-                    render={(row) => columns.map((column) => row[column] || '')}
-                  />
+                  <div className="dimension-sheet-list">
+                    {sheetPreviews.map((sheet, sheetIndex) => {
+                      const columns = sheet.columns?.length ? sheet.columns.slice(0, 8) : ['暂无字段'];
+                      const previewRows = sheet.rows?.slice(0, 5) || [];
+                      return (
+                        <div key={`${sheet.sheetName || 'sheet'}-${sheetIndex}`} className="dimension-sheet-preview">
+                          <div className="dimension-sheet-head">
+                            <strong>{sheet.sheetName || `工作表 ${sheetIndex + 1}`}</strong>
+                            <span>{sheet.importedCount || 0} 行，预览 {previewRows.length} 行</span>
+                          </div>
+                          <DataTable
+                            className="dimension-preview-table"
+                            rows={previewRows}
+                            columns={columns}
+                            render={(row) => columns.map((column) => row[column] || '')}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
                   <div className="card-actions">
                     <button type="button" className="compact-button" onClick={() => onApply(slot.id)}>应用刷新</button>
                     <button type="button" className="ghost compact-button" onClick={() => onDelete(slot.id)}>删除</button>

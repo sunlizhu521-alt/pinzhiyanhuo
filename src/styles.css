@@ -584,6 +584,29 @@ th {
   font-size: 13px;
 }
 
+.dimension-sheet-list {
+  display: grid;
+  gap: 10px;
+}
+
+.dimension-sheet-preview {
+  display: grid;
+  gap: 6px;
+}
+
+.dimension-sheet-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: #475569;
+  font-size: 13px;
+}
+
+.dimension-sheet-head strong {
+  color: #1e293b;
+}
+
 .dimension-preview-table {
   max-height: 240px;
 }
