@@ -1,8 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import * as XLSX from 'xlsx';
 import './styles.css';
 
 const API = import.meta.env.DEV ? 'http://localhost:4002' : '';
+const STATIC_MODE = import.meta.env.PROD;
+const STATIC_DB_KEY = 'qualityInspectionStaticDb';
 
 const NOTICE_FIELDS = [
   { key: 'inspectionApplicant', label: '验货填写人', readonly: true },
@@ -54,6 +57,119 @@ function formatDate(value) {
   return value ? String(value).slice(0, 10) : '';
 }
 
+function nowText() {
+  const date = new Date();
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function defaultStaticDb() {
+  return {
+    users: [
+      { id: 'u-admin', name: '管理员', password: '123456', role: '管理员' },
+      { id: 'u-user', name: '验货员', password: '123456', role: '普通用户' }
+    ],
+    qualityInspection: {
+      initialData: { sheetName: '', columns: [], rows: [], updatedAt: '' },
+      notices: { rows: [], submittedAt: '', submittedBy: '' },
+      schedules: {},
+      reports: {},
+      feedback: {}
+    }
+  };
+}
+
+function normalizeStaticDb(db = {}) {
+  const fallback = defaultStaticDb();
+  const inspection = db.qualityInspection || {};
+  return {
+    users: Array.isArray(db.users) && db.users.length ? db.users : fallback.users,
+    qualityInspection: {
+      initialData: { ...fallback.qualityInspection.initialData, ...(inspection.initialData || {}) },
+      notices: { ...fallback.qualityInspection.notices, ...(inspection.notices || {}) },
+      schedules: inspection.schedules || {},
+      reports: inspection.reports || {},
+      feedback: inspection.feedback || {}
+    }
+  };
+}
+
+function readStaticDb() {
+  try {
+    return normalizeStaticDb(JSON.parse(localStorage.getItem(STATIC_DB_KEY) || ''));
+  } catch {
+    return defaultStaticDb();
+  }
+}
+
+function saveStaticDb(db) {
+  localStorage.setItem(STATIC_DB_KEY, JSON.stringify(normalizeStaticDb(db)));
+}
+
+function composedStaticRecords(db) {
+  const inspection = db.qualityInspection;
+  return (inspection.notices.rows || []).map((row, index) => ({
+    ...row,
+    rowNumber: row.rowNumber || index + 1,
+    schedule: inspection.schedules[row.id] || {},
+    report: inspection.reports[row.id] || {},
+    feedback: inspection.feedback[row.id] || {}
+  }));
+}
+
+function parseWorkbookInBrowser(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('read failed'));
+    reader.onload = () => {
+      try {
+        const workbook = XLSX.read(reader.result, { type: 'array', cellDates: true });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false });
+        const headerIndex = matrix.findIndex((row) => row.some((cell) => normalize(cell)));
+        if (headerIndex === -1) {
+          resolve({ sheetName, columns: [], rows: [], importedCount: 0 });
+          return;
+        }
+        const columns = matrix[headerIndex].map((cell, index) => normalize(cell) || `字段${index + 1}`);
+        const rows = matrix.slice(headerIndex + 1)
+          .filter((row) => row.some((cell) => normalize(cell)))
+          .map((row) => {
+            const item = { id: createId(), __cells: row.map((cell) => normalize(cell)) };
+            columns.forEach((column, index) => {
+              item[column] = normalize(row[index]);
+            });
+            return item;
+          });
+        resolve({ sheetName, columns, rows, importedCount: rows.length });
+      } catch (error) {
+        reject(error);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || file.size === 0) {
+      resolve('');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('read failed'));
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.readAsDataURL(file);
+  });
+}
+
+function reportHref(record) {
+  if (record.report?.fileDataUrl) return record.report.fileDataUrl;
+  if (record.report?.fileName) return `${API}/uploads/${record.report.fileName}`;
+  return '';
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState('inspectionNotice');
   const [authMode, setAuthMode] = useState('login');
@@ -74,6 +190,10 @@ function App() {
   const [savingId, setSavingId] = useState('');
 
   useEffect(() => {
+    if (STATIC_MODE) {
+      setAppVersionTime(nowText().slice(0, 16));
+      return;
+    }
     fetch(`${API}/api/app-version`, { cache: 'no-store' })
       .then((res) => res.ok ? res.json() : null)
       .then((data) => setAppVersionTime(data?.versionTime || '未读取'))
@@ -86,6 +206,17 @@ function App() {
   }, [user]);
 
   async function loadData() {
+    if (STATIC_MODE) {
+      const db = readStaticDb();
+      const inspection = db.qualityInspection;
+      setInitialData(inspection.initialData);
+      setNoticeSubmission(inspection.notices);
+      setNoticeRows(inspection.notices.rows?.length
+        ? inspection.notices.rows.map((row) => createNoticeRow(row))
+        : [createNoticeRow({ inspectionApplicant: user.name })]);
+      setRecords(composedStaticRecords(db));
+      return;
+    }
     const [initialRes, noticeRes, recordsRes] = await Promise.all([
       fetch(`${API}/api/quality-inspection/initial-data`, { cache: 'no-store' }),
       fetch(`${API}/api/quality-inspection/notices`, { cache: 'no-store' }),
@@ -106,6 +237,37 @@ function App() {
     event.preventDefault();
     setMessage('');
     const isLogin = authMode === 'login';
+    if (STATIC_MODE) {
+      const db = readStaticDb();
+      const name = normalize(isLogin ? loginName : registerName);
+      const inputPassword = normalize(isLogin ? password : registerPassword);
+      if (!name || !inputPassword) {
+        setMessage('请输入姓名和密码。');
+        return;
+      }
+      if (isLogin) {
+        const matchedUser = db.users.find((item) => item.name === name && item.password === inputPassword);
+        if (!matchedUser) {
+          setMessage('账号或密码不正确。');
+          return;
+        }
+        const payload = { id: matchedUser.id, name: matchedUser.name, role: matchedUser.role };
+        localStorage.setItem('qualityInspectionUser', JSON.stringify(payload));
+        setUser(payload);
+        return;
+      }
+      if (db.users.some((item) => item.name === name)) {
+        setMessage('该姓名已存在。');
+        return;
+      }
+      const newUser = { id: createId(), name, password: inputPassword, role: '普通用户' };
+      db.users.push(newUser);
+      saveStaticDb(db);
+      const payload = { id: newUser.id, name: newUser.name, role: newUser.role };
+      localStorage.setItem('qualityInspectionUser', JSON.stringify(payload));
+      setUser(payload);
+      return;
+    }
     const res = await fetch(`${API}/api/auth/${isLogin ? 'login' : 'register'}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -148,6 +310,21 @@ function App() {
       setMessage('请至少填写一条验货通知后再提交。');
       return;
     }
+    if (STATIC_MODE) {
+      const db = readStaticDb();
+      const payload = {
+        rows: rows.map((row, index) => ({ ...row, id: row.id || createId(), rowNumber: index + 1 })),
+        submittedAt: nowText(),
+        submittedBy: user.name
+      };
+      db.qualityInspection.notices = payload;
+      saveStaticDb(db);
+      setNoticeSubmission(payload);
+      setNoticeRows(payload.rows.map((row) => createNoticeRow(row)));
+      setRecords(composedStaticRecords(db));
+      setMessage(`验货通知已提交：共 ${payload.rows.length} 条。`);
+      return;
+    }
     const res = await fetch(`${API}/api/quality-inspection/notices?user=${encodeURIComponent(user.name)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -165,6 +342,10 @@ function App() {
   }
 
   async function refreshRecords() {
+    if (STATIC_MODE) {
+      setRecords(composedStaticRecords(readStaticDb()));
+      return;
+    }
     const res = await fetch(`${API}/api/quality-inspection/records`, { cache: 'no-store' });
     if (res.ok) setRecords((await res.json()).rows || []);
   }
@@ -172,6 +353,27 @@ function App() {
   async function uploadInitialData(files) {
     const file = files?.[0];
     if (!file) return;
+    if (STATIC_MODE) {
+      try {
+        const result = await parseWorkbookInBrowser(file);
+        const payload = {
+          sheetName: result.sheetName,
+          columns: result.columns,
+          rows: result.rows,
+          updatedAt: nowText(),
+          importedCount: result.importedCount
+        };
+        const db = readStaticDb();
+        db.qualityInspection.initialData = payload;
+        saveStaticDb(db);
+        setInitialData(payload);
+        setInitialImportResult(payload);
+        setMessage(`验货信息初始数据已读取：成功 ${payload.importedCount || 0} 行。`);
+      } catch {
+        setMessage('验货信息初始数据导入失败，请检查文件格式。');
+      }
+      return;
+    }
     const form = new FormData();
     form.append('file', file);
     const res = await fetch(`${API}/api/quality-inspection/initial-data/import`, { method: 'POST', body: form });
@@ -187,6 +389,19 @@ function App() {
 
   async function saveSchedule(record, patch) {
     setSavingId(record.id);
+    if (STATIC_MODE) {
+      const db = readStaticDb();
+      db.qualityInspection.schedules[record.id] = {
+        ...(db.qualityInspection.schedules[record.id] || {}),
+        ...patch,
+        updatedAt: nowText()
+      };
+      saveStaticDb(db);
+      setSavingId('');
+      setRecords(composedStaticRecords(db));
+      setMessage('验货安排已保存。');
+      return;
+    }
     const res = await fetch(`${API}/api/quality-inspection/schedules/${encodeURIComponent(record.id)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -203,6 +418,30 @@ function App() {
 
   async function saveReport(record, formElement) {
     setSavingId(record.id);
+    if (STATIC_MODE) {
+      const form = new FormData(formElement);
+      const file = form.get('file');
+      let fileDataUrl = record.report?.fileDataUrl || '';
+      if (file instanceof File && file.size > 0) {
+        fileDataUrl = await readFileAsDataUrl(file);
+      }
+      const db = readStaticDb();
+      db.qualityInspection.reports[record.id] = {
+        ...(db.qualityInspection.reports[record.id] || {}),
+        reportNo: normalize(form.get('reportNo')),
+        conclusion: normalize(form.get('conclusion')),
+        originalName: file instanceof File && file.size > 0 ? file.name : record.report?.originalName || '',
+        fileDataUrl,
+        uploadedAt: file instanceof File && file.size > 0 ? nowText() : record.report?.uploadedAt || '',
+        updatedAt: nowText()
+      };
+      saveStaticDb(db);
+      formElement.reset();
+      setSavingId('');
+      setRecords(composedStaticRecords(db));
+      setMessage('检验报告单已回传。');
+      return;
+    }
     const form = new FormData(formElement);
     const res = await fetch(`${API}/api/quality-inspection/reports/${encodeURIComponent(record.id)}`, {
       method: 'POST',
@@ -220,6 +459,19 @@ function App() {
 
   async function saveFeedback(record, patch) {
     setSavingId(record.id);
+    if (STATIC_MODE) {
+      const db = readStaticDb();
+      db.qualityInspection.feedback[record.id] = {
+        ...(db.qualityInspection.feedback[record.id] || {}),
+        ...patch,
+        updatedAt: nowText()
+      };
+      saveStaticDb(db);
+      setSavingId('');
+      setRecords(composedStaticRecords(db));
+      setMessage('验货反馈已保存。');
+      return;
+    }
     const res = await fetch(`${API}/api/quality-inspection/feedback/${encodeURIComponent(record.id)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -476,8 +728,8 @@ function ReportUploadPage({ records, savingId, onSave }) {
             <div>
               <h3>{record.supplierShortName || '未填写供应商'}</h3>
               <p>{record.kingdeeOrderNo || '未填写采购订单'} · {record.salesProductLine || '未填写产品线'}</p>
-              {record.report?.originalName && (
-                <a href={`${API}/uploads/${record.report.fileName}`} target="_blank" rel="noreferrer">{record.report.originalName}</a>
+              {record.report?.originalName && reportHref(record) && (
+                <a href={reportHref(record)} target="_blank" rel="noreferrer">{record.report.originalName}</a>
               )}
             </div>
             <input name="reportNo" placeholder="报告单号" defaultValue={record.report?.reportNo || ''} />
@@ -566,8 +818,8 @@ function ReportQueryPage({ records, query, statusFilter, onQuery, onStatusFilter
           record.schedule?.inspector || '',
           record.schedule?.status || '未安排',
           record.report?.reportNo || '',
-          record.report?.fileName
-            ? <a href={`${API}/uploads/${record.report.fileName}`} target="_blank" rel="noreferrer">{record.report.originalName || '查看文件'}</a>
+          reportHref(record)
+            ? <a href={reportHref(record)} target="_blank" rel="noreferrer">{record.report.originalName || '查看文件'}</a>
             : '',
           record.feedback?.result || ''
         ]}

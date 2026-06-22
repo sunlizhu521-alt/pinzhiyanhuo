@@ -17,6 +17,14 @@ npm install
 npm run dev
 ```
 
+## GitHub Pages 预览
+
+推送到 `main` 后，GitHub Actions 会自动构建并发布静态预览：
+
+https://sunlizhu521-alt.github.io/pinzhiyanhuo/
+
+Pages 版本使用浏览器本地存储保存数据，不依赖后端服务。
+
 默认账号：
 
 - 管理员 / 123456
