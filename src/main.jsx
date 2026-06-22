@@ -518,6 +518,50 @@ function readFileAsDataUrl(file) {
   });
 }
 
+const REPORT_LIBRARY_EXTENSIONS = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.xlsx', '.xls', '.doc', '.docx']);
+
+function isReportLibraryFile(file) {
+  const name = String(file?.name || '').toLowerCase();
+  return REPORT_LIBRARY_EXTENSIONS.has(name.match(/\.[^.]+$/)?.[0] || '');
+}
+
+function readEntryFiles(entry) {
+  if (!entry) return Promise.resolve([]);
+  if (entry.isFile) {
+    return new Promise((resolve) => {
+      entry.file((file) => resolve([file]), () => resolve([]));
+    });
+  }
+  if (!entry.isDirectory) return Promise.resolve([]);
+  const reader = entry.createReader();
+  const entries = [];
+  return new Promise((resolve) => {
+    const readBatch = () => {
+      reader.readEntries(async (batch) => {
+        if (!batch.length) {
+          const nested = await Promise.all(entries.map(readEntryFiles));
+          resolve(nested.flat());
+          return;
+        }
+        entries.push(...batch);
+        readBatch();
+      }, () => resolve([]));
+    };
+    readBatch();
+  });
+}
+
+async function reportLibraryFilesFromDrop(dataTransfer) {
+  const items = Array.from(dataTransfer?.items || []);
+  const entries = items
+    .map((item) => (typeof item.webkitGetAsEntry === 'function' ? item.webkitGetAsEntry() : null))
+    .filter(Boolean);
+  const files = entries.length
+    ? (await Promise.all(entries.map(readEntryFiles))).flat()
+    : Array.from(dataTransfer?.files || []);
+  return files.filter(isReportLibraryFile);
+}
+
 function reportHref(record) {
   if (record.report?.fileDataUrl) return record.report.fileDataUrl;
   if (record.report?.fileName) {
@@ -1459,8 +1503,11 @@ function App() {
   }, [reportFiles, records]);
 
   async function uploadReportLibraryFiles(files) {
-    const selectedFiles = Array.from(files || []);
-    if (!selectedFiles.length) return;
+    const selectedFiles = Array.from(files || []).filter(isReportLibraryFile);
+    if (!selectedFiles.length) {
+      setMessage('没有可上传的检验报告单文件。');
+      return;
+    }
     setSavingId('inspectionReportLibrary');
     if (STATIC_MODE) {
       try {
@@ -2261,26 +2308,44 @@ function ReportFileLibraryPage({ files, savingId, onUpload, onRename, onDelete }
         <h2>检验报告单文件库</h2>
         <span className="section-count">共 {files.length} 个文件</span>
       </div>
-      <label
+      <div
         className="report-library-upload-zone"
         onDragOver={(event) => event.preventDefault()}
-        onDrop={(event) => {
+        onDrop={async (event) => {
           event.preventDefault();
-          onUpload(event.dataTransfer.files);
+          onUpload(await reportLibraryFilesFromDrop(event.dataTransfer));
         }}
       >
-        <input
-          type="file"
-          multiple
-          accept=".pdf,.png,.jpg,.jpeg,.webp,.xlsx,.xls,.doc,.docx"
-          onChange={(event) => {
-            onUpload(event.target.files);
-            event.target.value = '';
-          }}
-        />
-        <strong>拖拽历史检验报告单到这里，或点击上传</strong>
-        <span>支持图片、PDF、Excel、Word；加盖章后的报告单也会在这里展示</span>
-      </label>
+        <strong>拖拽历史检验报告单文件或文件夹到这里</strong>
+        <span>上传时读取文件名；支持图片、PDF、Excel、Word；加盖章后的报告单也会在这里展示</span>
+        <div className="report-library-upload-actions">
+          <label className="upload-button">
+            上传文件
+            <input
+              type="file"
+              multiple
+              accept=".pdf,.png,.jpg,.jpeg,.webp,.xlsx,.xls,.doc,.docx"
+              onChange={(event) => {
+                onUpload(event.target.files);
+                event.target.value = '';
+              }}
+            />
+          </label>
+          <label className="upload-button">
+            上传文件夹
+            <input
+              type="file"
+              multiple
+              webkitdirectory=""
+              directory=""
+              onChange={(event) => {
+                onUpload(event.target.files);
+                event.target.value = '';
+              }}
+            />
+          </label>
+        </div>
+      </div>
       <DataTable
         className="report-library-table"
         rows={files}

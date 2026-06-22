@@ -454,6 +454,14 @@ th {
   display: none;
 }
 
+.report-library-upload-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
 .report-library-table table {
   min-width: 1480px;
 }
