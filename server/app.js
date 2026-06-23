@@ -49,6 +49,7 @@ const DEFAULT_USERS = [
 const PRODUCT_CATEGORY_SLOT_ID = 'dimension-slot-1';
 const PURCHASE_WORK_DIVISION_SLOT_ID = 'dimension-slot-2';
 const DIMENSION_PREVIEW_ROW_LIMIT = 20;
+const DIMENSION_SLOT_IDS = ['dimension-slot-1', 'dimension-slot-2', 'dimension-slot-3', 'dimension-slot-4'];
 const DIMENSION_SUPPLIER_ALIASES = ['产品线明细供应商', '供应商简称', '供应商', '供应商名称', '厂家简称', '厂商简称', '工厂简称'];
 const DIMENSION_ADDRESS_ALIASES = ['产品线明细地址', '供应商地址', '验货地址', '工厂地址', '详细地址', '地址', '所在地'];
 const SALES_PRODUCT_LINE_ALIASES = ['销售产品线', '产品线', '一级产品线'];
@@ -377,6 +378,64 @@ function ensureDimensionLibraryFileDataCache(db, force = false) {
       changed = true;
     } catch {
       // Keep the existing record if the original server file cannot be parsed.
+    }
+  });
+  return changed;
+}
+
+function dimensionFileDisplayName(slotId, storedFileName) {
+  const name = path.basename(String(storedFileName || ''));
+  const prefix = `${slotId}-`;
+  return fixMojibakeText(name.startsWith(prefix) ? name.slice(prefix.length) : name);
+}
+
+async function latestDimensionUploadsBySlot() {
+  const entries = await readdir(dimensionUploadDir, { withFileTypes: true }).catch(() => []);
+  const latest = new Map();
+  await Promise.all(entries.map(async (entry) => {
+    if (!entry.isFile()) return;
+    const storedFileName = entry.name;
+    const slotId = DIMENSION_SLOT_IDS.find((id) => storedFileName.startsWith(`${id}-`));
+    if (!slotId) return;
+    const info = await stat(dimensionFilePath(storedFileName)).catch(() => null);
+    if (!info) return;
+    const existing = latest.get(slotId);
+    if (!existing || info.mtimeMs > existing.info.mtimeMs) {
+      latest.set(slotId, { storedFileName, info });
+    }
+  }));
+  return latest;
+}
+
+async function recoverDimensionLibraryRecordsFromUploadedFiles(db, force = false) {
+  const latest = await latestDimensionUploadsBySlot();
+  if (!latest.size) return false;
+  db.qualityInspection.dimensionLibrary = {
+    ...(db.qualityInspection.dimensionLibrary || {})
+  };
+  let changed = false;
+  latest.forEach(({ storedFileName, info }, slotId) => {
+    const existing = db.qualityInspection.dimensionLibrary[slotId] || {};
+    if (!force && existing.storedFileName) return;
+    if (!force && existing.storedFileName === storedFileName && existing.fileUrl) return;
+    if (force || existing.storedFileName !== storedFileName || !existing.fileUrl) {
+      const recoveredAt = format(info.mtime, 'yyyy-MM-dd HH:mm:ss');
+      const storedChanged = existing.storedFileName !== storedFileName;
+      db.qualityInspection.dimensionLibrary[slotId] = {
+        ...existing,
+        id: slotId,
+        fileName: storedChanged ? dimensionFileDisplayName(slotId, storedFileName) : existing.fileName || dimensionFileDisplayName(slotId, storedFileName),
+        storedFileName,
+        fileUrl: dimensionFileUrl(storedFileName),
+        fileSize: info.size || existing.fileSize || 0,
+        fileType: existing.fileType || path.extname(storedFileName).slice(1).toUpperCase() || 'UNKNOWN',
+        applied: true,
+        appliedAt: existing.appliedAt || recoveredAt,
+        savedAt: existing.savedAt || recoveredAt,
+        updatedAt: nowText(),
+        updatedBy: existing.updatedBy || 'server-recovered'
+      };
+      changed = true;
     }
   });
   return changed;
@@ -871,8 +930,10 @@ app.post('/api/quality-inspection/initial-data/import', requireAuth, requirePage
 app.get('/api/quality-inspection/dimension-library', requireAuth, requirePages('dimensionLibrary', 'inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'inspectionReportLibrary', 'inspectionReportQuery', 'inspectionSummary'), async (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   const db = await readDb();
-  const cacheUpdated = ensureDimensionLibraryFileDataCache(db) || await ensureProductCategoryOptionCache(db);
-  if (cacheUpdated) await saveDb(db);
+  const recovered = await recoverDimensionLibraryRecordsFromUploadedFiles(db);
+  const fileDataUpdated = ensureDimensionLibraryFileDataCache(db);
+  const productCacheUpdated = await ensureProductCategoryOptionCache(db);
+  if (recovered || fileDataUpdated || productCacheUpdated) await saveDb(db);
   const library = db.qualityInspection.dimensionLibrary || {};
   if (!hasPageAccess(req.authUser, 'dimensionLibrary')) {
     const productCategory = library[PRODUCT_CATEGORY_SLOT_ID] || {};
@@ -905,9 +966,12 @@ app.get('/api/quality-inspection/dimension-library', requireAuth, requirePages('
 app.post('/api/quality-inspection/dimension-library/sync', requireAuth, requirePages('dimensionLibrary'), async (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   const db = await readDb();
-  const updated = ensureDimensionLibraryFileDataCache(db, true);
+  const recovered = await recoverDimensionLibraryRecordsFromUploadedFiles(db, true);
+  const fileDataUpdated = ensureDimensionLibraryFileDataCache(db, true);
+  const productCacheUpdated = await ensureProductCategoryOptionCache(db);
+  const updated = recovered || fileDataUpdated || productCacheUpdated;
   if (updated) await saveDb(db);
-  res.json({ library: db.qualityInspection.dimensionLibrary || {}, updated });
+  res.json({ library: db.qualityInspection.dimensionLibrary || {}, updated, recovered });
 });
 
 app.post('/api/quality-inspection/dimension-library/:slotId/apply', requireAuth, requirePages('dimensionLibrary'), upload.single('file'), async (req, res) => {
