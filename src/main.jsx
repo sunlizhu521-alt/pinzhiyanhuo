@@ -2706,6 +2706,7 @@ function App() {
 
   return (
     <main className="app-shell" onClick={() => setMessage('')}>
+      <SecurityWatermark user={user} />
       <aside className="sidebar" onClick={(event) => event.stopPropagation()}>
         <h1>品质验货</h1>
         <span className="app-version-time">更新时间：{appVersionTime}</span>
@@ -2852,6 +2853,17 @@ function App() {
         )}
       </section>
     </main>
+  );
+}
+
+function SecurityWatermark({ user }) {
+  const text = `内部资料 ${normalize(user?.name)} ${formatDate(new Date())}`;
+  return (
+    <div className="security-watermark" aria-hidden="true">
+      {Array.from({ length: 72 }, (_, index) => (
+        <span key={index}>{text}</span>
+      ))}
+    </div>
   );
 }
 

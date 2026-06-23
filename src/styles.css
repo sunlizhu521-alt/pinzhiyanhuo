@@ -104,6 +104,28 @@ textarea {
   grid-template-columns: 220px 1fr;
 }
 
+.security-watermark {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-auto-rows: 150px;
+  align-items: center;
+  overflow: hidden;
+  color: rgba(15, 23, 42, .08);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.security-watermark span {
+  transform: rotate(-24deg);
+  white-space: nowrap;
+  user-select: none;
+}
+
 .sidebar {
   min-height: 100vh;
   padding: 22px 16px;
@@ -196,6 +218,7 @@ textarea {
 }
 
 .content {
+  position: relative;
   padding: 28px;
   overflow: auto;
 }
