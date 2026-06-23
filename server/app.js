@@ -7,6 +7,7 @@ import { format } from 'date-fns';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import bcrypt from 'bcryptjs';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -86,6 +87,24 @@ function nowText() {
   return format(new Date(), 'yyyy-MM-dd HH:mm:ss');
 }
 
+const BCRYPT_ROUNDS = 10;
+
+function isBcryptHash(value) {
+  const hash = String(value || '');
+  return hash.startsWith('$2a$') || hash.startsWith('$2b$');
+}
+
+async function hashPassword(password) {
+  return bcrypt.hash(password, BCRYPT_ROUNDS);
+}
+
+async function verifyPassword(password, hash) {
+  if (isBcryptHash(hash)) {
+    return bcrypt.compare(password, hash);
+  }
+  return password === hash;
+}
+
 function safeFileBaseName(value, fallback) {
   const cleaned = String(value || '')
     .trim()
@@ -139,7 +158,14 @@ function normalizeDb(db = {}) {
   return {
     users: users.map((user) => {
       const normalized = user.id === DEFAULT_ADMIN_USER.id || user.name === DEFAULT_ADMIN_USER.name
-        ? { ...user, ...DEFAULT_ADMIN_USER }
+        ? {
+            ...DEFAULT_ADMIN_USER,
+            ...user,
+            id: DEFAULT_ADMIN_USER.id,
+            name: DEFAULT_ADMIN_USER.name,
+            role: ROLE_ADMIN,
+            password: isBcryptHash(user.password) ? user.password : DEFAULT_ADMIN_USER.password
+          }
         : user;
       return {
         ...normalized,
@@ -929,8 +955,14 @@ app.post('/api/auth/login', async (req, res) => {
   const db = await readDb();
   const name = String(req.body.name || '').trim();
   const password = String(req.body.password || '').trim();
-  const user = db.users.find((item) => item.name === name && item.password === password);
-  if (!user) return res.status(401).json({ error: '账号或密码不正确' });
+  const user = db.users.find((item) => item.name === name);
+  if (!user || !(await verifyPassword(password, user.password))) {
+    return res.status(401).json({ error: '账号或密码不正确' });
+  }
+  if (!isBcryptHash(user.password)) {
+    user.password = await hashPassword(password);
+    await saveDb(db);
+  }
   if (!isPrimaryAdminUser(user) && !(user.pageAccess || []).length) {
     return res.status(403).json({ error: '账号已注册，请等待管理员孙立柱授权页面后再登录' });
   }
@@ -946,7 +978,8 @@ app.post('/api/auth/register', async (req, res) => {
   const password = String(req.body.password || '').trim();
   if (!name || !password) return res.status(400).json({ error: '请输入姓名和密码' });
   if (db.users.some((user) => user.name === name)) return res.status(409).json({ error: '该姓名已存在' });
-  const user = { id: randomUUID(), name, password, role: ROLE_USER, pageAccess: [] };
+  const hashedPassword = await hashPassword(password);
+  const user = { id: randomUUID(), name, password: hashedPassword, role: ROLE_USER, pageAccess: [] };
   db.users.push(user);
   await saveDb(db);
   res.json({ id: user.id, name: user.name, role: user.role, pageAccess: user.pageAccess || [] });
