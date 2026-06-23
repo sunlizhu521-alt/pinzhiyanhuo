@@ -1683,7 +1683,7 @@ function App() {
     const rows = mergeNoticeRowsForImport(noticeRows
       .map((row) => ({
         ...row,
-        businessDepartments: splitMultiValue(row.businessDepartments)[0] || normalize(row.businessDepartments),
+        businessDepartments: joinBusinessDepartments(splitMultiValue(row.businessDepartments)),
         inspectionApplicant: user.name
       }))
       .map((row) => normalizeNoticeDimensions(row, supplierOptions, productLineOptions, seriesOptions, dimensionLibrary))
@@ -2777,6 +2777,13 @@ function InspectionNoticePage({
     });
   }
 
+  function toggleBusinessDepartment(row, option, checked) {
+    const current = new Set(splitMultiValue(row.businessDepartments).map(normalizeBusinessDepartment));
+    if (checked) current.add(option);
+    else current.delete(option);
+    onChange(row.id, 'businessDepartments', joinBusinessDepartments(Array.from(current)));
+  }
+
   return (
     <>
       <div className="section-heading-row">
@@ -2926,6 +2933,23 @@ function InspectionNoticePage({
               );
             }
             if (field.options) {
+              if (field.key === 'businessDepartments') {
+                const selected = new Set(splitMultiValue(row[field.key]).map(normalizeBusinessDepartment));
+                return (
+                  <div className="business-department-checks">
+                    {field.options.map((option) => (
+                      <label key={option} className="business-department-option">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(option)}
+                          onChange={(event) => toggleBusinessDepartment(row, option, event.target.checked)}
+                        />
+                        <span>{option}</span>
+                      </label>
+                    ))}
+                  </div>
+                );
+              }
               const selectValue = field.key === 'businessDepartments'
                 ? (splitMultiValue(row[field.key])[0] || row[field.key] || '')
                 : (row[field.key] || '');

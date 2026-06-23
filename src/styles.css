@@ -564,12 +564,38 @@ th {
 }
 
 .inspection-notice-table table {
-  min-width: 1540px;
+  min-width: 1700px;
 }
 
 .inspection-notice-input {
   width: 150px;
   min-width: 150px;
+}
+
+.business-department-checks {
+  min-width: 230px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 8px;
+  align-items: start;
+}
+
+.business-department-option {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  color: #334155;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.business-department-option input {
+  width: auto;
+  height: auto;
+  min-width: 0;
+  margin: 0;
 }
 
 .supplier-combobox {
