@@ -278,7 +278,7 @@ function scheduleReportNo(record) {
     uniqueValues(splitMultiValue(record.businessDepartments)).map(businessDepartmentCode).join('/'),
     formatCompactDate(record.inspectionFillTime),
     normalize(record.series)
-  ].filter(Boolean).join('');
+  ].filter(Boolean).join('-');
 }
 
 function mergeScheduleRecords(records = []) {
@@ -305,7 +305,7 @@ function mergeScheduleRecords(records = []) {
       .filter(Boolean)
       .join('；');
     const mergedRemarkParts = [...remarks];
-    if (group.length > 1 && quantityDetail) mergedRemarkParts.push(`合并事业部和数量：${quantityDetail}`);
+    if (group.length > 1 && quantityDetail) mergedRemarkParts.push(`合并验货：${quantityDetail}`);
     const merged = {
       ...first,
       id: first.id,
