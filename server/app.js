@@ -701,6 +701,39 @@ app.post('/api/quality-inspection/notices', requireAuth, requirePages('inspectio
   });
 });
 
+app.delete('/api/quality-inspection/notices', requireAuth, requirePages('inspectionSchedule'), requireRoles(ROLE_ADMIN), async (req, res) => {
+  const db = await readDb();
+  db.qualityInspection.notices = {
+    rows: [],
+    submittedAt: nowText(),
+    submittedBy: req.authUser.name
+  };
+  db.qualityInspection.schedules = {};
+  db.qualityInspection.reports = {};
+  db.qualityInspection.feedback = {};
+  await saveDb(db);
+  res.json({ notices: db.qualityInspection.notices, rows: [] });
+});
+
+app.delete('/api/quality-inspection/notices/:id', requireAuth, requirePages('inspectionSchedule'), requireRoles(ROLE_ADMIN), async (req, res) => {
+  const db = await readDb();
+  const recordId = String(req.params.id || '').trim();
+  const rows = db.qualityInspection.notices.rows || [];
+  db.qualityInspection.notices = {
+    ...(db.qualityInspection.notices || {}),
+    rows: rows
+      .filter((row) => row.id !== recordId)
+      .map((row, index) => ({ ...row, rowNumber: index + 1 })),
+    submittedAt: nowText(),
+    submittedBy: req.authUser.name
+  };
+  delete db.qualityInspection.schedules[recordId];
+  delete db.qualityInspection.reports[recordId];
+  delete db.qualityInspection.feedback[recordId];
+  await saveDb(db);
+  res.json({ notices: db.qualityInspection.notices, rows: composedRecords(db) });
+});
+
 app.get('/api/quality-inspection/records', requireAuth, requirePages('inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'inspectionStamp', 'inspectionReportLibrary', 'inspectionReportQuery', 'inspectionSummary'), async (req, res) => {
   const db = await readDb();
   res.json({ rows: composedRecords(db).filter((record) => canReadRecord(req.authUser, record)) });
@@ -756,11 +789,19 @@ app.post('/api/quality-inspection/summary-import', requireAuth, requirePages('in
 
 app.patch('/api/quality-inspection/schedules/:id', requireAuth, requirePages('inspectionSchedule'), requireRoles(ROLE_ADMIN), async (req, res) => {
   const db = await readDb();
+  const { reportNo, ...schedulePayload } = req.body || {};
   db.qualityInspection.schedules[req.params.id] = {
     ...(db.qualityInspection.schedules[req.params.id] || {}),
-    ...req.body,
+    ...schedulePayload,
     updatedAt: nowText()
   };
+  if (typeof reportNo !== 'undefined') {
+    db.qualityInspection.reports[req.params.id] = {
+      ...(db.qualityInspection.reports[req.params.id] || {}),
+      reportNo: String(reportNo || '').trim(),
+      updatedAt: nowText()
+    };
+  }
   await saveDb(db);
   res.json(db.qualityInspection.schedules[req.params.id]);
 });

@@ -1746,12 +1746,18 @@ function App() {
       entries.forEach(([recordId, draft]) => {
         const scheduledDate = normalize(draft.scheduledDate);
         const inspector = normalize(draft.inspector);
+        const reportNo = normalize(draft.reportNo);
         db.qualityInspection.schedules[recordId] = {
           ...(db.qualityInspection.schedules[recordId] || {}),
           scheduledDate,
           inspector,
           remark: normalize(draft.remark),
           status: scheduledDate || inspector ? '已安排' : '未安排',
+          updatedAt: nowText()
+        };
+        db.qualityInspection.reports[recordId] = {
+          ...(db.qualityInspection.reports[recordId] || {}),
+          reportNo,
           updatedAt: nowText()
         };
       });
@@ -1764,12 +1770,14 @@ function App() {
     const responses = await Promise.all(entries.map(([recordId, draft]) => {
       const scheduledDate = normalize(draft.scheduledDate);
       const inspector = normalize(draft.inspector);
+      const reportNo = normalize(draft.reportNo);
       return authFetch(`${API}/api/quality-inspection/schedules/${encodeURIComponent(recordId)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           scheduledDate,
           inspector,
+          reportNo,
           remark: normalize(draft.remark),
           status: scheduledDate || inspector ? '已安排' : '未安排'
         })
@@ -1782,6 +1790,75 @@ function App() {
     }
     await refreshRecords();
     setMessage(`验货安排已一键提交：共 ${entries.length} 条。`);
+  }
+
+  async function clearScheduleContent() {
+    setSavingId('inspectionScheduleClear');
+    if (STATIC_MODE) {
+      const db = readStaticDb();
+      db.qualityInspection.notices = {
+        rows: [],
+        submittedAt: nowText(),
+        submittedBy: user.name
+      };
+      db.qualityInspection.schedules = {};
+      db.qualityInspection.reports = {};
+      db.qualityInspection.feedback = {};
+      saveStaticDb(db);
+      setNoticeSubmission(db.qualityInspection.notices);
+      setNoticeRows([createNoticeRow({ inspectionApplicant: user.name })]);
+      setRecords([]);
+      setSavingId('');
+      setMessage('验货安排内容已全部清除，请重新提交验货通知。');
+      return;
+    }
+    const res = await authFetch(`${API}/api/quality-inspection/notices`, { method: 'DELETE' });
+    setSavingId('');
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      setMessage(payload.error || '验货安排内容清除失败。');
+      return;
+    }
+    const payload = await res.json();
+    setNoticeSubmission(payload.notices || { rows: [], submittedAt: '', submittedBy: '' });
+    setNoticeRows([createNoticeRow({ inspectionApplicant: user.name })]);
+    setRecords([]);
+    setMessage('验货安排内容已全部清除，请重新提交验货通知。');
+  }
+
+  async function deleteScheduleNotice(recordId) {
+    setSavingId(recordId);
+    if (STATIC_MODE) {
+      const db = readStaticDb();
+      db.qualityInspection.notices = {
+        ...(db.qualityInspection.notices || {}),
+        rows: (db.qualityInspection.notices.rows || [])
+          .filter((row) => row.id !== recordId)
+          .map((row, index) => ({ ...row, rowNumber: index + 1 })),
+        submittedAt: nowText(),
+        submittedBy: user.name
+      };
+      delete db.qualityInspection.schedules[recordId];
+      delete db.qualityInspection.reports[recordId];
+      delete db.qualityInspection.feedback[recordId];
+      saveStaticDb(db);
+      setNoticeSubmission(db.qualityInspection.notices);
+      setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
+      setSavingId('');
+      setMessage('已删除该条验货通知。');
+      return;
+    }
+    const res = await authFetch(`${API}/api/quality-inspection/notices/${encodeURIComponent(recordId)}`, { method: 'DELETE' });
+    setSavingId('');
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      setMessage(payload.error || '删除验货通知失败。');
+      return;
+    }
+    const payload = await res.json();
+    setNoticeSubmission(payload.notices || { rows: [], submittedAt: '', submittedBy: '' });
+    setRecords(payload.rows || []);
+    setMessage('已删除该条验货通知。');
   }
 
   async function saveReport(record, formElement) {
@@ -2276,7 +2353,13 @@ function App() {
           />
         )}
         {canAccessPage(user, 'inspectionSchedule') && activeTab === 'inspectionSchedule' && (
-          <InspectionSchedulePage records={records} savingId={savingId} onSubmit={saveSchedules} />
+          <InspectionSchedulePage
+            records={records}
+            savingId={savingId}
+            onSubmit={saveSchedules}
+            onClear={clearScheduleContent}
+            onDelete={deleteScheduleNotice}
+          />
         )}
         {canAccessPage(user, 'inspectionReportUpload') && activeTab === 'inspectionReportUpload' && (
           <ReportUploadPage records={records} savingId={savingId} onSave={saveReport} />
@@ -2570,7 +2653,7 @@ function InspectionNoticePage({
   );
 }
 
-function InspectionSchedulePage({ records, savingId, onSubmit }) {
+function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete }) {
   const [drafts, setDrafts] = useState({});
 
   useEffect(() => {
@@ -2579,6 +2662,7 @@ function InspectionSchedulePage({ records, savingId, onSubmit }) {
       {
         scheduledDate: formatDate(record.schedule?.scheduledDate),
         inspector: record.schedule?.inspector || '',
+        reportNo: record.report?.reportNo || '',
         remark: record.schedule?.remark || ''
       }
     ])));
@@ -2606,11 +2690,19 @@ function InspectionSchedulePage({ records, savingId, onSubmit }) {
         >
           一键提交
         </button>
+        <button
+          type="button"
+          className="ghost compact-button"
+          disabled={savingId === 'inspectionScheduleClear' || records.length === 0}
+          onClick={onClear}
+        >
+          清除内容
+        </button>
       </div>
       <DataTable
         className="inspection-schedule-table"
         rows={records}
-        columns={['供应商简称', '地址', '产品线', '系列', '数量', '事业部', '运营', '验货通知人', '计划验货时间', '验货员', '安排备注']}
+        columns={['供应商简称', '地址', '产品线', '系列', '数量', '事业部', '运营', '验货通知人', '检验报告单编码', '计划验货时间', '验货员', '安排备注', '操作']}
         render={(record) => [
           record.supplierShortName,
           record.supplierAddress,
@@ -2620,6 +2712,11 @@ function InspectionSchedulePage({ records, savingId, onSubmit }) {
           record.businessDepartments,
           record.operation,
           record.inspectionNotifier || record.inspectionApplicant,
+          <input
+            className="table-input"
+            value={drafts[record.id]?.reportNo || ''}
+            onChange={(event) => updateDraft(record.id, 'reportNo', event.target.value)}
+          />,
           <input
             className="table-input"
             type="date"
@@ -2635,7 +2732,15 @@ function InspectionSchedulePage({ records, savingId, onSubmit }) {
             className="table-input wide-input"
             value={drafts[record.id]?.remark || ''}
             onChange={(event) => updateDraft(record.id, 'remark', event.target.value)}
-          />
+          />,
+          <button
+            type="button"
+            className="danger-button compact-button"
+            disabled={savingId === record.id}
+            onClick={() => onDelete(record.id)}
+          >
+            删除
+          </button>
         ]}
       />
     </>
