@@ -84,7 +84,6 @@ const FEEDBACK_IMPORT_ALIASES = {
   result: ['验货结果', '检验结果', '反馈结果'],
   issueLevel: ['问题等级', '异常等级'],
   issueCategoryPrimary: ['问题分类', '一级问题分类', '问题大类'],
-  issueCategorySecondary: ['问题分类2', '问题分类二', '二级问题分类', '问题小类'],
   feedbackText: ['问题反馈', '反馈内容', '问题描述', '验货反馈'],
   actualInspector: ['实际验货人', '实际检验人']
 };
@@ -324,6 +323,59 @@ function mergeScheduleRecords(records = []) {
       report: { ...(first.report || {}) }
     };
     return merged;
+  });
+}
+
+function mergeFeedbackRecords(records = []) {
+  const groups = new Map();
+  records.forEach((record) => {
+    const keyParts = [normalizeHeader(record.supplierShortName), normalizeHeader(record.series)];
+    const key = keyParts.some(Boolean) ? keyParts.join('|') : record.id;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(record);
+  });
+
+  return Array.from(groups.values()).map((group) => {
+    const first = group[0] || {};
+    const totalQuantity = group.reduce((sum, record) => sum + (parseQuantity(record.totalQuantity) || 0), 0);
+    const hasQuantity = group.some((record) => parseQuantity(record.totalQuantity) !== null);
+    const businessDepartments = uniqueValues(group.flatMap((record) => splitMultiValue(record.businessDepartments)));
+    const remarks = uniqueValues(group.map((record) => record.remark));
+    const operations = uniqueValues(group.map((record) => record.operation));
+    const firstInspections = uniqueValues(group.map((record) => record.firstInspection));
+    const inspectors = uniqueValues(group.map((record) => record.schedule?.inspector));
+    const quantityDetail = group
+      .map((record) => {
+        const departments = splitMultiValue(record.businessDepartments);
+        const departmentText = departments.length ? joinBusinessDepartments(departments) : '未填写事业部';
+        const quantity = parseQuantity(record.totalQuantity);
+        return quantity === null ? '' : `${departmentText}${formatQuantity(quantity)}个`;
+      })
+      .filter(Boolean)
+      .join('+');
+    const mergedRemarkParts = [];
+    const originalRemark = remarks.join('+');
+    if (originalRemark) mergedRemarkParts.push(originalRemark);
+    if (group.length > 1 && quantityDetail) mergedRemarkParts.push(`合并：${quantityDetail}`);
+    const feedbackSource = group.find((record) => hasObjectValue(record.feedback)) || first;
+    const reportSource = group.find((record) => reportHref(record)) || first;
+    return {
+      ...first,
+      id: first.id,
+      sourceIds: group.map((record) => record.id),
+      sourceCount: group.length,
+      totalQuantity: hasQuantity ? formatQuantity(totalQuantity) : normalize(first.totalQuantity),
+      businessDepartments: businessDepartments.join('/'),
+      operation: operations.join('/'),
+      firstInspection: firstInspections.join('/'),
+      remark: mergedRemarkParts.join('+'),
+      schedule: {
+        ...(first.schedule || {}),
+        inspector: inspectors.join('/')
+      },
+      report: { ...(reportSource.report || {}) },
+      feedback: { ...(feedbackSource.feedback || {}) }
+    };
   });
 }
 
@@ -2312,6 +2364,7 @@ function App() {
     setSavingId(record.id);
     const form = new FormData(formElement);
     const file = form.get('reportFile');
+    const sourceIds = Array.isArray(record.sourceIds) && record.sourceIds.length ? record.sourceIds : [record.id];
     const feedbackPatch = {
       actualInspectionTime: normalize(form.get('actualInspectionTime')),
       inspectionMethod: normalize(form.get('inspectionMethod')),
@@ -2332,11 +2385,13 @@ function App() {
     }
     if (STATIC_MODE) {
       const db = readStaticDb();
-      db.qualityInspection.feedback[record.id] = {
-        ...(db.qualityInspection.feedback[record.id] || {}),
-        ...feedbackPatch,
-        updatedAt: nowText()
-      };
+      sourceIds.forEach((sourceId) => {
+        db.qualityInspection.feedback[sourceId] = {
+          ...(db.qualityInspection.feedback[sourceId] || {}),
+          ...feedbackPatch,
+          updatedAt: nowText()
+        };
+      });
       if (file instanceof File && file.size > 0) {
         const reportFileName = reportFileNameFromCode(reportNo, file.name);
         db.qualityInspection.reports[record.id] = {
@@ -2360,13 +2415,16 @@ function App() {
       setMessage('验货反馈已保存。');
       return;
     }
-    const res = await authFetch(`${API}/api/quality-inspection/feedback/${encodeURIComponent(record.id)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...(record.feedback || {}), ...feedbackPatch })
-    });
+    const feedbackResponses = await Promise.all(sourceIds.map((sourceId) => {
+      const sourceRecord = records.find((item) => item.id === sourceId) || record;
+      return authFetch(`${API}/api/quality-inspection/feedback/${encodeURIComponent(sourceId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...(sourceRecord.feedback || {}), ...feedbackPatch })
+      });
+    }));
     setSavingId('');
-    if (!res.ok) {
+    if (feedbackResponses.some((res) => !res.ok)) {
       setMessage('验货反馈保存失败。');
       return;
     }
@@ -3313,11 +3371,12 @@ function FeedbackPage({
   const previewRows = importPreview?.items || [];
   const previewLimitedRows = previewRows.slice(0, 10);
   const matchedCount = previewRows.filter((item) => item.recordId).length;
+  const mergedRecords = useMemo(() => mergeFeedbackRecords(records), [records]);
   const filteredRecords = useMemo(() => {
     const normalizedFilters = Object.fromEntries(
       Object.entries(filters).map(([key, value]) => [key, normalize(value).toLowerCase()])
     );
-    return records.filter((record) => {
+    return mergedRecords.filter((record) => {
       const values = {
         supplierShortName: record.supplierShortName,
         salesProductLine: record.salesProductLine,
@@ -3328,7 +3387,7 @@ function FeedbackPage({
         !value || normalize(values[key]).toLowerCase().includes(value)
       ));
     });
-  }, [records, filters]);
+  }, [mergedRecords, filters]);
   function updateFilter(key, value) {
     setFilters((current) => ({ ...current, [key]: value }));
   }
@@ -3360,7 +3419,7 @@ function FeedbackPage({
     <>
       <div className="section-heading-row">
         <h2>验货反馈</h2>
-        <span className="section-count">筛选 {filteredRecords.length} 条 / 待反馈 {records.length} 条</span>
+        <span className="section-count">筛选 {filteredRecords.length} 条 / 合并后 {mergedRecords.length} 条 / 待反馈 {records.length} 条</span>
         {canImport && (
           <label className="upload-button">
             批量上传
@@ -3429,7 +3488,7 @@ function FeedbackPage({
           <DataTable
             className="feedback-preview-table"
             rows={previewLimitedRows}
-            columns={['匹配状态', '供应商简称', '产品线', '系列', '数量', '实际验货时间', '验货方式', '实际验货数量', '合格数量', '验货结果', '问题等级', '问题分类', '问题分类', '问题反馈', '实际验货人']}
+            columns={['匹配状态', '供应商简称', '产品线', '系列', '数量', '实际验货时间', '验货方式', '实际验货数量', '合格数量', '验货结果', '问题等级', '问题分类', '问题反馈', '实际验货人']}
             render={(item) => [
               item.matchStatus,
               item.notice.supplierShortName,
@@ -3443,7 +3502,6 @@ function FeedbackPage({
               item.feedback.result,
               item.feedback.issueLevel,
               item.feedback.issueCategoryPrimary,
-              item.feedback.issueCategorySecondary,
               item.feedback.feedbackText,
               item.feedback.actualInspector
             ]}
@@ -3461,9 +3519,12 @@ function FeedbackPage({
           '产品线',
           '系列',
           '数量',
+          '是否首批验货',
           '事业部',
           '运营',
           '验货通知人',
+          '备注',
+          '验货员',
           '实际验货人',
           '实际验货时间',
           '验货方式',
@@ -3473,10 +3534,8 @@ function FeedbackPage({
           '检验报告单编码',
           '问题等级',
           '问题分类',
-          '问题分类',
           '问题反馈',
           '检验报告单上传功能',
-          '验货员',
           '提交按钮'
         ]}
         render={(record) => {
@@ -3487,9 +3546,12 @@ function FeedbackPage({
             record.salesProductLine,
             record.series,
             record.totalQuantity,
+            record.firstInspection,
             record.businessDepartments,
             record.operation,
             record.inspectionNotifier || record.inspectionApplicant,
+            <span className="readonly-cell wide-readonly-cell">{record.remark}</span>,
+            <span className="readonly-cell">{normalize(record.schedule?.inspector)}</span>,
             <input name="actualInspector" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.actualInspector || ''} />,
             <input
               name="actualInspectionTime"
@@ -3523,18 +3585,21 @@ function FeedbackPage({
             <span className="readonly-cell wide-readonly-cell">{reportNo}</span>,
             <select name="issueLevel" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.issueLevel || ''}>
               <option value="">选择</option>
-              <option value="一般">一般</option>
-              <option value="重要">重要</option>
               <option value="严重">严重</option>
+              <option value="中等">中等</option>
+              <option value="不严重">不严重</option>
             </select>,
-            <input name="issueCategoryPrimary" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.issueCategoryPrimary || ''} />,
-            <input name="issueCategorySecondary" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.issueCategorySecondary || ''} />,
+            <select name="issueCategoryPrimary" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.issueCategoryPrimary || ''}>
+              <option value="">选择</option>
+              <option value="包装">包装</option>
+              <option value="性能">性能</option>
+              <option value="外观">外观</option>
+            </select>,
             <textarea name="feedbackText" form={`feedback-form-${record.id}`} className="table-textarea wide-textarea" defaultValue={record.feedback?.feedbackText || ''} />,
             <div className="feedback-report-cell">
               {reportHref(record) && <a href={reportHref(record)} target="_blank" rel="noreferrer">{record.report?.originalName || '查看报告'}</a>}
               <input name="reportFile" form={`feedback-form-${record.id}`} type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx" />
             </div>,
-            <span className="readonly-cell">{normalize(record.schedule?.inspector)}</span>,
             <form id={`feedback-form-${record.id}`} onSubmit={(event) => { event.preventDefault(); onSave(record, event.currentTarget); }}>
               <button type="submit" className="compact-button" disabled={savingId === record.id}>提交</button>
             </form>
