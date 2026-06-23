@@ -3909,6 +3909,7 @@ function InspectionStampPage({ records, savingId, onStamp }) {
 
 function ReportFileLibraryPage({ files, supplierOptions = [], productLineOptions = [], seriesOptions = [], savingId, onUpload, onRename, onDelete }) {
   const [drafts, setDrafts] = useState({});
+  const [previewFile, setPreviewFile] = useState(null);
   const [filters, setFilters] = useState({
     supplierShortName: '',
     productLine: '',
@@ -3936,6 +3937,16 @@ function ReportFileLibraryPage({ files, supplierOptions = [], productLineOptions
   useEffect(() => {
     setDrafts(Object.fromEntries(files.map((file) => [file.id || file.fileName, file.fileName || ''])));
   }, [files]);
+
+  useEffect(() => {
+    if (previewFile && !files.some((file) => (file.id || file.fileName) === (previewFile.id || previewFile.fileName))) {
+      setPreviewFile(null);
+    }
+  }, [files, previewFile]);
+
+  const previewExt = String(previewFile?.fileName || previewFile?.fileUrl || '')
+    .split('?')[0]
+    .match(/\.[^.]+$/)?.[0]?.toLowerCase() || '';
 
   return (
     <section className="report-library-page">
@@ -4022,7 +4033,11 @@ function ReportFileLibraryPage({ files, supplierOptions = [], productLineOptions
             file.stampedAt ? `已盖章 ${file.stampedAt}` : '未盖章',
             formatFileSize(file.size),
             file.modifiedAt || file.updatedAt || file.uploadedAt || '',
-            file.fileUrl ? <a href={file.fileUrl} target="_blank" rel="noreferrer">查看文件</a> : '',
+            file.fileUrl ? (
+              <button type="button" className="link-button" onClick={() => setPreviewFile(file)}>
+                查看文件
+              </button>
+            ) : '',
             <div className="table-action-row">
               <button
                 type="button"
@@ -4044,6 +4059,26 @@ function ReportFileLibraryPage({ files, supplierOptions = [], productLineOptions
           ];
         }}
       />
+      {previewFile && (
+        <section className="report-query-preview">
+          <div className="section-heading-row">
+            <h3>{previewFile.fileName || '报告文件预览'}</h3>
+            <div className="table-action-row">
+              {previewFile.fileUrl && <a className="compact-button" href={previewFile.fileUrl} target="_blank" rel="noreferrer">打开原文件</a>}
+              <button type="button" className="ghost compact-button" onClick={() => setPreviewFile(null)}>关闭预览</button>
+            </div>
+          </div>
+          <div className="report-query-preview-body">
+            {REPORT_IMAGE_EXTENSIONS.has(previewExt) ? (
+              <img src={previewFile.fileUrl} alt="报告文件预览" />
+            ) : previewExt === '.pdf' ? (
+              <iframe title="报告文件预览" src={previewFile.fileUrl} />
+            ) : (
+              <div className="empty-state">当前文件格式暂不支持本页直接预览，请点击“打开原文件”查看。</div>
+            )}
+          </div>
+        </section>
+      )}
     </section>
   );
 }
