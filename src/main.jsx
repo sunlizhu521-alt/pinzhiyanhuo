@@ -78,9 +78,8 @@ const SUMMARY_IMPORT_ALIASES = {
 
 const FEEDBACK_IMPORT_ALIASES = {
   actualInspectionTime: ['实际验货时间', '验货时间', '实际检验时间', '检验时间'],
-  inspectionDays: ['验货天数', '检验天数'],
   inspectionMethod: ['验货方式', '检验方式'],
-  inspectionQuantity: ['验货数量', '检验数量'],
+  inspectionQuantity: ['实际验货数量', '验货数量', '检验数量'],
   qualifiedQuantity: ['验货合格数量', '合格数量', '检验合格数量'],
   result: ['验货结果', '检验结果', '反馈结果'],
   issueLevel: ['问题等级', '异常等级'],
@@ -2273,7 +2272,6 @@ function App() {
     const file = form.get('reportFile');
     const feedbackPatch = {
       actualInspectionTime: normalize(form.get('actualInspectionTime')),
-      inspectionDays: normalize(form.get('inspectionDays')),
       inspectionMethod: normalize(form.get('inspectionMethod')),
       inspectionQuantity: normalize(form.get('inspectionQuantity')),
       qualifiedQuantity: normalize(form.get('qualifiedQuantity')),
@@ -2287,7 +2285,7 @@ function App() {
     const reportNo = feedbackReportNo(record, feedbackPatch.actualInspectionTime, feedbackPatch.inspectionQuantity);
     if (file instanceof File && file.size > 0 && !reportNo) {
       setSavingId('');
-      setMessage('请先填写实际验货时间和验货数量，系统会自动生成检验报告单编码后再上传检验报告单。');
+      setMessage('请先填写实际验货时间和实际验货数量，系统会自动生成检验报告单编码后再上传检验报告单。');
       return;
     }
     if (STATIC_MODE) {
@@ -3375,7 +3373,7 @@ function FeedbackPage({
           <DataTable
             className="feedback-preview-table"
             rows={previewLimitedRows}
-            columns={['匹配状态', '供应商简称', '产品线', '系列', '数量', '实际验货时间', '验货天数', '验货方式', '验货数量', '合格数量', '验货结果', '问题等级', '问题分类', '问题分类', '问题反馈', '实际验货人']}
+            columns={['匹配状态', '供应商简称', '产品线', '系列', '数量', '实际验货时间', '验货方式', '实际验货数量', '合格数量', '验货结果', '问题等级', '问题分类', '问题分类', '问题反馈', '实际验货人']}
             render={(item) => [
               item.matchStatus,
               item.notice.supplierShortName,
@@ -3383,7 +3381,6 @@ function FeedbackPage({
               item.notice.series,
               item.notice.totalQuantity,
               item.feedback.actualInspectionTime,
-              item.feedback.inspectionDays,
               item.feedback.inspectionMethod,
               item.feedback.inspectionQuantity,
               item.feedback.qualifiedQuantity,
@@ -3413,9 +3410,8 @@ function FeedbackPage({
           '验货通知人',
           '实际验货人',
           '实际验货时间',
-          '验货天数',
           '验货方式',
-          '验货数量',
+          '实际验货数量',
           '验货合格数量',
           '验货结果',
           '检验报告单编码',
@@ -3447,7 +3443,6 @@ function FeedbackPage({
               defaultValue={formatDate(record.feedback?.actualInspectionTime)}
               onChange={(event) => updateFeedbackDraft(record.id, 'actualInspectionTime', event.target.value)}
             />,
-            <input name="inspectionDays" form={`feedback-form-${record.id}`} className="table-input narrow-input" defaultValue={record.feedback?.inspectionDays || ''} />,
             <select name="inspectionMethod" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.inspectionMethod || ''}>
               <option value="">选择</option>
               <option value="抽检">抽检</option>
