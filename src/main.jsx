@@ -1434,6 +1434,12 @@ function App() {
     setNoticeRows((rows) => rows.length > 1 ? rows.filter((row) => row.id !== id) : [createNoticeRow({ inspectionApplicant: user.name })]);
   }
 
+  function clearNoticeRows() {
+    setNoticeRows([createNoticeRow({ inspectionApplicant: user.name })]);
+    setNoticeImportPreview(null);
+    setMessage('已清除当前验货通知填写内容。');
+  }
+
   async function submitNotices() {
     const rows = mergeNoticeRowsForImport(noticeRows
       .map((row) => ({
@@ -2257,6 +2263,7 @@ function App() {
             supplierOptions={supplierOptions}
             onAdd={addNoticeRow}
             onDelete={deleteNoticeRow}
+            onClearRows={clearNoticeRows}
             onChange={updateNoticeRow}
             importPreview={noticeImportPreview}
             onUpload={previewNoticeRows}
@@ -2352,6 +2359,7 @@ function InspectionNoticePage({
   importPreview,
   onAdd,
   onDelete,
+  onClearRows,
   onChange,
   onUpload,
   onConfirmImport,
@@ -2381,6 +2389,7 @@ function InspectionNoticePage({
             }}
           />
         </label>
+        <button type="button" className="ghost compact-button" onClick={onClearRows}>清除填写内容</button>
         <button type="button" onClick={onSubmit}>确认提交</button>
       </div>
       <label
