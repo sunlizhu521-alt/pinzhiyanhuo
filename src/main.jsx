@@ -27,7 +27,6 @@ const NOTICE_FIELDS = [
   { key: 'inspectionFillTime', label: '验货填写时间', type: 'date' },
   { key: 'supplierFinishTime', label: '供应商完工时间', type: 'date' },
   { key: 'shipmentTime', label: '可验货时间', type: 'date' },
-  { key: 'kingdeeOrderNo', label: '金蝶采购订单' },
   { key: 'supplierShortName', label: '供应商简称' },
   { key: 'supplierAddress', label: '供应商地址' },
   { key: 'businessDepartments', label: '事业部', options: BUSINESS_DEPARTMENT_OPTIONS },
@@ -957,6 +956,13 @@ function findSupplierShortNameOption(value, supplierOptions = []) {
     || '';
 }
 
+function optionMatchesQuery(option, query) {
+  const optionText = normalizeHeader(option);
+  const queryText = normalizeHeader(query);
+  if (!queryText) return true;
+  return optionText.includes(queryText) || queryText.includes(optionText);
+}
+
 function addDimensionOption(options, value) {
   const text = normalize(value);
   if (!text) return;
@@ -1092,10 +1098,11 @@ function normalizeRecordDimensions(record, supplierOptions = [], productLineOpti
   };
 }
 
-function normalizeNoticeDimensions(row, supplierOptions, productLineOptions, seriesOptions, dimensionLibrary) {
+function normalizeNoticeDimensions(row, supplierOptions, productLineOptions, seriesOptions, dimensionLibrary, seriesByProductLine = {}) {
   const supplierShortName = findSupplierShortNameOption(row.supplierShortName, supplierOptions) || normalize(row.supplierShortName);
   const salesProductLine = findDimensionOption(row.salesProductLine, productLineOptions) || normalize(row.salesProductLine);
-  const series = findDimensionOption(row.series, seriesOptions) || normalize(row.series);
+  const scopedSeriesOptions = seriesOptionsForProductLine(salesProductLine, seriesOptions, seriesByProductLine);
+  const series = findDimensionOption(row.series, scopedSeriesOptions) || normalize(row.series);
   return {
     ...row,
     supplierShortName,
@@ -1106,7 +1113,7 @@ function normalizeNoticeDimensions(row, supplierOptions, productLineOptions, ser
   };
 }
 
-function validateNoticeRows(rows, supplierOptions = [], productLineOptions = [], seriesOptions = []) {
+function validateNoticeRows(rows, supplierOptions = [], productLineOptions = [], seriesOptions = [], seriesByProductLine = {}) {
   if (!supplierOptions.length) {
     return '请先在维度表文件库上传并应用“采购分工明细”，系统需要从里面读取供应商简称。';
   }
@@ -1122,7 +1129,9 @@ function validateNoticeRows(rows, supplierOptions = [], productLineOptions = [],
   if (invalidProductLineIndex >= 0) {
     return `第 ${invalidProductLineIndex + 1} 行产品线不在商品分类维表的销售产品线中，请选择正确产品线。`;
   }
-  const invalidSeriesIndex = rows.findIndex((row) => !findDimensionOption(row.series, seriesOptions));
+  const invalidSeriesIndex = rows.findIndex((row) => (
+    !findDimensionOption(row.series, seriesOptionsForProductLine(row.salesProductLine, seriesOptions, seriesByProductLine))
+  ));
   if (invalidSeriesIndex >= 0) {
     return `第 ${invalidSeriesIndex + 1} 行系列不在商品分类维表的销售系列中，请选择正确系列。`;
   }
@@ -1849,8 +1858,8 @@ function App() {
       setMessage('暂无可导入的预览数据。');
       return;
     }
-    const normalizedRows = previewRows.map((row) => normalizeNoticeDimensions(row, supplierOptions, productLineOptions, seriesOptions, dimensionLibrary));
-    const validationMessage = validateNoticeRows(normalizedRows, supplierOptions, productLineOptions, seriesOptions);
+    const normalizedRows = previewRows.map((row) => normalizeNoticeDimensions(row, supplierOptions, productLineOptions, seriesOptions, dimensionLibrary, seriesByProductLine));
+    const validationMessage = validateNoticeRows(normalizedRows, supplierOptions, productLineOptions, seriesOptions, seriesByProductLine);
     if (validationMessage) {
       setMessage(validationMessage);
       return;
@@ -2087,13 +2096,13 @@ function App() {
         businessDepartments: joinBusinessDepartments(splitMultiValue(row.businessDepartments)),
         inspectionApplicant: user.name
       }))
-      .map((row) => normalizeNoticeDimensions(row, supplierOptions, productLineOptions, seriesOptions, dimensionLibrary))
+      .map((row) => normalizeNoticeDimensions(row, supplierOptions, productLineOptions, seriesOptions, dimensionLibrary, seriesByProductLine))
       .filter((row) => NOTICE_FIELDS.some((field) => !field.readonly && normalize(row[field.key]))));
     if (!rows.length) {
       setMessage('请至少填写一条验货通知后再提交。');
       return;
     }
-    const validationMessage = validateNoticeRows(rows, supplierOptions, productLineOptions, seriesOptions);
+    const validationMessage = validateNoticeRows(rows, supplierOptions, productLineOptions, seriesOptions, seriesByProductLine);
     if (validationMessage) {
       setMessage(validationMessage);
       return;
@@ -3473,15 +3482,19 @@ function InspectionNoticePage({
 }) {
   const [focusedSupplierRowId, setFocusedSupplierRowId] = useState('');
   const [supplierSuggestionPosition, setSupplierSuggestionPosition] = useState(null);
+  const [focusedSeriesRowId, setFocusedSeriesRowId] = useState('');
+  const [seriesSuggestionPosition, setSeriesSuggestionPosition] = useState(null);
   const previewRows = importPreview?.rows || [];
   const previewColumns = NOTICE_FIELDS.map((field) => field.label);
   const previewLimitedRows = previewRows.slice(0, 10);
 
   useEffect(() => {
-    if (!focusedSupplierRowId) return undefined;
+    if (!focusedSupplierRowId && !focusedSeriesRowId) return undefined;
     const closeSuggestions = () => {
       setFocusedSupplierRowId('');
       setSupplierSuggestionPosition(null);
+      setFocusedSeriesRowId('');
+      setSeriesSuggestionPosition(null);
     };
     window.addEventListener('scroll', closeSuggestions, true);
     window.addEventListener('resize', closeSuggestions);
@@ -3489,12 +3502,22 @@ function InspectionNoticePage({
       window.removeEventListener('scroll', closeSuggestions, true);
       window.removeEventListener('resize', closeSuggestions);
     };
-  }, [focusedSupplierRowId]);
+  }, [focusedSupplierRowId, focusedSeriesRowId]);
 
   function updateSupplierSuggestionPosition(target) {
     const rect = target?.getBoundingClientRect?.();
     if (!rect) return;
     setSupplierSuggestionPosition({
+      top: Math.round(rect.bottom + 4),
+      left: Math.round(rect.left),
+      width: Math.max(260, Math.round(rect.width))
+    });
+  }
+
+  function updateSeriesSuggestionPosition(target) {
+    const rect = target?.getBoundingClientRect?.();
+    if (!rect) return;
+    setSeriesSuggestionPosition({
       top: Math.round(rect.bottom + 4),
       left: Math.round(rect.left),
       width: Math.max(260, Math.round(rect.width))
@@ -3631,6 +3654,67 @@ function InspectionNoticePage({
                           }}
                         >
                           {supplier}
+                        </button>
+                      ))}
+                    </div>,
+                    document.body
+                  )}
+                </div>
+              );
+            }
+            if (field.key === 'series') {
+              const value = row[field.key] || '';
+              const scopedSeriesOptions = seriesOptionsForProductLine(row.salesProductLine, seriesOptions, seriesByProductLine);
+              const matchedSeries = findDimensionOption(value, scopedSeriesOptions);
+              const suggestions = scopedSeriesOptions
+                .filter((option) => optionMatchesQuery(option, value))
+                .slice(0, 12);
+              const showSuggestions = focusedSeriesRowId === row.id && Boolean(value) && suggestions.length > 0;
+              const showInvalid = Boolean(value) && !matchedSeries;
+              return (
+                <div className="supplier-combobox">
+                  <input
+                    type="text"
+                    className={`table-input inspection-notice-input supplier-combobox-input${showInvalid ? ' invalid-input' : ''}`}
+                    value={value}
+                    onFocus={(event) => {
+                      setFocusedSeriesRowId(row.id);
+                      updateSeriesSuggestionPosition(event.currentTarget);
+                    }}
+                    onBlur={() => window.setTimeout(() => {
+                      setFocusedSeriesRowId('');
+                      setSeriesSuggestionPosition(null);
+                    }, 120)}
+                    onChange={(event) => {
+                      updateSeriesSuggestionPosition(event.currentTarget);
+                      onChange(row.id, field.key, event.target.value);
+                    }}
+                    onKeyUp={(event) => updateSeriesSuggestionPosition(event.currentTarget)}
+                    placeholder="输入系列搜索"
+                  />
+                  {showSuggestions && seriesSuggestionPosition && createPortal(
+                    <div
+                      className="supplier-suggestion-list"
+                      style={{
+                        top: seriesSuggestionPosition.top,
+                        left: seriesSuggestionPosition.left,
+                        width: seriesSuggestionPosition.width
+                      }}
+                    >
+                      <div className="supplier-suggestion-title">请选择正确系列</div>
+                      {suggestions.map((option) => (
+                        <button
+                          key={option}
+                          type="button"
+                          className="supplier-suggestion"
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            onChange(row.id, field.key, option);
+                            setFocusedSeriesRowId('');
+                            setSeriesSuggestionPosition(null);
+                          }}
+                        >
+                          {option}
                         </button>
                       ))}
                     </div>,

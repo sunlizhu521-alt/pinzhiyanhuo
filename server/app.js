@@ -47,6 +47,8 @@ const DIMENSION_PREVIEW_ROW_LIMIT = 20;
 const DIMENSION_SLOT_IDS = ['dimension-slot-1', 'dimension-slot-2', 'dimension-slot-3', 'dimension-slot-4'];
 const DIMENSION_SUPPLIER_ALIASES = ['产品线明细供应商', '供应商简称', '供应商', '供应商名称', '厂家简称', '厂商简称', '工厂简称'];
 const DIMENSION_ADDRESS_ALIASES = ['产品线明细地址', '供应商地址', '验货地址', '工厂地址', '详细地址', '地址', '所在地'];
+const DIMENSION_PROVINCE_ALIASES = ['省', '省份', '所在省', '省区'];
+const DIMENSION_CITY_ALIASES = ['市', '城市', '所在市', '地市'];
 const SALES_PRODUCT_LINE_ALIASES = ['销售产品线', '产品线', '一级产品线'];
 const SALES_SERIES_ALIASES = ['销售系列', '系列', '产品系列'];
 const NOTICE_REQUIRED_FIELDS = [
@@ -54,7 +56,6 @@ const NOTICE_REQUIRED_FIELDS = [
   { key: 'inspectionFillTime', label: '验货填写时间' },
   { key: 'supplierFinishTime', label: '供应商完工时间' },
   { key: 'shipmentTime', label: '可验货时间' },
-  { key: 'kingdeeOrderNo', label: '金蝶采购订单' },
   { key: 'supplierShortName', label: '供应商简称' },
   { key: 'supplierAddress', label: '供应商地址' },
   { key: 'businessDepartments', label: '事业部' },
@@ -343,9 +344,9 @@ function buildSupplierAddressLookupRowsFromDimensionFile(fileName) {
     parseDimensionSheetRows(workbook.Sheets[sheetName]).forEach((row) => {
       const normalizedSource = normalizedSourceMap(row);
       const supplierShortName = readImportedValue(normalizedSource, DIMENSION_SUPPLIER_ALIASES);
-      const address = readImportedValue(normalizedSource, DIMENSION_ADDRESS_ALIASES);
-      if (!supplierShortName) return;
-      rows.push({ supplierShortName, address, provinceCity: address });
+      const provinceCity = provinceCityFromDimensionRow(row);
+      if (!supplierShortName || !provinceCity) return;
+      rows.push({ supplierShortName, address: provinceCity, provinceCity });
     });
   });
   const seen = new Set();
@@ -655,7 +656,7 @@ function normalizeBusinessDepartment(value) {
 }
 
 function joinBusinessDepartments(values) {
-  const order = ['全球招商事业部', '海外事业一部', '海外事业二部', '国内事业部', '其他'];
+  const order = ['全球招商事业部', '海外事业一部', '海外事业二部', '国内事业部', '美护事业部', '其他'];
   const items = values.map(normalizeBusinessDepartment).filter(Boolean);
   const seen = new Set();
   return [
@@ -689,12 +690,42 @@ function readImportedValue(normalizedSource, aliases) {
   return match ? normalizeText(normalizedSource.get(match)) : '';
 }
 
+function extractProvinceCityFromAddress(address) {
+  const text = normalizeText(address).replace(/\s+/g, '');
+  if (!text) return '';
+  const municipality = text.match(/^(北京市|上海市|天津市|重庆市)/);
+  if (municipality) return municipality[1];
+  const autonomousRegion = text.match(/^(内蒙古自治区|广西壮族自治区|宁夏回族自治区|新疆维吾尔自治区|西藏自治区)(.{1,20}?市)/);
+  if (autonomousRegion) return `${autonomousRegion[1]}${autonomousRegion[2]}`;
+  const provinceCity = text.match(/^(.{2,12}?(?:省|自治区|特别行政区))(.{1,20}?市)/);
+  if (provinceCity) return `${provinceCity[1]}${provinceCity[2]}`;
+  const provinceOnly = text.match(/^(.{2,12}?(?:省|自治区|特别行政区))/);
+  if (provinceOnly) return provinceOnly[1];
+  const cityOnly = text.match(/^(.{1,20}?市)/);
+  return cityOnly ? cityOnly[1] : '';
+}
+
+function provinceCityFromDimensionRow(sourceRow = {}) {
+  const normalizedSource = normalizedSourceMap(sourceRow);
+  const province = readImportedValue(normalizedSource, DIMENSION_PROVINCE_ALIASES);
+  const city = readImportedValue(normalizedSource, DIMENSION_CITY_ALIASES);
+  if (province || city) {
+    const normalizedProvince = normalizeText(province);
+    const normalizedCity = normalizeText(city);
+    return normalizedCity && !normalizedProvince.includes(normalizedCity)
+      ? `${normalizedProvince}${normalizedCity}`
+      : normalizedProvince || normalizedCity;
+  }
+  return extractProvinceCityFromAddress(readImportedValue(normalizedSource, DIMENSION_ADDRESS_ALIASES));
+}
+
 function addSupplierRecord(map, supplier, address = '') {
   const supplierShortName = normalizeText(supplier);
   if (!supplierShortName) return;
+  const provinceCity = extractProvinceCityFromAddress(address) || normalizeText(address);
   const record = {
     supplierShortName,
-    address: normalizeText(address)
+    address: provinceCity
   };
   [normalizeHeader(supplierShortName), normalizeSupplierKey(supplierShortName)]
     .filter(Boolean)
@@ -718,7 +749,7 @@ function buildSupplierRecordMap(db) {
       addSupplierRecord(
         map,
         readImportedValue(normalizedSource, DIMENSION_SUPPLIER_ALIASES),
-        readImportedValue(normalizedSource, DIMENSION_ADDRESS_ALIASES)
+        provinceCityFromDimensionRow(row)
       );
     });
   });
@@ -774,10 +805,34 @@ function buildDimensionValueMap(db, slotId, aliases = [], cacheKey = '') {
   return options;
 }
 
+function buildSeriesByProductLineMap(db) {
+  const record = db.qualityInspection.dimensionLibrary?.[PRODUCT_CATEGORY_SLOT_ID] || {};
+  const groups = new Map();
+  Object.entries(record.seriesByProductLine || {}).forEach(([productLineKey, seriesList]) => {
+    if (!Array.isArray(seriesList)) return;
+    if (!groups.has(productLineKey)) groups.set(productLineKey, new Map());
+    seriesList.forEach((series) => addDimensionOption(groups.get(productLineKey), series));
+  });
+  const collectRows = (rows = []) => {
+    rows.forEach((row) => {
+      const normalizedSource = normalizedSourceMap(row);
+      addSeriesByProductLineOption(
+        groups,
+        readImportedValue(normalizedSource, SALES_PRODUCT_LINE_ALIASES),
+        readImportedValue(normalizedSource, SALES_SERIES_ALIASES)
+      );
+    });
+  };
+  (Array.isArray(record.sheets) ? record.sheets : []).forEach((sheet) => collectRows(sheet.rows || []));
+  if (Array.isArray(record.rows) && record.rows.length) collectRows(record.rows);
+  return groups;
+}
+
 function buildProductCategoryMaps(db) {
   return {
     salesProductLines: buildDimensionValueMap(db, PRODUCT_CATEGORY_SLOT_ID, SALES_PRODUCT_LINE_ALIASES, 'salesProductLines'),
-    salesSeries: buildDimensionValueMap(db, PRODUCT_CATEGORY_SLOT_ID, SALES_SERIES_ALIASES, 'salesSeries')
+    salesSeries: buildDimensionValueMap(db, PRODUCT_CATEGORY_SLOT_ID, SALES_SERIES_ALIASES, 'salesSeries'),
+    seriesByProductLine: buildSeriesByProductLineMap(db)
   };
 }
 
@@ -785,6 +840,13 @@ function findDimensionValue(value, map) {
   const text = normalizeText(value);
   if (!text) return '';
   return map.get(normalizeHeader(text)) || '';
+}
+
+function findSeriesValue(series, productLine, categoryMaps) {
+  const productLineKey = normalizeHeader(productLine);
+  const scoped = categoryMaps.seriesByProductLine?.get(productLineKey);
+  if (scoped?.size) return findDimensionValue(series, scoped);
+  return findDimensionValue(series, categoryMaps.salesSeries);
 }
 
 function findSupplierRecord(value, supplierMap) {
@@ -799,7 +861,7 @@ function prepareNoticeRows(rows, user, supplierMap, categoryMaps) {
   return rows.map((row) => {
     const supplierRecord = findSupplierRecord(row.supplierShortName, supplierMap);
     const salesProductLine = findDimensionValue(row.salesProductLine, categoryMaps.salesProductLines) || normalizeText(row.salesProductLine);
-    const series = findDimensionValue(row.series, categoryMaps.salesSeries) || normalizeText(row.series);
+    const series = findSeriesValue(row.series, salesProductLine, categoryMaps) || normalizeText(row.series);
     return {
       id: row.id || randomUUID(),
       ...row,
@@ -828,7 +890,7 @@ function validateNoticeRows(rows, supplierMap, categoryMaps) {
   if (invalidProductLineIndex >= 0) {
     return `第 ${invalidProductLineIndex + 1} 行产品线不在商品分类维表的销售产品线中，请选择正确产品线。`;
   }
-  const invalidSeriesIndex = rows.findIndex((row) => !findDimensionValue(row.series, categoryMaps.salesSeries));
+  const invalidSeriesIndex = rows.findIndex((row) => !findSeriesValue(row.series, row.salesProductLine, categoryMaps));
   if (invalidSeriesIndex >= 0) {
     return `第 ${invalidSeriesIndex + 1} 行系列不在商品分类维表的销售系列中，请选择正确系列。`;
   }
