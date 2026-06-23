@@ -1682,6 +1682,20 @@ function App() {
     };
   }, [activeTab, user]);
 
+  useEffect(() => {
+    if (user || authMode !== 'login') return undefined;
+    const clearLoginFields = () => {
+      setLoginName('');
+      setPassword('');
+      document.querySelectorAll('[data-login-clear="true"]').forEach((input) => {
+        input.value = '';
+      });
+    };
+    clearLoginFields();
+    const timers = [50, 300, 900].map((delay) => window.setTimeout(clearLoginFields, delay));
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [authMode, user]);
+
   async function loadData() {
     if (STATIC_MODE) {
       const db = readStaticDb();
@@ -3180,19 +3194,34 @@ function App() {
   if (!user) {
     return (
       <main className="login-shell">
-        <form className="login-panel" onSubmit={submitAuth}>
+        <form className="login-panel" onSubmit={submitAuth} autoComplete="off">
           <h1>品质验货</h1>
           <p className="auth-note">首次使用请先注册账号，注册后需要管理员孙立柱授权页面后才能进入系统。</p>
           {message && <p className="message">{message}</p>}
           {authMode === 'login' ? (
             <>
+              <input className="auth-hidden-autofill" type="text" name="username" autoComplete="username" tabIndex="-1" aria-hidden="true" />
+              <input className="auth-hidden-autofill" type="password" name="password" autoComplete="current-password" tabIndex="-1" aria-hidden="true" />
               <label>
                 姓名
-                <input value={loginName} onChange={(event) => setLoginName(event.target.value)} />
+                <input
+                  data-login-clear="true"
+                  name="qi-login-name"
+                  autoComplete="new-password"
+                  value={loginName}
+                  onChange={(event) => setLoginName(event.target.value)}
+                />
               </label>
               <label>
                 密码
-                <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+                <input
+                  data-login-clear="true"
+                  name="qi-login-pass"
+                  type="password"
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
               </label>
               <button type="submit">登录</button>
               <button type="button" className="ghost auth-switch-button" onClick={() => setAuthMode('register')}>注册新账号</button>
@@ -3201,11 +3230,11 @@ function App() {
             <>
               <label>
                 姓名
-                <input value={registerName} onChange={(event) => setRegisterName(event.target.value)} />
+                <input name="qi-register-name" autoComplete="off" value={registerName} onChange={(event) => setRegisterName(event.target.value)} />
               </label>
               <label>
                 密码
-                <input type="password" value={registerPassword} onChange={(event) => setRegisterPassword(event.target.value)} />
+                <input name="qi-register-pass" type="password" autoComplete="new-password" value={registerPassword} onChange={(event) => setRegisterPassword(event.target.value)} />
               </label>
               <button type="submit">注册并进入</button>
               <button type="button" className="ghost auth-switch-button" onClick={() => setAuthMode('login')}>返回登录</button>
