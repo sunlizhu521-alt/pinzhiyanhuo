@@ -3056,7 +3056,7 @@ function FeedbackPage({ records, savingId, canImport, importPreview, onUpload, o
             {reportHref(record) && <a href={reportHref(record)} target="_blank" rel="noreferrer">{record.report?.originalName || '查看报告'}</a>}
             <input name="reportFile" form={`feedback-form-${record.id}`} type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx" />
           </div>,
-          record.schedule?.inspector || '',
+          <span className="readonly-cell">{normalize(record.schedule?.inspector)}</span>,
           <input name="actualInspector" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.actualInspector || ''} />,
           <form id={`feedback-form-${record.id}`} onSubmit={(event) => { event.preventDefault(); onSave(record, event.currentTarget); }}>
             <button type="submit" className="compact-button" disabled={savingId === record.id}>提交</button>
