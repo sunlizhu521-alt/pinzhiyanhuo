@@ -48,6 +48,7 @@ const DEFAULT_USERS = [
 ];
 const PRODUCT_CATEGORY_SLOT_ID = 'dimension-slot-1';
 const PURCHASE_WORK_DIVISION_SLOT_ID = 'dimension-slot-2';
+const DIMENSION_PREVIEW_ROW_LIMIT = 20;
 const DIMENSION_SUPPLIER_ALIASES = ['产品线明细供应商', '供应商简称', '供应商', '供应商名称', '厂家简称', '厂商简称', '工厂简称'];
 const DIMENSION_ADDRESS_ALIASES = ['产品线明细地址', '供应商地址', '验货地址', '工厂地址', '详细地址', '地址', '所在地'];
 const SALES_PRODUCT_LINE_ALIASES = ['销售产品线', '产品线', '一级产品线'];
@@ -242,6 +243,53 @@ function parseDimensionSheetRows(sheet) {
     });
 }
 
+function parseDimensionSheetPreview(sheetName, sheet) {
+  const matrix = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false });
+  const scored = matrix.slice(0, 10)
+    .map((row, index) => ({ index, score: scoreDimensionHeaderRow(row) }))
+    .filter((item) => item.score >= 0)
+    .sort((a, b) => b.score - a.score);
+  const headerIndex = scored[0]?.index ?? -1;
+  if (headerIndex === -1) {
+    return { sheetName, columns: [], rows: [], importedCount: 0, previewCount: 0 };
+  }
+  const columns = matrix[headerIndex].map((cell, index) => normalizeText(cell) || `字段${index + 1}`);
+  const rows = matrix.slice(headerIndex + 1)
+    .filter((row) => row.some((cell) => normalizeText(cell)))
+    .map((row) => {
+      const item = { id: randomUUID(), __cells: row.map(normalizeText) };
+      columns.forEach((column, index) => {
+        item[column] = normalizeText(row[index]);
+      });
+      return item;
+    });
+  return {
+    sheetName,
+    columns,
+    rows: rows.slice(0, DIMENSION_PREVIEW_ROW_LIMIT),
+    importedCount: rows.length,
+    previewCount: Math.min(rows.length, DIMENSION_PREVIEW_ROW_LIMIT)
+  };
+}
+
+function parseDimensionWorkbookPreview(fileName) {
+  const workbook = xlsx.readFile(dimensionFilePath(fileName), { cellDates: true });
+  const sheets = workbook.SheetNames.map((sheetName) => (
+    parseDimensionSheetPreview(sheetName, workbook.Sheets[sheetName])
+  ));
+  const firstSheet = sheets[0] || { sheetName: '', columns: [], rows: [] };
+  return {
+    sheetName: firstSheet.sheetName || '',
+    sheetNames: workbook.SheetNames,
+    sheetCount: workbook.SheetNames.length,
+    sheets,
+    columns: firstSheet.columns || [],
+    rows: firstSheet.rows || [],
+    importedCount: sheets.reduce((sum, sheet) => sum + (sheet.importedCount || 0), 0),
+    previewCount: sheets.reduce((sum, sheet) => sum + (sheet.previewCount || 0), 0)
+  };
+}
+
 function parseCategoryOptionsFromDimensionFile(fileName) {
   const workbook = xlsx.readFile(dimensionFilePath(fileName), { cellDates: true });
   const productLines = new Map();
@@ -280,6 +328,58 @@ async function ensureProductCategoryOptionCache(db) {
   } catch {
     return false;
   }
+}
+
+function buildSupplierAddressLookupRowsFromDimensionFile(fileName) {
+  const workbook = xlsx.readFile(dimensionFilePath(fileName), { cellDates: true });
+  const rows = [];
+  workbook.SheetNames.forEach((sheetName) => {
+    parseDimensionSheetRows(workbook.Sheets[sheetName]).forEach((row) => {
+      const normalizedSource = normalizedSourceMap(row);
+      const supplierShortName = readImportedValue(normalizedSource, DIMENSION_SUPPLIER_ALIASES);
+      const address = readImportedValue(normalizedSource, DIMENSION_ADDRESS_ALIASES);
+      if (!supplierShortName) return;
+      rows.push({ supplierShortName, address, provinceCity: address });
+    });
+  });
+  const seen = new Set();
+  return rows.filter((row) => {
+    const key = normalizeHeader(row.supplierShortName);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function dimensionRecordNeedsFileData(record = {}) {
+  const hasSheets = Array.isArray(record.sheets)
+    && record.sheets.some((sheet) => Array.isArray(sheet.rows) && sheet.rows.length);
+  return !hasSheets || !record.fileUrl || !record.sheetCount;
+}
+
+function ensureDimensionLibraryFileDataCache(db) {
+  const library = db.qualityInspection.dimensionLibrary || {};
+  let changed = false;
+  Object.entries(library).forEach(([slotId, record]) => {
+    if (!record?.storedFileName || !dimensionRecordNeedsFileData(record)) return;
+    try {
+      const preview = parseDimensionWorkbookPreview(record.storedFileName);
+      Object.assign(record, preview, {
+        fileUrl: dimensionFileUrl(record.storedFileName),
+        updatedAt: nowText()
+      });
+      if (slotId === PRODUCT_CATEGORY_SLOT_ID) {
+        Object.assign(record, parseCategoryOptionsFromDimensionFile(record.storedFileName));
+      }
+      if (slotId === PURCHASE_WORK_DIVISION_SLOT_ID) {
+        record.supplierAddressLookup = buildSupplierAddressLookupRowsFromDimensionFile(record.storedFileName);
+      }
+      changed = true;
+    } catch {
+      // Keep the existing record if the original server file cannot be parsed.
+    }
+  });
+  return changed;
 }
 
 function requestUser(db, req) {
@@ -771,7 +871,8 @@ app.post('/api/quality-inspection/initial-data/import', requireAuth, requirePage
 app.get('/api/quality-inspection/dimension-library', requireAuth, requirePages('dimensionLibrary', 'inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'inspectionReportLibrary', 'inspectionReportQuery', 'inspectionSummary'), async (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   const db = await readDb();
-  if (await ensureProductCategoryOptionCache(db)) await saveDb(db);
+  const cacheUpdated = ensureDimensionLibraryFileDataCache(db) || await ensureProductCategoryOptionCache(db);
+  if (cacheUpdated) await saveDb(db);
   const library = db.qualityInspection.dimensionLibrary || {};
   if (!hasPageAccess(req.authUser, 'dimensionLibrary')) {
     const productCategory = library[PRODUCT_CATEGORY_SLOT_ID] || {};
