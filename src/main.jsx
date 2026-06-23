@@ -1297,6 +1297,10 @@ function shouldShowFeedbackRecord(record) {
   return !normalize(record.feedback?.actualInspectionTime) || result === '返工';
 }
 
+function shouldShowScheduleRecord(record) {
+  return !hasObjectValue(record.schedule);
+}
+
 function shouldShowSummaryRecord(record) {
   return hasObjectValue(record.feedback) || normalize(record.importSource) === 'summaryImport';
 }
@@ -1361,10 +1365,14 @@ function App() {
     () => records.map((record) => normalizeRecordDimensions(record, supplierOptions, productLineOptions, seriesOptions, dimensionLibrary)),
     [records, supplierOptions, productLineOptions, seriesOptions, dimensionLibrary]
   );
-  const currentRecordSignature = useMemo(() => recordIdSignature(records), [records]);
+  const pendingScheduleRecords = useMemo(
+    () => displayRecords.filter(shouldShowScheduleRecord),
+    [displayRecords]
+  );
+  const currentRecordSignature = useMemo(() => recordIdSignature(pendingScheduleRecords), [pendingScheduleRecords]);
   const schedulePageRecords = clearedScheduleSignature && clearedScheduleSignature === currentRecordSignature
     ? []
-    : displayRecords;
+    : pendingScheduleRecords;
 
   function authFetch(url, options = {}) {
     const headers = {
