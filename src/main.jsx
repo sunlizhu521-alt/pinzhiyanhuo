@@ -1541,9 +1541,7 @@ function App() {
       setInitialData(inspection.initialData);
       setDimensionLibrary(readDimensionLibrary());
       setNoticeSubmission({ ...inspection.notices, rows: visibleNotices });
-      setNoticeRows(visibleNotices.length
-        ? visibleNotices.map((row) => createNoticeRow(row))
-        : [createNoticeRow({ inspectionApplicant: user.name })]);
+      setNoticeRows([createNoticeRow({ inspectionApplicant: user.name })]);
       setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
       return;
     }
@@ -1564,9 +1562,7 @@ function App() {
     if (noticeRes.ok) {
       const payload = await noticeRes.json();
       setNoticeSubmission(payload);
-      setNoticeRows(payload.rows?.length
-        ? payload.rows.map((row) => createNoticeRow(row))
-        : [createNoticeRow({ inspectionApplicant: user.name })]);
+      setNoticeRows([createNoticeRow({ inspectionApplicant: user.name })]);
     }
     if (recordsRes.ok) setRecords((await recordsRes.json()).rows || []);
   }
