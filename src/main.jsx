@@ -1286,6 +1286,11 @@ async function reportLibraryFilesFromDrop(dataTransfer) {
 
 function reportHref(record) {
   if (record.report?.fileDataUrl) return record.report.fileDataUrl;
+  if (record.report?.fileUrl) {
+    const url = record.report.fileUrl;
+    if (/^(https?:|data:|blob:)/i.test(url)) return url;
+    return `${API}${url}`;
+  }
   if (record.report?.fileName) {
     const version = encodeURIComponent(record.report?.stampedAt || record.report?.uploadedAt || record.report?.updatedAt || '');
     return `${API}/uploads/${encodeURIComponent(record.report.fileName)}${version ? `?v=${version}` : ''}`;
@@ -1301,7 +1306,7 @@ function reportFileNameFromCode(reportNo, fileName) {
 }
 
 function reportFileExt(record) {
-  return String(record?.report?.fileName || record?.report?.originalName || '')
+  return String(record?.report?.fileName || record?.report?.originalName || record?.report?.fileUrl || '')
     .split('?')[0]
     .match(/\.[^.]+$/)?.[0]?.toLowerCase() || '';
 }
@@ -2265,13 +2270,15 @@ function App() {
     setMessage('已清除该维度表槽位，服务器文件同步删除。');
   }
 
-  async function saveSchedules(scheduleDrafts) {
+  async function saveSchedules(scheduleDrafts, options = {}) {
     const entries = Object.entries(scheduleDrafts || {});
     if (!entries.length) {
       setMessage('暂无可提交的验货安排。');
       return;
     }
-    setSavingId('inspectionSchedule');
+    const singleSubmit = options.single === true;
+    const savingKey = options.savingId || 'inspectionSchedule';
+    setSavingId(savingKey);
     if (STATIC_MODE) {
       const db = readStaticDb();
       entries.forEach(([recordId, draft]) => {
@@ -2292,8 +2299,8 @@ function App() {
       saveStaticDb(db);
       setSavingId('');
       setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
-      setClearedScheduleSignature(currentRecordSignature);
-      setMessage(`验货安排已一键提交：共 ${entries.length} 条。`);
+      if (!singleSubmit) setClearedScheduleSignature(currentRecordSignature);
+      setMessage(singleSubmit ? '验货安排已提交：1 条。' : `验货安排已一键提交：共 ${entries.length} 条。`);
       return;
     }
     const responses = await Promise.all(entries.flatMap(([recordId, draft]) => {
@@ -2317,8 +2324,8 @@ function App() {
       return;
     }
     await refreshRecords();
-    setClearedScheduleSignature(currentRecordSignature);
-    setMessage(`验货安排已一键提交：共 ${entries.length} 条。`);
+    if (!singleSubmit) setClearedScheduleSignature(currentRecordSignature);
+    setMessage(singleSubmit ? '验货安排已提交：1 条。' : `验货安排已一键提交：共 ${entries.length} 条。`);
   }
 
   async function clearScheduleContent() {
@@ -2459,7 +2466,7 @@ function App() {
     if (file instanceof File && file.size > 0 && !reportNo) {
       setSavingId('');
       setMessage('请先填写实际验货时间和实际验货数量，系统会自动生成检验报告单编码后再上传检验报告单。');
-      return;
+      return false;
     }
     if (STATIC_MODE) {
       const db = readStaticDb();
@@ -2490,8 +2497,9 @@ function App() {
       saveStaticDb(db);
       setSavingId('');
       setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
+      formElement.reset();
       setMessage('验货反馈已保存。');
-      return;
+      return true;
     }
     const feedbackResponses = await Promise.all(sourceIds.map((sourceId) => {
       const sourceRecord = records.find((item) => item.id === sourceId) || record;
@@ -2504,7 +2512,7 @@ function App() {
     setSavingId('');
     if (feedbackResponses.some((res) => !res.ok)) {
       setMessage('验货反馈保存失败。');
-      return;
+      return false;
     }
     if (file instanceof File && file.size > 0) {
       const reportForm = new FormData();
@@ -2517,7 +2525,7 @@ function App() {
       if (!reportRes.ok) {
         setMessage('验货反馈已保存，但检验报告单上传失败。');
         await refreshRecords();
-        return;
+        return false;
       }
     } else if (reportNo && reportNo !== normalize(record.report?.reportNo)) {
       const reportForm = new FormData();
@@ -2529,11 +2537,13 @@ function App() {
       if (!reportRes.ok) {
         setMessage('验货反馈已保存，但检验报告单编码保存失败。');
         await refreshRecords();
-        return;
+        return false;
       }
     }
+    formElement.reset();
     await refreshRecords();
     setMessage('验货反馈已保存。');
+    return true;
   }
 
   async function stampReport(record, rotation, stampedDataUrl = '', skipStamp = false) {
@@ -2648,6 +2658,59 @@ function App() {
   const reportLibraryRecordIds = useMemo(() => (
     new Set(reportLibraryItems.map((file) => normalize(file.recordId)).filter(Boolean))
   ), [reportLibraryItems]);
+  const reportLibraryQueryRecords = useMemo(() => {
+    const keyword = normalize(query).toLowerCase();
+    const normalizedFilters = Object.fromEntries(
+      Object.entries(recordFilters).map(([key, value]) => [key, normalize(value).toLowerCase()])
+    );
+    if (statusFilter) return [];
+    return reportLibraryItems
+      .filter((file) => !normalize(file.recordId))
+      .map((file) => {
+        const reportNo = normalize(file.reportNo) || normalize(file.fileName).replace(/\.[^.]+$/, '');
+        return {
+          id: `report-file-${file.id || file.fileName}`,
+          supplierShortName: file.supplierShortName || '',
+          salesProductLine: file.productLine || '',
+          series: file.series || '',
+          businessDepartments: '',
+          schedule: { inspector: file.inspector || '' },
+          feedback: {
+            actualInspectionTime: file.actualInspectionTime || '',
+            actualInspector: file.actualInspector || file.inspector || '',
+            result: file.result || ''
+          },
+          report: {
+            reportNo,
+            originalName: file.fileName || reportNo,
+            fileName: file.fileUrl ? '' : file.fileName,
+            fileUrl: file.fileUrl || '',
+            uploadedAt: file.uploadedAt || file.modifiedAt || '',
+            updatedAt: file.modifiedAt || file.uploadedAt || ''
+          },
+          reportLibrarySource: true
+        };
+      })
+      .filter((record) => {
+        const text = [
+          record.supplierShortName,
+          record.salesProductLine,
+          record.series,
+          record.report?.reportNo,
+          record.report?.originalName,
+          record.feedback?.result
+        ].map(normalize).join(' ').toLowerCase();
+        const matchesKeyword = !keyword || text.includes(keyword);
+        const matchesSupplier = !normalizedFilters.supplierShortName
+          || normalize(record.supplierShortName).toLowerCase() === normalizedFilters.supplierShortName;
+        const matchesBusinessDepartment = !normalizedFilters.businessDepartments;
+        const matchesProductLine = !normalizedFilters.salesProductLine
+          || normalize(record.salesProductLine).toLowerCase() === normalizedFilters.salesProductLine;
+        const matchesSeries = !normalizedFilters.series
+          || normalize(record.series).toLowerCase() === normalizedFilters.series;
+        return matchesKeyword && matchesSupplier && matchesBusinessDepartment && matchesProductLine && matchesSeries;
+      });
+  }, [reportLibraryItems, query, statusFilter, recordFilters]);
 
   async function uploadReportLibraryFiles(files) {
     const selectedFiles = Array.from(files || []).filter(isReportLibraryFile);
@@ -2808,8 +2871,11 @@ function App() {
     });
   }, [displayRecords, query, statusFilter, recordFilters]);
   const reportQueryRecords = useMemo(() => (
-    filteredRecords.filter((record) => reportLibraryRecordIds.has(normalize(record.id)))
-  ), [filteredRecords, reportLibraryRecordIds]);
+    [
+      ...filteredRecords.filter((record) => reportLibraryRecordIds.has(normalize(record.id))),
+      ...reportLibraryQueryRecords
+    ]
+  ), [filteredRecords, reportLibraryRecordIds, reportLibraryQueryRecords]);
   const summaryRecords = useMemo(() => (
     filteredRecords.filter(shouldShowSummaryRecord)
   ), [filteredRecords]);
@@ -3371,7 +3437,7 @@ function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete
       <DataTable
         className="inspection-schedule-table"
         rows={scheduleRows}
-        columns={['供应商简称', '地址', '产品线', '系列', '数量', '事业部', '运营', '验货通知人', '备注', '计划验货时间', '验货员', '安排备注', '操作']}
+        columns={['供应商简称', '地址', '产品线', '系列', '数量', '事业部', '运营', '验货通知人', '备注', '验货员', '计划验货时间', '安排备注', '操作']}
         render={(record) => [
           record.supplierShortName,
           record.supplierAddress,
@@ -3384,28 +3450,38 @@ function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete
           <span className="readonly-cell wide-readonly-cell">{record.remark || ''}</span>,
           <input
             className="table-input"
-            type="date"
-            value={drafts[record.id]?.scheduledDate || ''}
-            onChange={(event) => updateDraft(record.id, 'scheduledDate', event.target.value)}
+            value={drafts[record.id]?.inspector || ''}
+            onChange={(event) => updateDraft(record.id, 'inspector', event.target.value)}
           />,
           <input
             className="table-input"
-            value={drafts[record.id]?.inspector || ''}
-            onChange={(event) => updateDraft(record.id, 'inspector', event.target.value)}
+            type="date"
+            value={drafts[record.id]?.scheduledDate || ''}
+            onChange={(event) => updateDraft(record.id, 'scheduledDate', event.target.value)}
           />,
           <input
             className="table-input wide-input"
             value={drafts[record.id]?.remark || ''}
             onChange={(event) => updateDraft(record.id, 'remark', event.target.value)}
           />,
-          <button
-            type="button"
-            className="danger-button compact-button"
-            disabled={(record.sourceIds || [record.id]).includes(savingId)}
-            onClick={() => onDelete(record.sourceIds || [record.id])}
-          >
-            删除
-          </button>
+          <div className="table-action-row">
+            <button
+              type="button"
+              className="compact-button"
+              disabled={savingId === record.id}
+              onClick={() => onSubmit({ [record.id]: drafts[record.id] || {} }, { single: true, savingId: record.id })}
+            >
+              提交
+            </button>
+            <button
+              type="button"
+              className="danger-button compact-button"
+              disabled={(record.sourceIds || [record.id]).includes(savingId)}
+              onClick={() => onDelete(record.sourceIds || [record.id])}
+            >
+              删除
+            </button>
+          </div>
         ]}
       />
     </>
@@ -3699,7 +3775,21 @@ function FeedbackPage({
               {reportHref(record) && <a href={reportHref(record)} target="_blank" rel="noreferrer">{record.report?.originalName || '查看报告'}</a>}
               <input name="reportFile" form={`feedback-form-${record.id}`} type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx" />
             </div>,
-            <form id={`feedback-form-${record.id}`} onSubmit={(event) => { event.preventDefault(); onSave(record, event.currentTarget); }}>
+            <form
+              id={`feedback-form-${record.id}`}
+              onSubmit={async (event) => {
+                event.preventDefault();
+                if (!window.confirm('确认提交当前验货反馈？')) return;
+                const saved = await onSave(record, event.currentTarget);
+                if (saved) {
+                  setFeedbackDrafts((current) => {
+                    const next = { ...current };
+                    delete next[record.id];
+                    return next;
+                  });
+                }
+              }}
+            >
               <button type="submit" className="compact-button" disabled={savingId === record.id}>提交</button>
             </form>
           ];
@@ -3717,8 +3807,6 @@ function InspectionStampPage({ records, savingId, onStamp }) {
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState('');
   const [uploadMessage, setUploadMessage] = useState('');
-  const [orientationDetecting, setOrientationDetecting] = useState(false);
-  const [orientationStatus, setOrientationStatus] = useState('');
   const stampRecords = useMemo(() => [...uploadedRecords, ...records], [uploadedRecords, records]);
   const safeIndex = stampRecords.length ? Math.min(currentIndex, stampRecords.length - 1) : 0;
   const current = stampRecords[safeIndex];
@@ -3737,34 +3825,6 @@ function InspectionStampPage({ records, savingId, onStamp }) {
     setStampPreview(null);
     setPreviewError('');
   }, [current?.id, rotation]);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function detectOrientation() {
-      setOrientationStatus('');
-      if (!current || !isImageReport(current)) return;
-      setOrientationDetecting(true);
-      setOrientationStatus('正在识别图片文字方向...');
-      try {
-        const result = await detectReportTextRotation(current);
-        if (cancelled) return;
-        if (result.confident) {
-          setRotation(result.rotation);
-          setOrientationStatus(result.rotation ? `已识别文字方向，自动旋转 ${result.rotation}°。` : '已识别文字方向，当前图片为正向。');
-        } else {
-          setOrientationStatus('文字方向识别不够确定，请用旋转按钮人工确认。');
-        }
-      } catch {
-        if (!cancelled) setOrientationStatus('文字方向识别失败，请用旋转按钮人工确认。');
-      } finally {
-        if (!cancelled) setOrientationDetecting(false);
-      }
-    }
-    detectOrientation();
-    return () => {
-      cancelled = true;
-    };
-  }, [current?.id]);
 
   function go(delta) {
     if (!stampRecords.length) return;
@@ -3889,7 +3949,7 @@ function InspectionStampPage({ records, savingId, onStamp }) {
         <button
           type="button"
           className="compact-button"
-          disabled={!canStamp || previewing || savingId === current?.id || orientationDetecting}
+          disabled={!canStamp || previewing || savingId === current?.id}
           onClick={saveWithoutStamp}
         >
           {savingId === current?.id ? '保存中' : '保存'}
@@ -3966,7 +4026,6 @@ function InspectionStampPage({ records, savingId, onStamp }) {
               <span>{current.supplierShortName || ''}</span>
               <span>{current.salesProductLine || ''} {current.series || ''}</span>
               {activePreview && <span className="stamp-preview-note">当前为盖章预览，确认保存后才会覆盖原文件。</span>}
-              {orientationStatus && <span className={orientationDetecting ? 'stamp-preview-note' : 'stamp-orientation-note'}>{orientationStatus}</span>}
               {previewError && <span className="stamp-warning">{previewError}</span>}
               {!canStamp && <span className="stamp-warning">当前文件不是图片格式，只能查看，不能直接加盖图片印章。</span>}
             </div>
