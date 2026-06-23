@@ -2681,7 +2681,7 @@ function App() {
           schedule: { inspector: file.inspector || '' },
           feedback: {
             actualInspectionTime: file.actualInspectionTime || '',
-            actualInspector: file.actualInspector || file.inspector || '',
+            actualInspector: file.actualInspector || file.inspector || '历史检验单',
             result: file.result || ''
           },
           report: {
