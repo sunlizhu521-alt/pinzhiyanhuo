@@ -551,6 +551,12 @@ th {
   color: #334155;
 }
 
+.wide-readonly-cell {
+  min-width: 220px;
+  max-width: 320px;
+  white-space: normal;
+}
+
 .inspection-notice-table table {
   min-width: 1540px;
 }
@@ -617,7 +623,7 @@ th {
 }
 
 .inspection-schedule-table table {
-  min-width: 1860px;
+  min-width: 2180px;
 }
 
 .inspection-feedback-table table {
