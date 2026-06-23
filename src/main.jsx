@@ -294,7 +294,7 @@ function feedbackReportNo(record, actualInspectionTime, inspectionQuantity) {
     formatCompactDate(actualTime),
     normalize(record.series),
     quantity
-  ].filter(Boolean).join('/');
+  ].filter(Boolean).join('-');
 }
 
 function mergeScheduleRecords(records = []) {
