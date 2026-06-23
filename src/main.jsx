@@ -72,7 +72,13 @@ const SUMMARY_IMPORT_ALIASES = {
   conclusion: ['报告结论', '检验报告结论'],
   feedbackResult: ['反馈结果', '验货结果', '检验结果'],
   actualInspectionTime: ['实际验货时间'],
-  actualInspector: ['实际验货人']
+  actualInspector: ['实际验货人', '实际检验员'],
+  inspectionMethod: ['验货方式', '检验方式'],
+  inspectionQuantity: ['实际验货数量', '验货数量', '检验数量'],
+  qualifiedQuantity: ['验货合格数量', '合格数量', '检验合格数量'],
+  issueLevel: ['问题等级', '异常等级'],
+  issueCategoryPrimary: ['问题分类', '一级问题分类', '问题大类'],
+  feedbackText: ['问题反馈', '反馈内容', '问题描述', '验货反馈']
 };
 
 const FEEDBACK_IMPORT_ALIASES = {
@@ -697,6 +703,78 @@ function parseWorkbookInBrowser(file) {
   });
 }
 
+function exportFileStamp() {
+  return nowText().replace(/[-:\s]/g, '').slice(0, 12);
+}
+
+async function exportRowsToWorkbook(rows, sheetName, fileName) {
+  if (!rows.length) return false;
+  const XLSX = await loadXlsxModule();
+  const worksheet = XLSX.utils.json_to_sheet(rows);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+  XLSX.writeFile(workbook, fileName);
+  return true;
+}
+
+function recordToMigrationLedgerRow(record, index = 0) {
+  return {
+    '序号': record.rowNumber || index + 1,
+    '验货填写人': record.inspectionApplicant || '',
+    '验货通知人': record.inspectionNotifier || '',
+    '验货填写时间': formatDate(record.inspectionFillTime),
+    '供应商完工时间': formatDate(record.supplierFinishTime),
+    '可验货时间': formatDate(record.shipmentTime),
+    '金蝶采购订单': record.kingdeeOrderNo || '',
+    '供应商简称': record.supplierShortName || '',
+    '供应商地址': record.supplierAddress || '',
+    '事业部': record.businessDepartments || '',
+    '运营': record.operation || '',
+    '是否首批验货': record.firstInspection || '',
+    '产品线': record.salesProductLine || '',
+    '系列': record.series || '',
+    '合计数量': record.totalQuantity || '',
+    'SKU及数量': record.skuQuantity || '',
+    '备注': record.remark || '',
+    '计划验货时间': formatDate(record.schedule?.scheduledDate),
+    '状态': record.schedule?.status || '',
+    '验货员': record.schedule?.inspector || '',
+    '安排备注': record.schedule?.remark || '',
+    '报告单号': record.report?.reportNo || '',
+    '报告文件名': record.report?.originalName || record.report?.fileName || '',
+    '报告文件链接': reportHref(record),
+    '报告结论': record.report?.conclusion || '',
+    '实际验货时间': formatDate(record.feedback?.actualInspectionTime),
+    '实际检验员': record.feedback?.actualInspector || record.schedule?.inspector || '',
+    '验货方式': record.feedback?.inspectionMethod || '',
+    '实际验货数量': record.feedback?.inspectionQuantity || '',
+    '验货合格数量': record.feedback?.qualifiedQuantity || '',
+    '验货结果': record.feedback?.result || '',
+    '问题等级': record.feedback?.issueLevel || '',
+    '问题分类': record.feedback?.issueCategoryPrimary || '',
+    '问题反馈': record.feedback?.feedbackText || ''
+  };
+}
+
+function recordToReportExportRow(record, index = 0) {
+  return {
+    '序号': index + 1,
+    '供应商': record.supplierShortName || '',
+    '产品线': record.salesProductLine || '',
+    '系列': record.series || '',
+    '实际验货时间': formatDate(record.feedback?.actualInspectionTime),
+    '实际检验员': record.feedback?.actualInspector || record.schedule?.inspector || '',
+    '报告单号': record.report?.reportNo || '',
+    '报告文件': record.report?.originalName || record.report?.fileName || '',
+    '报告文件链接': reportHref(record),
+    '验货结果': record.feedback?.result || '',
+    '事业部': record.businessDepartments || '',
+    '金蝶采购订单': record.kingdeeOrderNo || '',
+    '数量': record.totalQuantity || '',
+    '来源': record.reportLibrarySource ? '报告单文件库历史检验单' : '验货流程记录'
+  };
+}
+
 function parseWorkbookSheetsInBrowser(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1134,7 +1212,13 @@ function importedRowsToSummaryItems(importedRows, currentUserName) {
       const feedback = {
         result: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.feedbackResult),
         actualInspectionTime: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.actualInspectionTime),
-        actualInspector: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.actualInspector)
+        actualInspector: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.actualInspector),
+        inspectionMethod: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.inspectionMethod),
+        inspectionQuantity: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.inspectionQuantity),
+        qualifiedQuantity: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.qualifiedQuantity),
+        issueLevel: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.issueLevel),
+        issueCategoryPrimary: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.issueCategoryPrimary),
+        feedbackText: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.feedbackText)
       };
       return { id: notice.id, notice, schedule, report, feedback };
     })
@@ -2936,6 +3020,26 @@ function App() {
     setMessage('单条验货信息已删除。');
   }
 
+  async function exportReportQueryData() {
+    const rows = reportQueryRecords.map(recordToReportExportRow);
+    if (!rows.length) {
+      setMessage('暂无可导出的检验单数据。');
+      return;
+    }
+    await exportRowsToWorkbook(rows, '查询检验单', `查询检验单导出-${exportFileStamp()}.xlsx`);
+    setMessage(`查询检验单已导出：${rows.length} 条。`);
+  }
+
+  async function exportSummaryData(title = '验货台账') {
+    const rows = summaryRecords.map(recordToMigrationLedgerRow);
+    if (!rows.length) {
+      setMessage(`暂无可导出的${title}数据。`);
+      return;
+    }
+    await exportRowsToWorkbook(rows, title, `${title}导出-${exportFileStamp()}.xlsx`);
+    setMessage(`${title}已导出：${rows.length} 条，可用于后续批量上传迁移。`);
+  }
+
   const filteredRecords = useMemo(() => {
     const keyword = normalize(query).toLowerCase();
     const normalizedFilters = Object.fromEntries(
@@ -3155,6 +3259,7 @@ function App() {
             savingId={savingId}
             canDelete={canDeleteInspectionInfo}
             onDelete={deleteInspectionRecord}
+            onExport={exportReportQueryData}
           />
         )}
         {canAccessPage(user, 'inspectionSummary') && activeTab === 'inspectionSummary' && (
@@ -3170,6 +3275,7 @@ function App() {
             savingId={savingId}
             canDelete={canDeleteInspectionInfo}
             onDelete={deleteInspectionRecord}
+            onExport={() => exportSummaryData('验货反馈表')}
           />
         )}
         {canAccessPage(user, 'inspectionLedger') && activeTab === 'inspectionLedger' && (
@@ -3185,6 +3291,7 @@ function App() {
             savingId={savingId}
             canDelete={canDeleteInspectionInfo}
             onDelete={deleteInspectionRecord}
+            onExport={() => exportSummaryData('验货台账')}
           />
         )}
         {canAccessPage(user, 'inspectionInitialData') && activeTab === 'inspectionInitialData' && (
@@ -4346,7 +4453,8 @@ function ReportQueryPage({
   onClearFilters,
   savingId = '',
   canDelete = false,
-  onDelete
+  onDelete,
+  onExport
 }) {
   const [previewRecord, setPreviewRecord] = useState(null);
   const previewUrl = previewRecord ? reportHref(previewRecord) : '';
@@ -4366,6 +4474,14 @@ function ReportQueryPage({
       <div className="section-heading-row">
         <h2>查询检验单</h2>
         <span className="section-count">筛选结果 {records.length} 条</span>
+        <button
+          type="button"
+          className="ghost compact-button"
+          disabled={!records.length}
+          onClick={onExport}
+        >
+          导出检验单
+        </button>
       </div>
       <div className="toolbar">
         <input placeholder="搜索供应商、采购订单、产品线、报告单号" value={query} onChange={(event) => onQuery(event.target.value)} />
@@ -4479,7 +4595,8 @@ function SummaryPage({
   onClearImportPreview,
   savingId = '',
   canDelete = false,
-  onDelete
+  onDelete,
+  onExport
 }) {
   const previewRows = importPreview?.items || [];
   const previewLimitedRows = previewRows.slice(0, 10);
@@ -4491,6 +4608,14 @@ function SummaryPage({
       <div className="section-heading-row">
         <h2>{title}</h2>
         <span className="section-count">按当前数据实时汇总</span>
+        <button
+          type="button"
+          className="ghost compact-button"
+          disabled={!records.length}
+          onClick={onExport}
+        >
+          导出
+        </button>
       </div>
       {canImport && (
         <label
