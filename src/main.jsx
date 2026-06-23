@@ -69,7 +69,8 @@ const SUMMARY_IMPORT_ALIASES = {
   actualInspectionTime: ['实际验货时间'],
   actualInspector: ['实际验货人', '实际检验员'],
   inspectionMethod: ['验货方式', '检验方式'],
-  inspectionQuantity: ['实际验货数量', '验货数量', '检验数量'],
+  inspectionQuantity: ['实际验货数量', '验货数量'],
+  checkQuantity: ['检验数量', '实际检验数量'],
   qualifiedQuantity: ['验货合格数量', '合格数量', '检验合格数量'],
   issueLevel: ['问题等级', '异常等级'],
   issueCategoryPrimary: ['问题分类', '一级问题分类', '问题大类'],
@@ -79,7 +80,8 @@ const SUMMARY_IMPORT_ALIASES = {
 const FEEDBACK_IMPORT_ALIASES = {
   actualInspectionTime: ['实际验货时间', '验货时间', '实际检验时间', '检验时间'],
   inspectionMethod: ['验货方式', '检验方式'],
-  inspectionQuantity: ['实际验货数量', '验货数量', '检验数量'],
+  inspectionQuantity: ['实际验货数量', '验货数量'],
+  checkQuantity: ['检验数量', '实际检验数量'],
   qualifiedQuantity: ['验货合格数量', '合格数量', '检验合格数量'],
   result: ['验货结果', '检验结果', '反馈结果'],
   issueLevel: ['问题等级', '异常等级'],
@@ -745,6 +747,7 @@ function recordToMigrationLedgerRow(record, index = 0) {
     '实际检验员': record.feedback?.actualInspector || record.schedule?.inspector || '',
     '验货方式': record.feedback?.inspectionMethod || '',
     '实际验货数量': record.feedback?.inspectionQuantity || '',
+    '检验数量': record.feedback?.checkQuantity || '',
     '验货合格数量': record.feedback?.qualifiedQuantity || '',
     '验货结果': record.feedback?.result || '',
     '问题等级': record.feedback?.issueLevel || '',
@@ -1212,6 +1215,7 @@ function importedRowsToSummaryItems(importedRows, currentUserName) {
         actualInspector: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.actualInspector),
         inspectionMethod: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.inspectionMethod),
         inspectionQuantity: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.inspectionQuantity),
+        checkQuantity: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.checkQuantity),
         qualifiedQuantity: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.qualifiedQuantity),
         issueLevel: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.issueLevel),
         issueCategoryPrimary: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.issueCategoryPrimary),
@@ -2641,6 +2645,7 @@ function App() {
       actualInspectionTime: normalize(form.get('actualInspectionTime')),
       inspectionMethod: normalize(form.get('inspectionMethod')),
       inspectionQuantity: normalize(form.get('inspectionQuantity')),
+      checkQuantity: normalize(form.get('checkQuantity')),
       qualifiedQuantity: normalize(form.get('qualifiedQuantity')),
       result: normalize(form.get('result')),
       issueLevel: normalize(form.get('issueLevel')),
@@ -3995,7 +4000,7 @@ function FeedbackPage({
           <DataTable
             className="feedback-preview-table"
             rows={previewLimitedRows}
-            columns={['匹配状态', '供应商简称', '产品线', '系列', '数量', '实际验货时间', '验货方式', '实际验货数量', '合格数量', '验货结果', '问题等级', '问题分类', '问题反馈', '实际验货人']}
+            columns={['匹配状态', '供应商简称', '产品线', '系列', '数量', '实际验货时间', '验货方式', '实际验货数量', '检验数量', '合格数量', '验货结果', '问题等级', '问题分类', '问题反馈', '实际验货人']}
             render={(item) => [
               item.matchStatus,
               item.notice.supplierShortName,
@@ -4005,6 +4010,7 @@ function FeedbackPage({
               item.feedback.actualInspectionTime,
               item.feedback.inspectionMethod,
               item.feedback.inspectionQuantity,
+              item.feedback.checkQuantity,
               item.feedback.qualifiedQuantity,
               item.feedback.result,
               item.feedback.issueLevel,
@@ -4036,6 +4042,7 @@ function FeedbackPage({
           '实际验货时间',
           '验货方式',
           '实际验货数量',
+          '检验数量',
           '验货合格数量',
           '验货结果',
           '检验报告单编码',
@@ -4082,6 +4089,7 @@ function FeedbackPage({
               defaultValue={record.feedback?.inspectionQuantity || ''}
               onChange={(event) => updateFeedbackDraft(record.id, 'inspectionQuantity', event.target.value)}
             />,
+            <input name="checkQuantity" form={`feedback-form-${record.id}`} className="table-input narrow-input" defaultValue={record.feedback?.checkQuantity || ''} />,
             <input name="qualifiedQuantity" form={`feedback-form-${record.id}`} className="table-input narrow-input" defaultValue={record.feedback?.qualifiedQuantity || ''} />,
             <select name="result" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.result || ''}>
               <option value="">选择</option>
