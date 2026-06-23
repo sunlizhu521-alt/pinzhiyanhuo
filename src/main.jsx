@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import * as XLSX from 'xlsx';
 import './styles.css';
@@ -2367,9 +2368,34 @@ function InspectionNoticePage({
   onSubmit
 }) {
   const [focusedSupplierRowId, setFocusedSupplierRowId] = useState('');
+  const [supplierSuggestionPosition, setSupplierSuggestionPosition] = useState(null);
   const previewRows = importPreview?.rows || [];
   const previewColumns = NOTICE_FIELDS.map((field) => field.label);
   const previewLimitedRows = previewRows.slice(0, 10);
+
+  useEffect(() => {
+    if (!focusedSupplierRowId) return undefined;
+    const closeSuggestions = () => {
+      setFocusedSupplierRowId('');
+      setSupplierSuggestionPosition(null);
+    };
+    window.addEventListener('scroll', closeSuggestions, true);
+    window.addEventListener('resize', closeSuggestions);
+    return () => {
+      window.removeEventListener('scroll', closeSuggestions, true);
+      window.removeEventListener('resize', closeSuggestions);
+    };
+  }, [focusedSupplierRowId]);
+
+  function updateSupplierSuggestionPosition(target) {
+    const rect = target?.getBoundingClientRect?.();
+    if (!rect) return;
+    setSupplierSuggestionPosition({
+      top: Math.round(rect.bottom + 4),
+      left: Math.round(rect.left),
+      width: Math.max(260, Math.round(rect.width))
+    });
+  }
 
   return (
     <>
@@ -2456,13 +2482,31 @@ function InspectionNoticePage({
                     type="text"
                     className={`table-input inspection-notice-input supplier-combobox-input${showInvalid ? ' invalid-input' : ''}`}
                     value={value}
-                    onFocus={() => setFocusedSupplierRowId(row.id)}
-                    onBlur={() => window.setTimeout(() => setFocusedSupplierRowId(''), 120)}
-                    onChange={(event) => onChange(row.id, field.key, event.target.value)}
+                    onFocus={(event) => {
+                      setFocusedSupplierRowId(row.id);
+                      updateSupplierSuggestionPosition(event.currentTarget);
+                    }}
+                    onBlur={() => window.setTimeout(() => {
+                      setFocusedSupplierRowId('');
+                      setSupplierSuggestionPosition(null);
+                    }, 120)}
+                    onChange={(event) => {
+                      updateSupplierSuggestionPosition(event.currentTarget);
+                      onChange(row.id, field.key, event.target.value);
+                    }}
+                    onKeyUp={(event) => updateSupplierSuggestionPosition(event.currentTarget)}
                     placeholder="输入简称搜索"
                   />
-                  {showSuggestions && (
-                    <div className="supplier-suggestion-list">
+                  {showSuggestions && supplierSuggestionPosition && createPortal(
+                    <div
+                      className="supplier-suggestion-list"
+                      style={{
+                        top: supplierSuggestionPosition.top,
+                        left: supplierSuggestionPosition.left,
+                        width: supplierSuggestionPosition.width
+                      }}
+                    >
+                      <div className="supplier-suggestion-title">请选择正确供应商</div>
                       {suggestions.map((supplier) => (
                         <button
                           key={supplier}
@@ -2472,12 +2516,14 @@ function InspectionNoticePage({
                             event.preventDefault();
                             onChange(row.id, field.key, supplier);
                             setFocusedSupplierRowId('');
+                            setSupplierSuggestionPosition(null);
                           }}
                         >
                           {supplier}
                         </button>
                       ))}
-                    </div>
+                    </div>,
+                    document.body
                   )}
                 </div>
               );
