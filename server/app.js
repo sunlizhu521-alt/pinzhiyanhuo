@@ -164,7 +164,7 @@ function normalizeDb(db = {}) {
             id: DEFAULT_ADMIN_USER.id,
             name: DEFAULT_ADMIN_USER.name,
             role: ROLE_ADMIN,
-            password: isBcryptHash(user.password) ? user.password : DEFAULT_ADMIN_USER.password
+            password: user.password || DEFAULT_ADMIN_USER.password
           }
         : user;
       return {
