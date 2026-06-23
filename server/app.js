@@ -478,6 +478,15 @@ function requireRoles(...roles) {
   };
 }
 
+function isPrimaryAdminUser(user) {
+  return user?.id === DEFAULT_ADMIN_USER.id || user?.name === DEFAULT_ADMIN_USER.name;
+}
+
+function requirePrimaryAdmin(req, res, next) {
+  if (isPrimaryAdminUser(req.authUser)) return next();
+  return res.status(403).json({ error: '仅孙立柱管理员可以执行该操作' });
+}
+
 function hasPageAccess(user, page) {
   return Array.isArray(user?.pageAccess) && user.pageAccess.includes(page);
 }
@@ -1226,6 +1235,28 @@ app.post('/api/quality-inspection/reports/:id', requireAuth, requirePages('inspe
   db.qualityInspection.reports[req.params.id] = next;
   await saveDb(db);
   res.json(next);
+});
+
+app.delete('/api/quality-inspection/records/:id', requireAuth, requirePages('inspectionFeedback', 'inspectionReportQuery', 'inspectionSummary', 'inspectionLedger'), requirePrimaryAdmin, async (req, res) => {
+  const db = await readDb();
+  const recordId = String(req.params.id || '').trim();
+  const report = db.qualityInspection.reports[recordId] || {};
+  if (report.fileName) {
+    await unlink(reportFilePath(report.fileName)).catch(() => {});
+  }
+  db.qualityInspection.notices = {
+    ...(db.qualityInspection.notices || {}),
+    rows: (db.qualityInspection.notices.rows || [])
+      .filter((row) => row.id !== recordId)
+      .map((row, index) => ({ ...row, rowNumber: index + 1 })),
+    submittedAt: nowText(),
+    submittedBy: req.authUser.name
+  };
+  delete db.qualityInspection.schedules[recordId];
+  delete db.qualityInspection.reports[recordId];
+  delete db.qualityInspection.feedback[recordId];
+  await saveDb(db);
+  res.json({ rows: composedRecords(db), files: await reportFileItems(db) });
 });
 
 app.get('/api/quality-inspection/stamp-reports', requireAuth, requirePages('inspectionStamp'), requireRoles(ROLE_ADMIN), async (req, res) => {

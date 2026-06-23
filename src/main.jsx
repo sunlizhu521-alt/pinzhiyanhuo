@@ -138,6 +138,10 @@ function isAdminUser(user) {
   return user?.role === ROLE_ADMIN;
 }
 
+function isPrimaryAdminUser(user) {
+  return user?.id === DEFAULT_ADMIN_USER.id || user?.name === DEFAULT_ADMIN_USER.name;
+}
+
 function isSubmittedScheduleRecord(record) {
   return normalize(record.schedule?.status) === '已安排' && normalize(record.schedule?.inspector);
 }
@@ -2683,11 +2687,13 @@ function App() {
           report: {
             reportNo,
             originalName: file.fileName || reportNo,
-            fileName: file.fileUrl ? '' : file.fileName,
+            fileName: file.fileName || '',
             fileUrl: file.fileUrl || '',
             uploadedAt: file.uploadedAt || file.modifiedAt || '',
             updatedAt: file.modifiedAt || file.uploadedAt || ''
           },
+          reportLibraryFileId: file.id || file.fileName,
+          reportLibraryFileName: file.fileName || '',
           reportLibrarySource: true
         };
       })
@@ -2841,6 +2847,95 @@ function App() {
     setMessage('文件已删除。');
   }
 
+  async function deleteInspectionRecord(record) {
+    if (!isPrimaryAdminUser(user)) {
+      setMessage('仅孙立柱管理员可以删除单条信息。');
+      return;
+    }
+    if (!record) return;
+    if (record.reportLibrarySource) {
+      const fileName = normalize(record.reportLibraryFileName || record.report?.fileName || record.report?.originalName);
+      if (!fileName) {
+        setMessage('未找到可删除的报告文件名。');
+        return;
+      }
+      if (!window.confirm(`确认删除报告文件：${fileName}？`)) return;
+      setSavingId(record.id);
+      if (STATIC_MODE) {
+        const nextFiles = readReportFileLibrary().filter((item) => item.fileName !== fileName && item.id !== record.reportLibraryFileId);
+        saveReportFileLibrary(nextFiles);
+        setReportFiles(nextFiles);
+        setSavingId('');
+        setMessage('报告文件已删除。');
+        return;
+      }
+      const res = await authFetch(`${API}/api/quality-inspection/report-files/${encodeURIComponent(fileName)}`, {
+        method: 'DELETE'
+      });
+      setSavingId('');
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        setMessage(payload.error || '报告文件删除失败。');
+        return;
+      }
+      const payload = await res.json();
+      setReportFiles(payload.files || []);
+      await refreshRecords();
+      setMessage('报告文件已删除。');
+      return;
+    }
+
+    const targetIds = Array.isArray(record.sourceIds) && record.sourceIds.length ? record.sourceIds : [record.id];
+    if (!window.confirm(`确认删除选中的 ${targetIds.length} 条验货信息？`)) return;
+    setSavingId(record.id);
+    if (STATIC_MODE) {
+      const db = readStaticDb();
+      db.qualityInspection.notices = {
+        ...(db.qualityInspection.notices || {}),
+        rows: (db.qualityInspection.notices.rows || [])
+          .filter((row) => !targetIds.includes(row.id))
+          .map((row, index) => ({ ...row, rowNumber: index + 1 })),
+        submittedAt: nowText(),
+        submittedBy: user.name
+      };
+      targetIds.forEach((targetId) => {
+        delete db.qualityInspection.schedules[targetId];
+        delete db.qualityInspection.reports[targetId];
+        delete db.qualityInspection.feedback[targetId];
+      });
+      saveStaticDb(db);
+      setNoticeSubmission(db.qualityInspection.notices);
+      setRecords(composedStaticRecords(db).filter((item) => canReadClientRecord(user, item)));
+      setSavingId('');
+      setMessage('单条验货信息已删除。');
+      return;
+    }
+
+    let payload = null;
+    for (const targetId of targetIds) {
+      const res = await authFetch(`${API}/api/quality-inspection/records/${encodeURIComponent(targetId)}`, {
+        method: 'DELETE'
+      });
+      if (!res.ok) {
+        setSavingId('');
+        const errorPayload = await res.json().catch(() => ({}));
+        setMessage(errorPayload.error || '单条验货信息删除失败。');
+        return;
+      }
+      payload = await res.json();
+    }
+    setSavingId('');
+    if (payload?.rows) {
+      setRecords((payload.rows || []).filter((item) => canReadClientRecord(user, item)));
+    } else {
+      await refreshRecords();
+    }
+    if (payload?.files) setReportFiles(payload.files || []);
+    const noticeRes = await authFetch(`${API}/api/quality-inspection/notices`, { cache: 'no-store' });
+    if (noticeRes.ok) setNoticeSubmission(await noticeRes.json());
+    setMessage('单条验货信息已删除。');
+  }
+
   const filteredRecords = useMemo(() => {
     const keyword = normalize(query).toLowerCase();
     const normalizedFilters = Object.fromEntries(
@@ -2888,6 +2983,7 @@ function App() {
     const failed = summaryRecords.filter((row) => row.feedback?.result === '不合格').length;
     return { total, scheduled, reported, passed, failed };
   }, [summaryRecords]);
+  const canDeleteInspectionInfo = isPrimaryAdminUser(user);
 
   if (!user) {
     return (
@@ -3016,6 +3112,8 @@ function App() {
             onConfirmImport={confirmFeedbackImport}
             onClearImportPreview={clearFeedbackImportPreview}
             onSave={saveFeedback}
+            canDelete={canDeleteInspectionInfo}
+            onDelete={deleteInspectionRecord}
           />
         )}
         {canAccessPage(user, 'inspectionStamp') && activeTab === 'inspectionStamp' && (
@@ -3054,6 +3152,9 @@ function App() {
               setStatusFilter('');
               setRecordFilters({ supplierShortName: '', businessDepartments: '', salesProductLine: '', series: '' });
             }}
+            savingId={savingId}
+            canDelete={canDeleteInspectionInfo}
+            onDelete={deleteInspectionRecord}
           />
         )}
         {canAccessPage(user, 'inspectionSummary') && activeTab === 'inspectionSummary' && (
@@ -3066,6 +3167,9 @@ function App() {
             onUpload={previewSummaryRows}
             onConfirmImport={confirmSummaryImport}
             onClearImportPreview={clearSummaryImportPreview}
+            savingId={savingId}
+            canDelete={canDeleteInspectionInfo}
+            onDelete={deleteInspectionRecord}
           />
         )}
         {canAccessPage(user, 'inspectionLedger') && activeTab === 'inspectionLedger' && (
@@ -3078,6 +3182,9 @@ function App() {
             onUpload={previewSummaryRows}
             onConfirmImport={confirmSummaryImport}
             onClearImportPreview={clearSummaryImportPreview}
+            savingId={savingId}
+            canDelete={canDeleteInspectionInfo}
+            onDelete={deleteInspectionRecord}
           />
         )}
         {canAccessPage(user, 'inspectionInitialData') && activeTab === 'inspectionInitialData' && (
@@ -3534,7 +3641,9 @@ function FeedbackPage({
   onUpload,
   onConfirmImport,
   onClearImportPreview,
-  onSave
+  onSave,
+  canDelete = false,
+  onDelete
 }) {
   const [filters, setFilters] = useState({
     supplierShortName: '',
@@ -3775,23 +3884,35 @@ function FeedbackPage({
               {reportHref(record) && <a href={reportHref(record)} target="_blank" rel="noreferrer">{record.report?.originalName || '查看报告'}</a>}
               <input name="reportFile" form={`feedback-form-${record.id}`} type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx" />
             </div>,
-            <form
-              id={`feedback-form-${record.id}`}
-              onSubmit={async (event) => {
-                event.preventDefault();
-                if (!window.confirm('确认提交当前验货反馈？')) return;
-                const saved = await onSave(record, event.currentTarget);
-                if (saved) {
-                  setFeedbackDrafts((current) => {
-                    const next = { ...current };
-                    delete next[record.id];
-                    return next;
-                  });
-                }
-              }}
-            >
-              <button type="submit" className="compact-button" disabled={savingId === record.id}>提交</button>
-            </form>
+            <div className="table-action-row">
+              <form
+                id={`feedback-form-${record.id}`}
+                onSubmit={async (event) => {
+                  event.preventDefault();
+                  if (!window.confirm('确认提交当前验货反馈？')) return;
+                  const saved = await onSave(record, event.currentTarget);
+                  if (saved) {
+                    setFeedbackDrafts((current) => {
+                      const next = { ...current };
+                      delete next[record.id];
+                      return next;
+                    });
+                  }
+                }}
+              >
+                <button type="submit" className="compact-button" disabled={savingId === record.id}>提交</button>
+              </form>
+              {canDelete && (
+                <button
+                  type="button"
+                  className="danger-button compact-button"
+                  disabled={savingId === record.id}
+                  onClick={() => onDelete(record)}
+                >
+                  删除
+                </button>
+              )}
+            </div>
           ];
         }}
       />
@@ -4222,11 +4343,17 @@ function ReportQueryPage({
   onQuery,
   onStatusFilter,
   onFilterChange,
-  onClearFilters
+  onClearFilters,
+  savingId = '',
+  canDelete = false,
+  onDelete
 }) {
   const [previewRecord, setPreviewRecord] = useState(null);
   const previewUrl = previewRecord ? reportHref(previewRecord) : '';
   const previewExt = previewRecord ? reportFileExt(previewRecord) : '';
+  const columns = canDelete
+    ? ['供应商', '实际验货时间', '实际验货员', '报告单号', '报告文件', '验货结果', '操作']
+    : ['供应商', '实际验货时间', '实际验货员', '报告单号', '报告文件', '验货结果'];
 
   useEffect(() => {
     if (previewRecord && !records.some((record) => record.id === previewRecord.id)) {
@@ -4267,25 +4394,40 @@ function ReportQueryPage({
       <DataTable
         className="report-query-table"
         rows={records}
-        columns={['供应商', '实际验货时间', '实际验货员', '报告单号', '报告文件', '验货结果']}
-        render={(record) => [
-          record.supplierShortName,
-          formatDate(record.feedback?.actualInspectionTime),
-          record.feedback?.actualInspector || record.schedule?.inspector || '',
-          record.report?.reportNo || '',
-          reportHref(record)
-            ? (
+        columns={columns}
+        render={(record) => {
+          const cells = [
+            record.supplierShortName,
+            formatDate(record.feedback?.actualInspectionTime),
+            record.feedback?.actualInspector || record.schedule?.inspector || '',
+            record.report?.reportNo || '',
+            reportHref(record)
+              ? (
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => setPreviewRecord(record)}
+                >
+                  {record.report.originalName || '查看文件'}
+                </button>
+              )
+              : '',
+            record.feedback?.result || ''
+          ];
+          if (canDelete) {
+            cells.push(
               <button
                 type="button"
-                className="link-button"
-                onClick={() => setPreviewRecord(record)}
+                className="danger-button compact-button"
+                disabled={savingId === record.id}
+                onClick={() => onDelete(record)}
               >
-                {record.report.originalName || '查看文件'}
+                删除
               </button>
-            )
-            : '',
-          record.feedback?.result || ''
-        ]}
+            );
+          }
+          return cells;
+        }}
       />
       {previewRecord && (
         <ReportPreviewModal
@@ -4326,9 +4468,24 @@ function ReportPreviewModal({ title, url, ext, onClose }) {
   );
 }
 
-function SummaryPage({ title = '验货反馈表', summary, records, canImport, importPreview, onUpload, onConfirmImport, onClearImportPreview }) {
+function SummaryPage({
+  title = '验货反馈表',
+  summary,
+  records,
+  canImport,
+  importPreview,
+  onUpload,
+  onConfirmImport,
+  onClearImportPreview,
+  savingId = '',
+  canDelete = false,
+  onDelete
+}) {
   const previewRows = importPreview?.items || [];
   const previewLimitedRows = previewRows.slice(0, 10);
+  const columns = canDelete
+    ? ['序号', '供应商', '事业部', '产品线', '系列', '数量', '计划日期', '状态', '报告结论', '反馈结果', '操作']
+    : ['序号', '供应商', '事业部', '产品线', '系列', '数量', '计划日期', '状态', '报告结论', '反馈结果'];
   return (
     <>
       <div className="section-heading-row">
@@ -4385,19 +4542,34 @@ function SummaryPage({ title = '验货反馈表', summary, records, canImport, i
       </div>
       <DataTable
         rows={records}
-        columns={['序号', '供应商', '事业部', '产品线', '系列', '数量', '计划日期', '状态', '报告结论', '反馈结果']}
-        render={(record) => [
-          record.rowNumber,
-          record.supplierShortName,
-          record.businessDepartments,
-          record.salesProductLine,
-          record.series,
-          record.totalQuantity,
-          record.schedule?.scheduledDate || '',
-          record.schedule?.status || '未安排',
-          record.report?.conclusion || '',
-          record.feedback?.result || ''
-        ]}
+        columns={columns}
+        render={(record) => {
+          const cells = [
+            record.rowNumber,
+            record.supplierShortName,
+            record.businessDepartments,
+            record.salesProductLine,
+            record.series,
+            record.totalQuantity,
+            record.schedule?.scheduledDate || '',
+            record.schedule?.status || '未安排',
+            record.report?.conclusion || '',
+            record.feedback?.result || ''
+          ];
+          if (canDelete) {
+            cells.push(
+              <button
+                type="button"
+                className="danger-button compact-button"
+                disabled={savingId === record.id}
+                onClick={() => onDelete(record)}
+              >
+                删除
+              </button>
+            );
+          }
+          return cells;
+        }}
       />
     </>
   );
