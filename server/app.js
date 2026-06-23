@@ -2,6 +2,7 @@ import cors from 'cors';
 import express from 'express';
 import multer from 'multer';
 import xlsx from 'xlsx';
+import compression from 'compression';
 import { format } from 'date-fns';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
@@ -82,6 +83,9 @@ const upload = multer({
 });
 
 app.use(cors());
+app.use(compression({
+  threshold: 1024
+}));
 app.use(express.json({ limit: '50mb' }));
 
 function nowText() {
@@ -1357,12 +1361,29 @@ app.get('/dimension-uploads/:fileName', requireAuth, requirePages('dimensionLibr
 });
 
 const distDir = path.join(rootDir, 'dist');
-app.use('/pinzhiyanhuo', express.static(distDir));
-app.use(express.static(distDir));
+const staticOptions = {
+  etag: true,
+  lastModified: true,
+  setHeaders(res, filePath) {
+    if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      return;
+    }
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-store');
+      return;
+    }
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+  }
+};
+app.use('/pinzhiyanhuo', express.static(distDir, staticOptions));
+app.use(express.static(distDir, staticOptions));
 app.get(/^\/pinzhiyanhuo\/(?!api).*/, (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   res.sendFile(path.join(distDir, 'index.html'));
 });
 app.get(/^\/(?!api).*/, (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   res.sendFile(path.join(distDir, 'index.html'));
 });
 

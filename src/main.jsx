@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import * as XLSX from 'xlsx';
 import './styles.css';
 
 const API = import.meta.env.DEV ? 'http://localhost:4002' : '';
@@ -642,12 +641,20 @@ function composedStaticRecords(db) {
   }));
 }
 
+let xlsxModulePromise = null;
+
+function loadXlsxModule() {
+  if (!xlsxModulePromise) xlsxModulePromise = import('xlsx');
+  return xlsxModulePromise;
+}
+
 function parseWorkbookInBrowser(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error('read failed'));
-    reader.onload = () => {
+    reader.onload = async () => {
       try {
+        const XLSX = await loadXlsxModule();
         const workbook = XLSX.read(reader.result, { type: 'array', cellDates: true });
         const sheetName = workbook.SheetNames[0];
         const sheet = workbook.Sheets[sheetName];
@@ -680,12 +687,13 @@ function parseWorkbookSheetsInBrowser(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error('read failed'));
-    reader.onload = () => {
+    reader.onload = async () => {
       try {
+        const XLSX = await loadXlsxModule();
         const workbook = XLSX.read(reader.result, { type: 'array', cellDates: true });
         const sheets = workbook.SheetNames.map((sheetName) => {
           const sheet = workbook.Sheets[sheetName];
-          return parseDimensionSheet(sheetName, sheet);
+          return parseDimensionSheet(sheetName, sheet, XLSX);
         });
 
         resolve({
@@ -719,7 +727,7 @@ function scoreDimensionHeaderRow(row = []) {
   return uniqueCount + keywordScore + Math.min(cells.length, 12);
 }
 
-function parseDimensionSheet(sheetName, sheet) {
+function parseDimensionSheet(sheetName, sheet, XLSX) {
   const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false });
   const candidateRows = matrix.slice(0, 10);
   const scored = candidateRows
