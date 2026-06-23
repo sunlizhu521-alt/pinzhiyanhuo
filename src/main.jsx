@@ -1541,6 +1541,29 @@ function recordIdSignature(rows = []) {
   return rows.map((row) => row.id).filter(Boolean).join('|');
 }
 
+const RECORD_REFRESH_PAGES = [
+  'inspectionSchedule',
+  'inspectionFeedback',
+  'inspectionStamp',
+  'inspectionReportLibrary',
+  'inspectionReportQuery',
+  'inspectionSummary',
+  'inspectionLedger'
+];
+
+const DIMENSION_REFRESH_PAGES = [
+  'dimensionLibrary',
+  'inspectionNotice',
+  'inspectionSchedule',
+  'inspectionFeedback',
+  'inspectionReportLibrary',
+  'inspectionReportQuery',
+  'inspectionSummary',
+  'inspectionLedger'
+];
+
+const REPORT_FILE_REFRESH_PAGES = ['inspectionReportLibrary', 'inspectionReportQuery', 'inspectionStamp'];
+
 function App() {
   const [activeTab, setActiveTab] = useState('inspectionNotice');
   const [authMode, setAuthMode] = useState('login');
@@ -1561,7 +1584,7 @@ function App() {
   const [dimensionLibrary, setDimensionLibrary] = useState(() => STATIC_MODE ? readDimensionLibrary() : normalizeDimensionLibrary());
   const [dimensionLibraryLoading, setDimensionLibraryLoading] = useState(false);
   const [dimensionPendingFiles, setDimensionPendingFiles] = useState({});
-  const [reportFiles, setReportFiles] = useState(() => readReportFileLibrary());
+  const [reportFiles, setReportFiles] = useState(() => STATIC_MODE ? readReportFileLibrary() : []);
   const [permissionUsers, setPermissionUsers] = useState([]);
   const [records, setRecords] = useState([]);
   const [clearedScheduleSignature, setClearedScheduleSignature] = useState('');
@@ -1638,18 +1661,25 @@ function App() {
   }, [activeTab, user]);
 
   useEffect(() => {
-    if (!user || !['inspectionReportLibrary', 'inspectionReportQuery'].includes(activeTab)) return;
-    refreshReportFiles();
+    if (!user || STATIC_MODE) return;
+    refreshServerDataForActiveTab(activeTab, { silent: true });
   }, [activeTab, user]);
 
   useEffect(() => {
-    if (!user || activeTab !== 'dimensionLibrary') return;
-    refreshDimensionLibrary();
-  }, [activeTab, user]);
-
-  useEffect(() => {
-    if (!user || activeTab !== 'permissionManagement') return;
-    refreshPermissionUsers();
+    if (!user || STATIC_MODE) return undefined;
+    const refreshCurrentPage = () => {
+      if (document.visibilityState === 'visible') {
+        refreshServerDataForActiveTab(activeTab, { silent: true });
+      }
+    };
+    const timer = window.setInterval(refreshCurrentPage, 30000);
+    window.addEventListener('focus', refreshCurrentPage);
+    document.addEventListener('visibilitychange', refreshCurrentPage);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshCurrentPage);
+      document.removeEventListener('visibilitychange', refreshCurrentPage);
+    };
   }, [activeTab, user]);
 
   async function loadData() {
@@ -2106,13 +2136,31 @@ function App() {
     if (res.ok) setReportFiles((await res.json()).files || []);
   }
 
-  async function refreshDimensionLibrary() {
+  async function refreshNoticeSubmissionFromServer() {
+    if (STATIC_MODE) return;
+    if (!canAccessPage(user, 'inspectionNotice')) return;
+    const res = await authFetch(`${API}/api/quality-inspection/notices`, { cache: 'no-store' });
+    if (res.ok) setNoticeSubmission(await res.json());
+  }
+
+  async function refreshServerDataForActiveTab(tab = activeTab, options = {}) {
+    if (STATIC_MODE || !user) return;
+    const tasks = [];
+    if (RECORD_REFRESH_PAGES.includes(tab)) tasks.push(refreshRecords());
+    if (DIMENSION_REFRESH_PAGES.includes(tab)) tasks.push(refreshDimensionLibrary({ silent: options.silent }));
+    if (REPORT_FILE_REFRESH_PAGES.includes(tab)) tasks.push(refreshReportFiles());
+    if (tab === 'inspectionNotice' || tab === 'inspectionSchedule') tasks.push(refreshNoticeSubmissionFromServer());
+    if (tab === 'permissionManagement') tasks.push(refreshPermissionUsers());
+    await Promise.allSettled(tasks);
+  }
+
+  async function refreshDimensionLibrary(options = {}) {
     if (STATIC_MODE) {
       const library = readDimensionLibrary();
       setDimensionLibrary(library);
       return library;
     }
-    setDimensionLibraryLoading(true);
+    if (!options.silent) setDimensionLibraryLoading(true);
     try {
       const res = await authFetch(`${API}/api/quality-inspection/dimension-library`, { cache: 'no-store' });
       if (res.ok) {
@@ -2122,7 +2170,7 @@ function App() {
         return library;
       }
     } finally {
-      setDimensionLibraryLoading(false);
+      if (!options.silent) setDimensionLibraryLoading(false);
     }
     return dimensionLibrary;
   }
