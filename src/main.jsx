@@ -3256,6 +3256,7 @@ function FeedbackPage({
           '事业部',
           '运营',
           '验货通知人',
+          '实际验货人',
           '实际验货时间',
           '验货天数',
           '验货方式',
@@ -3268,7 +3269,6 @@ function FeedbackPage({
           '问题反馈',
           '检验报告单上传功能',
           '验货员',
-          '实际验货人',
           '提交按钮'
         ]}
         render={(record) => [
@@ -3280,6 +3280,7 @@ function FeedbackPage({
           record.businessDepartments,
           record.operation,
           record.inspectionNotifier || record.inspectionApplicant,
+          <input name="actualInspector" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.actualInspector || ''} />,
           <input name="actualInspectionTime" form={`feedback-form-${record.id}`} className="table-input" type="date" defaultValue={formatDate(record.feedback?.actualInspectionTime)} />,
           <input name="inspectionDays" form={`feedback-form-${record.id}`} className="table-input narrow-input" defaultValue={record.feedback?.inspectionDays || ''} />,
           <input name="inspectionMethod" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.inspectionMethod || ''} />,
@@ -3305,7 +3306,6 @@ function FeedbackPage({
             <input name="reportFile" form={`feedback-form-${record.id}`} type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx" />
           </div>,
           <span className="readonly-cell">{normalize(record.schedule?.inspector)}</span>,
-          <input name="actualInspector" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.actualInspector || ''} />,
           <form id={`feedback-form-${record.id}`} onSubmit={(event) => { event.preventDefault(); onSave(record, event.currentTarget); }}>
             <button type="submit" className="compact-button" disabled={savingId === record.id}>提交</button>
           </form>
