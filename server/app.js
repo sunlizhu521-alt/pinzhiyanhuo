@@ -123,7 +123,11 @@ function normalizePageAccess(user) {
   const existing = Array.isArray(user.pageAccess) ? user.pageAccess : null;
   const fallback = DEFAULT_PAGE_ACCESS_BY_ROLE[normalizeRole(user.role, user.name)] || [];
   const source = existing || fallback;
-  return [...new Set(source.filter((page) => PAGE_KEYS.includes(page)))];
+  const normalized = [...new Set(source.filter((page) => PAGE_KEYS.includes(page)))];
+  if (normalized.includes('inspectionSummary') && !normalized.includes('inspectionLedger')) {
+    normalized.push('inspectionLedger');
+  }
+  return normalized;
 }
 
 function normalizeDb(db = {}) {
@@ -897,12 +901,15 @@ app.patch('/api/auth/users/:id/access', requireAuth, requirePages('permissionMan
   const db = await readDb();
   const target = db.users.find((user) => user.id === req.params.id);
   if (!target) return res.status(404).json({ error: '用户不存在' });
-  const pageAccess = Array.isArray(req.body.pageAccess)
+  const requestedPageAccess = Array.isArray(req.body.pageAccess)
     ? [...new Set(req.body.pageAccess.filter((page) => PAGE_KEYS.includes(page)))]
     : [];
+  if (requestedPageAccess.includes('inspectionSummary') && !requestedPageAccess.includes('inspectionLedger')) {
+    requestedPageAccess.push('inspectionLedger');
+  }
   target.pageAccess = target.name === DEFAULT_ADMIN_USER.name
     ? PAGE_KEYS
-    : pageAccess;
+    : requestedPageAccess;
   await saveDb(db);
   res.json({
     id: target.id,

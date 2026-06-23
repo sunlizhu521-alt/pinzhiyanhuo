@@ -113,14 +113,24 @@ const ROLE_PAGE_ACCESS = {
   [ROLE_USER]: []
 };
 
+function normalizePageAccessList(pageAccess = []) {
+  const allowedPages = new Set(PAGE_OPTIONS.map((page) => page.tab));
+  const normalized = [...new Set((Array.isArray(pageAccess) ? pageAccess : [])
+    .filter((page) => allowedPages.has(page)))];
+  if (normalized.includes('inspectionSummary') && !normalized.includes('inspectionLedger')) {
+    normalized.push('inspectionLedger');
+  }
+  return normalized;
+}
+
 function canAccessPage(user, tab) {
   if (!user) return false;
-  const access = Array.isArray(user.pageAccess) ? user.pageAccess : (ROLE_PAGE_ACCESS[user.role] || []);
+  const access = normalizePageAccessList(Array.isArray(user.pageAccess) ? user.pageAccess : (ROLE_PAGE_ACCESS[user.role] || []));
   return access.includes(tab);
 }
 
 function homeTabForUser(user) {
-  const access = Array.isArray(user?.pageAccess) ? user.pageAccess : (ROLE_PAGE_ACCESS[user?.role] || []);
+  const access = normalizePageAccessList(Array.isArray(user?.pageAccess) ? user.pageAccess : (ROLE_PAGE_ACCESS[user?.role] || []));
   return access.find((tab) => MENU_PAGES.some((page) => page.tab === tab)) || '';
 }
 
@@ -527,9 +537,9 @@ function normalizeStaticDb(db = {}) {
       const role = [ROLE_PURCHASER, ROLE_INSPECTOR, ROLE_SETTLEMENT, ROLE_USER].includes(user.role)
         ? user.role
         : ROLE_USER;
-      const pageAccess = Array.isArray(user.pageAccess)
-        ? user.pageAccess.filter((page) => PAGE_OPTIONS.some((item) => item.tab === page))
-        : (ROLE_PAGE_ACCESS[role] || []);
+      const pageAccess = normalizePageAccessList(Array.isArray(user.pageAccess)
+        ? user.pageAccess
+        : (ROLE_PAGE_ACCESS[role] || []));
       return { ...user, id: user.id || createId(), role, pageAccess };
     }),
     qualityInspection: {
@@ -2067,7 +2077,9 @@ function App() {
       const db = readStaticDb();
       const target = db.users.find((item) => item.id === targetUser.id);
       if (target) {
-        target.pageAccess = target.name === DEFAULT_ADMIN_USER.name ? ROLE_PAGE_ACCESS[ROLE_ADMIN] : pageAccess;
+        target.pageAccess = target.name === DEFAULT_ADMIN_USER.name
+          ? ROLE_PAGE_ACCESS[ROLE_ADMIN]
+          : normalizePageAccessList(pageAccess);
         saveStaticDb(db);
         setPermissionUsers(db.users);
         if (target.id === user.id) {
