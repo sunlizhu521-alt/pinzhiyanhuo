@@ -4102,24 +4102,12 @@ function ReportFileLibraryPage({ files, supplierOptions = [], productLineOptions
         }}
       />
       {previewFile && (
-        <section className="report-query-preview">
-          <div className="section-heading-row">
-            <h3>{previewFile.fileName || '报告文件预览'}</h3>
-            <div className="table-action-row">
-              {previewFile.fileUrl && <a className="compact-button" href={previewFile.fileUrl} target="_blank" rel="noreferrer">打开原文件</a>}
-              <button type="button" className="ghost compact-button" onClick={() => setPreviewFile(null)}>关闭预览</button>
-            </div>
-          </div>
-          <div className="report-query-preview-body">
-            {REPORT_IMAGE_EXTENSIONS.has(previewExt) ? (
-              <img src={previewFile.fileUrl} alt="报告文件预览" />
-            ) : previewExt === '.pdf' ? (
-              <iframe title="报告文件预览" src={previewFile.fileUrl} />
-            ) : (
-              <div className="empty-state">当前文件格式暂不支持本页直接预览，请点击“打开原文件”查看。</div>
-            )}
-          </div>
-        </section>
+        <ReportPreviewModal
+          title={previewFile.fileName || '报告文件预览'}
+          url={previewFile.fileUrl}
+          ext={previewExt}
+          onClose={() => setPreviewFile(null)}
+        />
       )}
     </section>
   );
@@ -4202,26 +4190,41 @@ function ReportQueryPage({
         ]}
       />
       {previewRecord && (
-        <section className="report-query-preview">
-          <div className="section-heading-row">
-            <h3>{previewRecord.report?.originalName || previewRecord.report?.reportNo || '报告文件预览'}</h3>
-            <div className="table-action-row">
-              {previewUrl && <a className="compact-button" href={previewUrl} target="_blank" rel="noreferrer">打开原文件</a>}
-              <button type="button" className="ghost compact-button" onClick={() => setPreviewRecord(null)}>关闭预览</button>
-            </div>
-          </div>
-          <div className="report-query-preview-body">
-            {REPORT_IMAGE_EXTENSIONS.has(previewExt) ? (
-              <img src={previewUrl} alt="检验单预览" />
-            ) : previewExt === '.pdf' ? (
-              <iframe title="检验单预览" src={previewUrl} />
-            ) : (
-              <div className="empty-state">当前文件格式暂不支持本页直接预览，请点击“打开原文件”查看。</div>
-            )}
-          </div>
-        </section>
+        <ReportPreviewModal
+          title={previewRecord.report?.originalName || previewRecord.report?.reportNo || '报告文件预览'}
+          url={previewUrl}
+          ext={previewExt}
+          onClose={() => setPreviewRecord(null)}
+        />
       )}
     </>
+  );
+}
+
+function ReportPreviewModal({ title, url, ext, onClose }) {
+  return createPortal(
+    <div className="report-preview-modal" role="dialog" aria-modal="true">
+      <div className="report-preview-backdrop" onClick={onClose} />
+      <section className="report-preview-dialog">
+        <div className="report-preview-header">
+          <h3>{title || '报告文件预览'}</h3>
+          <div className="table-action-row">
+            {url && <a className="compact-button" href={url} target="_blank" rel="noreferrer">打开原文件</a>}
+            <button type="button" className="ghost compact-button" onClick={onClose}>关闭预览</button>
+          </div>
+        </div>
+        <div className="report-preview-body">
+          {REPORT_IMAGE_EXTENSIONS.has(ext) ? (
+            <img src={url} alt="报告文件预览" />
+          ) : ext === '.pdf' ? (
+            <iframe title="报告文件预览" src={url} />
+          ) : (
+            <div className="empty-state">当前文件格式暂不支持本页直接预览，请点击“打开原文件”查看。</div>
+          )}
+        </div>
+      </section>
+    </div>,
+    document.body
   );
 }
 
