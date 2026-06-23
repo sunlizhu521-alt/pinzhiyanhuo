@@ -3000,6 +3000,7 @@ function FeedbackPage({ records, savingId, canImport, importPreview, onUpload, o
         className="inspection-feedback-table"
         rows={records}
         columns={[
+          '检验报告单编码',
           '供应商简称',
           '产品线',
           '系列',
@@ -3017,13 +3018,13 @@ function FeedbackPage({ records, savingId, canImport, importPreview, onUpload, o
           '问题分类',
           '问题分类',
           '问题反馈',
-          '检验报告单编码',
           '检验报告单上传功能',
           '验货员',
           '实际验货人',
           '提交按钮'
         ]}
         render={(record) => [
+          <input name="reportNo" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.report?.reportNo || ''} />,
           record.supplierShortName,
           record.salesProductLine,
           record.series,
@@ -3051,7 +3052,6 @@ function FeedbackPage({ records, savingId, canImport, importPreview, onUpload, o
           <input name="issueCategoryPrimary" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.issueCategoryPrimary || ''} />,
           <input name="issueCategorySecondary" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.issueCategorySecondary || ''} />,
           <textarea name="feedbackText" form={`feedback-form-${record.id}`} className="table-textarea wide-textarea" defaultValue={record.feedback?.feedbackText || ''} />,
-          <input name="reportNo" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.report?.reportNo || ''} />,
           <div className="feedback-report-cell">
             {reportHref(record) && <a href={reportHref(record)} target="_blank" rel="noreferrer">{record.report?.originalName || '查看报告'}</a>}
             <input name="reportFile" form={`feedback-form-${record.id}`} type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx" />
