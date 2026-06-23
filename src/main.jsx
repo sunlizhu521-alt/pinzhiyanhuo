@@ -1289,6 +1289,7 @@ function reportFileExt(record) {
 }
 
 function isImageReport(record) {
+  if (String(record?.report?.fileDataUrl || '').startsWith('data:image/')) return true;
   return REPORT_IMAGE_EXTENSIONS.has(reportFileExt(record));
 }
 
@@ -1297,6 +1298,15 @@ function imageMimeForReport(record) {
   if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
   if (ext === '.webp') return 'image/webp';
   return 'image/png';
+}
+
+function normalizeStampUploadFileName(nextName, currentName) {
+  const current = normalize(currentName);
+  const fallbackExt = current.match(/\.[^.]+$/)?.[0] || '.png';
+  const raw = normalize(nextName) || current || `stamp-${Date.now()}${fallbackExt}`;
+  const ext = raw.match(/\.[^.]+$/)?.[0] || fallbackExt;
+  const base = raw.replace(/\.[^.]+$/, '').trim() || `stamp-${Date.now()}`;
+  return `${base.replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_')}${ext}`;
 }
 
 function formatFileSize(size) {
@@ -2523,7 +2533,7 @@ function App() {
           : await createStampedImageDataUrl(record, rotation)
       );
       if (record.isStampUpload) {
-        const fileName = record.report?.fileName || record.report?.originalName || `stamped-${Date.now()}.png`;
+        const fileName = normalizeStampUploadFileName(record.report?.fileName || record.report?.originalName, record.report?.originalName || `stamped-${Date.now()}.png`);
         if (STATIC_MODE) {
           const nextFiles = [
             ...readReportFileLibrary(),
@@ -3783,6 +3793,23 @@ function InspectionStampPage({ records, savingId, onStamp }) {
     }
   }
 
+  function updateUploadedImageFileName(recordId, nextName, commit = false) {
+    setUploadedRecords((items) => items.map((item) => {
+      if (item.id !== recordId) return item;
+      const fileName = commit
+        ? normalizeStampUploadFileName(nextName, item.report?.originalName || item.report?.fileName)
+        : nextName;
+      return {
+        ...item,
+        report: {
+          ...(item.report || {}),
+          fileName,
+          originalName: fileName
+        }
+      };
+    }));
+  }
+
   async function uploadStampImages(files) {
     const selectedFiles = Array.from(files || []).filter(isReportImageFile);
     if (!selectedFiles.length) return;
@@ -3878,6 +3905,17 @@ function InspectionStampPage({ records, savingId, onStamp }) {
           <section className="stamp-viewer">
             <div className="stamp-meta">
               <strong>{current.isStampUpload ? '页面上传图片' : (current.report?.reportNo || '未填写报告编码')}</strong>
+              {current.isStampUpload && (
+                <label className="stamp-file-name-editor">
+                  <span>文件名</span>
+                  <input
+                    className="table-input wide-input"
+                    value={current.report?.fileName || ''}
+                    onChange={(event) => updateUploadedImageFileName(current.id, event.target.value)}
+                    onBlur={(event) => updateUploadedImageFileName(current.id, event.target.value, true)}
+                  />
+                </label>
+              )}
               <span>{current.supplierShortName || ''}</span>
               <span>{current.salesProductLine || ''} {current.series || ''}</span>
               {activePreview && <span className="stamp-preview-note">当前为盖章预览，确认保存后才会覆盖原文件。</span>}
