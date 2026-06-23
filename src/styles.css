@@ -627,13 +627,31 @@ th {
 }
 
 .inspection-feedback-table table {
+  width: max-content;
   min-width: 2720px;
 }
 
+.inspection-feedback-table th,
+.inspection-feedback-table td {
+  white-space: nowrap;
+}
+
+.inspection-feedback-table .table-textarea {
+  white-space: nowrap;
+  resize: horizontal;
+  min-height: 34px;
+}
+
+.inspection-feedback-table .wide-textarea {
+  min-width: 320px;
+}
+
 .feedback-report-cell {
-  display: grid;
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
   min-width: 180px;
+  white-space: nowrap;
 }
 
 .feedback-report-cell a {
