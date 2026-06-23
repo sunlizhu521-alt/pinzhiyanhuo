@@ -872,6 +872,9 @@ app.post('/api/auth/login', async (req, res) => {
   const password = String(req.body.password || '').trim();
   const user = db.users.find((item) => item.name === name && item.password === password);
   if (!user) return res.status(401).json({ error: '账号或密码不正确' });
+  if (!isPrimaryAdminUser(user) && !(user.pageAccess || []).length) {
+    return res.status(403).json({ error: '账号已注册，请等待管理员孙立柱授权页面后再登录' });
+  }
   const token = randomUUID();
   db.sessions[token] = { userId: user.id, createdAt: nowText() };
   await saveDb(db);
@@ -886,10 +889,8 @@ app.post('/api/auth/register', async (req, res) => {
   if (db.users.some((user) => user.name === name)) return res.status(409).json({ error: '该姓名已存在' });
   const user = { id: randomUUID(), name, password, role: ROLE_USER, pageAccess: [] };
   db.users.push(user);
-  const token = randomUUID();
-  db.sessions[token] = { userId: user.id, createdAt: nowText() };
   await saveDb(db);
-  res.json({ id: user.id, name: user.name, role: user.role, pageAccess: user.pageAccess || [], token });
+  res.json({ id: user.id, name: user.name, role: user.role, pageAccess: user.pageAccess || [] });
 });
 
 app.get('/api/auth/users', requireAuth, requirePages('permissionManagement'), requireRoles(ROLE_ADMIN), async (req, res) => {
@@ -924,6 +925,26 @@ app.patch('/api/auth/users/:id/access', requireAuth, requirePages('permissionMan
     name: target.name,
     role: target.role,
     pageAccess: target.pageAccess
+  });
+});
+
+app.delete('/api/auth/users/:id', requireAuth, requirePages('permissionManagement'), requirePrimaryAdmin, async (req, res) => {
+  const db = await readDb();
+  const target = db.users.find((user) => user.id === req.params.id);
+  if (!target) return res.status(404).json({ error: '用户不存在' });
+  if (isPrimaryAdminUser(target)) return res.status(400).json({ error: '不能删除孙立柱管理员账号' });
+  db.users = db.users.filter((user) => user.id !== target.id);
+  Object.entries(db.sessions || {}).forEach(([token, session]) => {
+    if (session.userId === target.id) delete db.sessions[token];
+  });
+  await saveDb(db);
+  res.json({
+    users: db.users.map((user) => ({
+      id: user.id,
+      name: user.name,
+      role: user.role,
+      pageAccess: user.pageAccess || []
+    }))
   });
 });
 

@@ -1567,8 +1567,8 @@ const REPORT_FILE_REFRESH_PAGES = ['inspectionReportLibrary', 'inspectionReportQ
 function App() {
   const [activeTab, setActiveTab] = useState('inspectionNotice');
   const [authMode, setAuthMode] = useState('login');
-  const [loginName, setLoginName] = useState('孙立柱');
-  const [password, setPassword] = useState('521sunlizhu');
+  const [loginName, setLoginName] = useState('');
+  const [password, setPassword] = useState('');
   const [registerName, setRegisterName] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
   const [user, setUser] = useState(readStoredUser);
@@ -1736,6 +1736,10 @@ function App() {
           setMessage('账号或密码不正确。');
           return;
         }
+        if (!isPrimaryAdminUser(matchedUser) && !(matchedUser.pageAccess || []).length) {
+          setMessage('账号已注册，请等待管理员孙立柱授权页面后再登录。');
+          return;
+        }
         const payload = { id: matchedUser.id, name: matchedUser.name, role: matchedUser.role, pageAccess: matchedUser.pageAccess || [] };
         saveStoredUser(payload);
         setUser(payload);
@@ -1749,11 +1753,10 @@ function App() {
       const newUser = { id: createId(), name, password: inputPassword, role: ROLE_USER, pageAccess: [] };
       db.users.push(newUser);
       saveStaticDb(db);
-      const payload = { id: newUser.id, name: newUser.name, role: newUser.role, pageAccess: newUser.pageAccess };
-      saveStoredUser(payload);
-      setUser(payload);
-      setActiveTab(homeTabForUser(payload));
-      setMessage('注册成功，请等待管理员孙立柱授权可访问页面。');
+      setRegisterName('');
+      setRegisterPassword('');
+      setAuthMode('login');
+      setMessage('注册成功，请等待管理员孙立柱授权页面后再登录。');
       return;
     }
     const res = await fetch(`${API}/api/auth/${isLogin ? 'login' : 'register'}`, {
@@ -1769,10 +1772,16 @@ function App() {
       setMessage(payload.error || '登录失败');
       return;
     }
+    if (!isLogin) {
+      setRegisterName('');
+      setRegisterPassword('');
+      setAuthMode('login');
+      setMessage('注册成功，请等待管理员孙立柱授权页面后再登录。');
+      return;
+    }
     saveStoredUser(payload);
     setUser(payload);
     setActiveTab(homeTabForUser(payload));
-    if (!payload.pageAccess?.length) setMessage('注册成功，请等待管理员孙立柱授权可访问页面。');
   }
 
   function logout() {
@@ -2246,6 +2255,37 @@ function App() {
     }
     await refreshPermissionUsers();
     setMessage('用户页面权限已保存。');
+  }
+
+  async function deleteUserAccount(targetUser) {
+    if (!targetUser?.id || targetUser.name === DEFAULT_ADMIN_USER.name) return;
+    if (!isPrimaryAdminUser(user)) {
+      setMessage('仅孙立柱管理员可以删除账号。');
+      return;
+    }
+    if (!window.confirm(`确认删除账号：${targetUser.name}？`)) return;
+    setSavingId(targetUser.id);
+    if (STATIC_MODE) {
+      const db = readStaticDb();
+      db.users = (db.users || []).filter((item) => item.id !== targetUser.id);
+      saveStaticDb(db);
+      setPermissionUsers(db.users);
+      setSavingId('');
+      setMessage('账号已删除。');
+      return;
+    }
+    const res = await authFetch(`${API}/api/auth/users/${encodeURIComponent(targetUser.id)}`, {
+      method: 'DELETE'
+    });
+    setSavingId('');
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      setMessage(payload.error || '账号删除失败。');
+      return;
+    }
+    const payload = await res.json();
+    setPermissionUsers(payload.users || []);
+    setMessage('账号已删除。');
   }
 
   async function uploadInitialData(files) {
@@ -3361,7 +3401,9 @@ function App() {
           <PermissionManagementPage
             users={permissionUsers}
             savingId={savingId}
+            canDeleteUsers={isPrimaryAdminUser(user)}
             onSave={saveUserPageAccess}
+            onDelete={deleteUserAccount}
           />
         )}
       </section>
@@ -4887,7 +4929,7 @@ function DimensionLibraryPage({ slots, library, loading, savingId, onSync, onUpl
   );
 }
 
-function PermissionManagementPage({ users, savingId, onSave }) {
+function PermissionManagementPage({ users, savingId, canDeleteUsers = false, onSave, onDelete }) {
   const [drafts, setDrafts] = useState({});
 
   useEffect(() => {
@@ -4932,14 +4974,26 @@ function PermissionManagementPage({ users, savingId, onSave }) {
                 </label>
               ))}
             </div>,
-            <button
-              type="button"
-              className="compact-button"
-              disabled={savingId === targetUser.id || isBuiltInAdmin}
-              onClick={() => onSave(targetUser, selected)}
-            >
-              保存授权
-            </button>
+            <div className="table-action-row">
+              <button
+                type="button"
+                className="compact-button"
+                disabled={savingId === targetUser.id || isBuiltInAdmin}
+                onClick={() => onSave(targetUser, selected)}
+              >
+                保存授权
+              </button>
+              {canDeleteUsers && !isBuiltInAdmin && (
+                <button
+                  type="button"
+                  className="danger-button compact-button"
+                  disabled={savingId === targetUser.id}
+                  onClick={() => onDelete(targetUser)}
+                >
+                  删除账号
+                </button>
+              )}
+            </div>
           ];
         }}
       />
