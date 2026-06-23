@@ -3704,6 +3704,7 @@ function InspectionStampPage({ records, savingId, onStamp }) {
   const [stampPreview, setStampPreview] = useState(null);
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState('');
+  const [uploadMessage, setUploadMessage] = useState('');
   const [orientationDetecting, setOrientationDetecting] = useState(false);
   const [orientationStatus, setOrientationStatus] = useState('');
   const stampRecords = useMemo(() => [...uploadedRecords, ...records], [uploadedRecords, records]);
@@ -3820,7 +3821,10 @@ function InspectionStampPage({ records, savingId, onStamp }) {
 
   async function uploadStampImages(files) {
     const selectedFiles = Array.from(files || []).filter(isReportImageFile);
-    if (!selectedFiles.length) return;
+    if (!selectedFiles.length) {
+      setUploadMessage('未识别到可上传的图片，请选择 JPG、PNG 或 WebP。');
+      return;
+    }
     const uploaded = await Promise.all(selectedFiles.map(async (file) => ({
       id: `stamp-upload-${createId()}`,
       isStampUpload: true,
@@ -3839,6 +3843,7 @@ function InspectionStampPage({ records, savingId, onStamp }) {
     setCurrentIndex(0);
     setStampPreview(null);
     setPreviewError('');
+    setUploadMessage(`已批量上传 ${uploaded.length} 张图片，请在左侧列表逐张处理。`);
   }
 
   return (
@@ -3847,7 +3852,7 @@ function InspectionStampPage({ records, savingId, onStamp }) {
         <h2>加盖检验章</h2>
         <span className="section-count">待盖章 {stampRecords.length} 份</span>
         <label className="upload-button">
-          上传图片
+          批量上传图片
           <input
             type="file"
             multiple
@@ -3891,6 +3896,28 @@ function InspectionStampPage({ records, savingId, onStamp }) {
           </>
         )}
       </div>
+
+      <label
+        className="stamp-upload-zone"
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault();
+          uploadStampImages(event.dataTransfer.files);
+        }}
+      >
+        <input
+          type="file"
+          multiple
+          accept=".png,.jpg,.jpeg,.webp"
+          onChange={(event) => {
+            uploadStampImages(event.target.files);
+            event.target.value = '';
+          }}
+        />
+        <strong>批量上传待加盖图片</strong>
+        <span>可一次选择或拖拽多张 JPG / PNG / WebP，上传后在左侧列表逐张改名、加盖或保存</span>
+        {uploadMessage && <em>{uploadMessage}</em>}
+      </label>
 
       {!current ? (
         <EmptyState text="暂无待加盖检验章的报告单" />

@@ -809,11 +809,46 @@ th {
 .stamp-page {
   min-height: calc(100vh - 56px);
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto 1fr;
+}
+
+.stamp-upload-zone {
+  min-height: 76px;
+  display: grid;
+  place-items: center;
+  gap: 5px;
+  margin: 0 0 12px;
+  padding: 12px;
+  border: 1px dashed #9db4d5;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #475569;
+  text-align: center;
+  cursor: pointer;
+}
+
+.stamp-upload-zone strong {
+  color: #1e293b;
+}
+
+.stamp-upload-zone span,
+.stamp-upload-zone em {
+  color: #64748b;
+  font-size: 13px;
+  font-style: normal;
+}
+
+.stamp-upload-zone em {
+  color: #2563eb;
+  font-weight: 700;
+}
+
+.stamp-upload-zone input {
+  display: none;
 }
 
 .stamp-workspace {
-  min-height: calc(100vh - 132px);
+  min-height: calc(100vh - 220px);
   display: grid;
   grid-template-columns: 280px 1fr;
   gap: 14px;
