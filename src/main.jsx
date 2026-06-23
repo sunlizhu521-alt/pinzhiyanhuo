@@ -24,7 +24,7 @@ const DEFAULT_USERS = [
   { id: 'u-settlement', name: '结算员', password: '123456', role: ROLE_SETTLEMENT }
 ];
 
-const BUSINESS_DEPARTMENT_OPTIONS = ['海外事业一部', '海外事业二部', '全球招商事业部', '国内事业部', '其他'];
+const BUSINESS_DEPARTMENT_OPTIONS = ['全球招商事业部', '海外事业一部', '海外事业二部', '国内事业部', '其他'];
 
 const NOTICE_FIELDS = [
   { key: 'inspectionApplicant', label: '验货填写人', readonly: true },
@@ -156,11 +156,14 @@ const DIMENSION_LIBRARY_SLOTS = [
   { id: 'dimension-slot-3', title: '维度表槽位 3' },
   { id: 'dimension-slot-4', title: '维度表槽位 4' }
 ];
+const PRODUCT_CATEGORY_SLOT_ID = 'dimension-slot-1';
 const PURCHASE_WORK_DIVISION_SLOT_ID = 'dimension-slot-2';
-const DIMENSION_SUPPLIER_ALIASES = ['供应商简称', '供应商', '供应商名称', '厂家简称', '厂商简称', '工厂简称'];
+const DIMENSION_SUPPLIER_ALIASES = ['产品线明细供应商', '供应商简称', '供应商', '供应商名称', '厂家简称', '厂商简称', '工厂简称'];
 const DIMENSION_ADDRESS_ALIASES = ['产品线明细地址', '供应商地址', '验货地址', '工厂地址', '详细地址', '地址', '所在地'];
 const DIMENSION_PROVINCE_ALIASES = ['省', '省份', '所在省', '省区'];
 const DIMENSION_CITY_ALIASES = ['市', '城市', '所在市', '地市'];
+const SALES_PRODUCT_LINE_ALIASES = ['销售产品线', '产品线', '一级产品线'];
+const SALES_SERIES_ALIASES = ['销售系列', '系列', '产品系列'];
 
 function createId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
@@ -206,9 +209,16 @@ function splitMultiValue(value) {
     .filter(Boolean);
 }
 
+function normalizeBusinessDepartment(value) {
+  const text = normalize(value);
+  if (text === '海外事业部一部') return '海外事业一部';
+  if (text === '海外事业部二部') return '海外事业二部';
+  return BUSINESS_DEPARTMENT_OPTIONS.includes(text) ? text : text;
+}
+
 function joinBusinessDepartments(values) {
   const seen = new Set();
-  const items = values.map(normalize).filter(Boolean);
+  const items = values.map(normalizeBusinessDepartment).filter(Boolean);
   const ordered = [
     ...BUSINESS_DEPARTMENT_OPTIONS.filter((option) => items.includes(option)),
     ...items.filter((item) => !BUSINESS_DEPARTMENT_OPTIONS.includes(item))
@@ -635,7 +645,7 @@ function scoreDimensionHeaderRow(row = []) {
   const uniqueCount = new Set(cells.map(normalizeHeader)).size;
   const keywordScore = cells.reduce((score, cell) => {
     const header = normalizeHeader(cell);
-    if (['供应商', '供应商简称', '供应商名称', '产品线', '商品分类', '分类', '地址', '省', '市', '采购', '运营'].some((keyword) => header.includes(normalizeHeader(keyword)))) {
+    if (['供应商', '供应商简称', '供应商名称', '产品线明细供应商', '销售产品线', '销售系列', '产品线', '系列', '商品分类', '分类', '地址', '省', '市', '采购', '运营'].some((keyword) => header.includes(normalizeHeader(keyword)))) {
       return score + 3;
     }
     return score;
@@ -781,23 +791,108 @@ function findSupplierShortNameOption(value, supplierOptions = []) {
     || '';
 }
 
-function normalizeNoticeSupplier(row, supplierOptions, dimensionLibrary) {
+function addDimensionOption(options, value) {
+  const text = normalize(value);
+  if (!text) return;
+  const key = normalizeHeader(text);
+  if (!key || options.has(key)) return;
+  options.set(key, text);
+}
+
+function buildDimensionValueOptionsFromSheets(sheets = [], aliases = []) {
+  const options = new Map();
+  sheets.forEach((sheet) => {
+    (sheet.rows || []).forEach((row) => {
+      const normalizedSource = normalizedSourceMap(row);
+      addDimensionOption(options, readImportedValue(normalizedSource, aliases));
+    });
+  });
+  return Array.from(options.values()).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
+}
+
+function buildDimensionValueOptions(dimensionLibrary = {}, slotId, aliases = [], cacheKey = '') {
+  const record = dimensionLibrary[slotId] || {};
+  const cached = Array.isArray(record?.[cacheKey]) ? record[cacheKey] : [];
+  const options = new Map();
+  cached.forEach((item) => addDimensionOption(options, item));
+  buildDimensionValueOptionsFromSheets(Array.isArray(record?.sheets) ? record.sheets : [], aliases)
+    .forEach((item) => addDimensionOption(options, item));
+  if (Array.isArray(record?.rows) && record.rows.length) {
+    buildDimensionValueOptionsFromSheets([{ rows: record.rows }], aliases)
+      .forEach((item) => addDimensionOption(options, item));
+  }
+  return Array.from(options.values()).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
+}
+
+function buildCategoryDimensionOptions(sheets = []) {
+  return {
+    salesProductLines: buildDimensionValueOptionsFromSheets(sheets, SALES_PRODUCT_LINE_ALIASES),
+    salesSeries: buildDimensionValueOptionsFromSheets(sheets, SALES_SERIES_ALIASES)
+  };
+}
+
+function buildSalesProductLineOptions(dimensionLibrary = {}) {
+  return buildDimensionValueOptions(dimensionLibrary, PRODUCT_CATEGORY_SLOT_ID, SALES_PRODUCT_LINE_ALIASES, 'salesProductLines');
+}
+
+function buildSalesSeriesOptions(dimensionLibrary = {}) {
+  return buildDimensionValueOptions(dimensionLibrary, PRODUCT_CATEGORY_SLOT_ID, SALES_SERIES_ALIASES, 'salesSeries');
+}
+
+function findDimensionOption(value, options = []) {
+  const text = normalize(value);
+  if (!text) return '';
+  const key = normalizeHeader(text);
+  return options.find((option) => normalizeHeader(option) === key) || '';
+}
+
+function normalizeRecordDimensions(record, supplierOptions = [], productLineOptions = [], seriesOptions = [], dimensionLibrary = {}) {
+  const supplierShortName = findSupplierShortNameOption(record.supplierShortName, supplierOptions) || record.supplierShortName;
+  const salesProductLine = findDimensionOption(record.salesProductLine, productLineOptions) || record.salesProductLine;
+  const series = findDimensionOption(record.series, seriesOptions) || record.series;
+  return {
+    ...record,
+    supplierShortName,
+    supplierAddress: supplierProvinceCityForName(supplierShortName, dimensionLibrary) || record.supplierAddress,
+    businessDepartments: joinBusinessDepartments(splitMultiValue(record.businessDepartments)),
+    salesProductLine,
+    series
+  };
+}
+
+function normalizeNoticeDimensions(row, supplierOptions, productLineOptions, seriesOptions, dimensionLibrary) {
   const supplierShortName = findSupplierShortNameOption(row.supplierShortName, supplierOptions) || normalize(row.supplierShortName);
+  const salesProductLine = findDimensionOption(row.salesProductLine, productLineOptions) || normalize(row.salesProductLine);
+  const series = findDimensionOption(row.series, seriesOptions) || normalize(row.series);
   return {
     ...row,
     supplierShortName,
+    businessDepartments: joinBusinessDepartments(splitMultiValue(row.businessDepartments)),
+    salesProductLine,
+    series,
     supplierAddress: supplierProvinceCityForName(supplierShortName, dimensionLibrary)
   };
 }
 
-function validateNoticeRows(rows, supplierOptions = []) {
+function validateNoticeRows(rows, supplierOptions = [], productLineOptions = [], seriesOptions = []) {
   if (!supplierOptions.length) {
     return '请先在维度表文件库上传并应用“采购分工明细”，系统需要从里面读取供应商简称。';
+  }
+  if (!productLineOptions.length || !seriesOptions.length) {
+    return '请先在维度表文件库上传并应用“商品分类维表”，系统需要从里面读取销售产品线和销售系列。';
   }
   const requiredFields = NOTICE_FIELDS.filter((field) => !NOTICE_OPTIONAL_KEYS.has(field.key));
   const invalidSupplierIndex = rows.findIndex((row) => !findSupplierShortNameOption(row.supplierShortName, supplierOptions));
   if (invalidSupplierIndex >= 0) {
     return `第 ${invalidSupplierIndex + 1} 行供应商简称不在采购分工明细中，请从模糊匹配结果里选择。`;
+  }
+  const invalidProductLineIndex = rows.findIndex((row) => !findDimensionOption(row.salesProductLine, productLineOptions));
+  if (invalidProductLineIndex >= 0) {
+    return `第 ${invalidProductLineIndex + 1} 行产品线不在商品分类维表的销售产品线中，请选择正确产品线。`;
+  }
+  const invalidSeriesIndex = rows.findIndex((row) => !findDimensionOption(row.series, seriesOptions));
+  if (invalidSeriesIndex >= 0) {
+    return `第 ${invalidSeriesIndex + 1} 行系列不在商品分类维表的销售系列中，请选择正确系列。`;
   }
   const missingIndex = rows.findIndex((row) => requiredFields.some((field) => !normalize(row[field.key])));
   if (missingIndex >= 0) {
@@ -1164,6 +1259,12 @@ function App() {
   const [clearedScheduleSignature, setClearedScheduleSignature] = useState('');
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [recordFilters, setRecordFilters] = useState({
+    supplierShortName: '',
+    businessDepartments: '',
+    salesProductLine: '',
+    series: ''
+  });
   const [savingId, setSavingId] = useState('');
   const accessibleMenuPages = useMemo(
     () => MENU_PAGES.filter((page) => canAccessPage(user, page.tab)),
@@ -1173,10 +1274,22 @@ function App() {
     () => buildSupplierShortNameOptions(dimensionLibrary),
     [dimensionLibrary]
   );
+  const productLineOptions = useMemo(
+    () => buildSalesProductLineOptions(dimensionLibrary),
+    [dimensionLibrary]
+  );
+  const seriesOptions = useMemo(
+    () => buildSalesSeriesOptions(dimensionLibrary),
+    [dimensionLibrary]
+  );
+  const displayRecords = useMemo(
+    () => records.map((record) => normalizeRecordDimensions(record, supplierOptions, productLineOptions, seriesOptions, dimensionLibrary)),
+    [records, supplierOptions, productLineOptions, seriesOptions, dimensionLibrary]
+  );
   const currentRecordSignature = useMemo(() => recordIdSignature(records), [records]);
   const schedulePageRecords = clearedScheduleSignature && clearedScheduleSignature === currentRecordSignature
     ? []
-    : records;
+    : displayRecords;
 
   function authFetch(url, options = {}) {
     const headers = {
@@ -1249,7 +1362,9 @@ function App() {
       return;
     }
     if (initialRes.ok) setInitialData(await initialRes.json());
-    if (canAccessPage(user, 'dimensionLibrary') || canAccessPage(user, 'inspectionNotice')) await refreshDimensionLibrary();
+    if (['dimensionLibrary', 'inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'inspectionReportLibrary', 'inspectionReportQuery', 'inspectionSummary'].some((page) => canAccessPage(user, page))) {
+      await refreshDimensionLibrary();
+    }
     if (noticeRes.ok) {
       const payload = await noticeRes.json();
       setNoticeSubmission(payload);
@@ -1367,8 +1482,8 @@ function App() {
       setMessage('暂无可导入的预览数据。');
       return;
     }
-    const normalizedRows = previewRows.map((row) => normalizeNoticeSupplier(row, supplierOptions, dimensionLibrary));
-    const validationMessage = validateNoticeRows(normalizedRows, supplierOptions);
+    const normalizedRows = previewRows.map((row) => normalizeNoticeDimensions(row, supplierOptions, productLineOptions, seriesOptions, dimensionLibrary));
+    const validationMessage = validateNoticeRows(normalizedRows, supplierOptions, productLineOptions, seriesOptions);
     if (validationMessage) {
       setMessage(validationMessage);
       return;
@@ -1489,7 +1604,7 @@ function App() {
     if (!file) return;
     try {
       const result = await parseWorkbookInBrowser(file);
-      const items = importedRowsToFeedbackItems(result.rows || [], records);
+      const items = importedRowsToFeedbackItems(result.rows || [], displayRecords);
       if (!items.length) {
         setMessage('未识别到可导入的验货反馈数据，请检查表头。');
         return;
@@ -1571,13 +1686,13 @@ function App() {
         businessDepartments: splitMultiValue(row.businessDepartments)[0] || normalize(row.businessDepartments),
         inspectionApplicant: user.name
       }))
-      .map((row) => normalizeNoticeSupplier(row, supplierOptions, dimensionLibrary))
+      .map((row) => normalizeNoticeDimensions(row, supplierOptions, productLineOptions, seriesOptions, dimensionLibrary))
       .filter((row) => NOTICE_FIELDS.some((field) => !field.readonly && normalize(row[field.key]))));
     if (!rows.length) {
       setMessage('请至少填写一条验货通知后再提交。');
       return;
     }
-    const validationMessage = validateNoticeRows(rows, supplierOptions);
+    const validationMessage = validateNoticeRows(rows, supplierOptions, productLineOptions, seriesOptions);
     if (validationMessage) {
       setMessage(validationMessage);
       return;
@@ -1752,6 +1867,9 @@ function App() {
       const supplierAddressLookup = slotId === PURCHASE_WORK_DIVISION_SLOT_ID
         ? buildSupplierAddressLookupRows(result.sheets || [])
         : [];
+      const categoryOptions = slotId === PRODUCT_CATEGORY_SLOT_ID
+        ? buildCategoryDimensionOptions(result.sheets || [])
+        : {};
       const sheets = (result.sheets || []).map((sheet) => ({
         sheetName: sheet.sheetName,
         columns: sheet.columns || [],
@@ -1774,6 +1892,7 @@ function App() {
         importedCount: result.importedCount || 0,
         previewCount: sheets.reduce((sum, sheet) => sum + (sheet.previewCount || 0), 0),
         supplierAddressLookup,
+        ...categoryOptions,
         savedAt: nowText(),
         applied: false,
         appliedAt: ''
@@ -2212,7 +2331,7 @@ function App() {
 
   const reportLibraryItems = useMemo(() => {
     if (!STATIC_MODE) return reportFiles;
-    const linkedFiles = records
+    const linkedFiles = displayRecords
       .filter((record) => reportHref(record))
       .map((record) => ({
         id: `record-${record.id}`,
@@ -2224,13 +2343,14 @@ function App() {
         supplierShortName: record.supplierShortName || '',
         productLine: record.salesProductLine || '',
         series: record.series || '',
+        inspector: record.schedule?.inspector || '',
         stampedAt: record.report?.stampedAt || '',
         stampedBy: record.report?.stampedBy || '',
         uploadedAt: record.report?.uploadedAt || '',
         modifiedAt: record.report?.updatedAt || record.report?.uploadedAt || ''
       }));
     return [...reportFiles, ...linkedFiles];
-  }, [reportFiles, records]);
+  }, [reportFiles, displayRecords]);
   const reportLibraryRecordIds = useMemo(() => (
     new Set(reportLibraryItems.map((file) => normalize(file.recordId)).filter(Boolean))
   ), [reportLibraryItems]);
@@ -2366,7 +2486,10 @@ function App() {
 
   const filteredRecords = useMemo(() => {
     const keyword = normalize(query).toLowerCase();
-    return records.filter((record) => {
+    const normalizedFilters = Object.fromEntries(
+      Object.entries(recordFilters).map(([key, value]) => [key, normalize(value).toLowerCase()])
+    );
+    return displayRecords.filter((record) => {
       const text = [
         record.kingdeeOrderNo,
         record.supplierShortName,
@@ -2379,9 +2502,17 @@ function App() {
       ].map(normalize).join(' ').toLowerCase();
       const matchesKeyword = !keyword || text.includes(keyword);
       const matchesStatus = !statusFilter || normalize(record.schedule?.status || '未安排') === statusFilter;
-      return matchesKeyword && matchesStatus;
+      const matchesSupplier = !normalizedFilters.supplierShortName
+        || normalize(record.supplierShortName).toLowerCase() === normalizedFilters.supplierShortName;
+      const matchesBusinessDepartment = !normalizedFilters.businessDepartments
+        || splitMultiValue(record.businessDepartments).some((item) => normalize(item).toLowerCase() === normalizedFilters.businessDepartments);
+      const matchesProductLine = !normalizedFilters.salesProductLine
+        || normalize(record.salesProductLine).toLowerCase() === normalizedFilters.salesProductLine;
+      const matchesSeries = !normalizedFilters.series
+        || normalize(record.series).toLowerCase() === normalizedFilters.series;
+      return matchesKeyword && matchesStatus && matchesSupplier && matchesBusinessDepartment && matchesProductLine && matchesSeries;
     });
-  }, [records, query, statusFilter]);
+  }, [displayRecords, query, statusFilter, recordFilters]);
   const reportQueryRecords = useMemo(() => (
     filteredRecords.filter((record) => reportLibraryRecordIds.has(normalize(record.id)))
   ), [filteredRecords, reportLibraryRecordIds]);
@@ -2485,6 +2616,8 @@ function App() {
             submission={noticeSubmission}
             user={user}
             supplierOptions={supplierOptions}
+            productLineOptions={productLineOptions}
+            seriesOptions={seriesOptions}
             onAdd={addNoticeRow}
             onDelete={deleteNoticeRow}
             onClearRows={clearNoticeRows}
@@ -2506,11 +2639,14 @@ function App() {
           />
         )}
         {canAccessPage(user, 'inspectionReportUpload') && activeTab === 'inspectionReportUpload' && (
-          <ReportUploadPage records={records} savingId={savingId} onSave={saveReport} />
+          <ReportUploadPage records={displayRecords} savingId={savingId} onSave={saveReport} />
         )}
         {canAccessPage(user, 'inspectionFeedback') && activeTab === 'inspectionFeedback' && (
           <FeedbackPage
-            records={records.filter(shouldShowFeedbackRecord)}
+            records={displayRecords.filter(shouldShowFeedbackRecord)}
+            supplierOptions={supplierOptions}
+            productLineOptions={productLineOptions}
+            seriesOptions={seriesOptions}
             savingId={savingId}
             canImport={isAdminUser(user)}
             importPreview={feedbackImportPreview}
@@ -2522,7 +2658,7 @@ function App() {
         )}
         {canAccessPage(user, 'inspectionStamp') && activeTab === 'inspectionStamp' && (
           <InspectionStampPage
-            records={records.filter((record) => reportHref(record) && !record.report?.stampedAt)}
+            records={displayRecords.filter((record) => reportHref(record) && !record.report?.stampedAt)}
             savingId={savingId}
             onStamp={stampReport}
           />
@@ -2530,6 +2666,9 @@ function App() {
         {canAccessPage(user, 'inspectionReportLibrary') && activeTab === 'inspectionReportLibrary' && (
           <ReportFileLibraryPage
             files={reportLibraryItems}
+            supplierOptions={supplierOptions}
+            productLineOptions={productLineOptions}
+            seriesOptions={seriesOptions}
             savingId={savingId}
             onUpload={uploadReportLibraryFiles}
             onRename={renameReportLibraryFile}
@@ -2541,8 +2680,18 @@ function App() {
             records={reportQueryRecords}
             query={query}
             statusFilter={statusFilter}
+            filters={recordFilters}
+            supplierOptions={supplierOptions}
+            productLineOptions={productLineOptions}
+            seriesOptions={seriesOptions}
             onQuery={setQuery}
             onStatusFilter={setStatusFilter}
+            onFilterChange={(key, value) => setRecordFilters((current) => ({ ...current, [key]: value }))}
+            onClearFilters={() => {
+              setQuery('');
+              setStatusFilter('');
+              setRecordFilters({ supplierShortName: '', businessDepartments: '', salesProductLine: '', series: '' });
+            }}
           />
         )}
         {canAccessPage(user, 'inspectionSummary') && activeTab === 'inspectionSummary' && (
@@ -2586,6 +2735,8 @@ function InspectionNoticePage({
   submission,
   user,
   supplierOptions = [],
+  productLineOptions = [],
+  seriesOptions = [],
   importPreview,
   onAdd,
   onDelete,
@@ -2755,6 +2906,23 @@ function InspectionNoticePage({
                     document.body
                   )}
                 </div>
+              );
+            }
+            const dimensionOptions = field.key === 'salesProductLine'
+              ? productLineOptions
+              : field.key === 'series'
+                ? seriesOptions
+                : null;
+            if (dimensionOptions) {
+              return (
+                <select
+                  className="table-input inspection-notice-input"
+                  value={row[field.key] || ''}
+                  onChange={(event) => onChange(row.id, field.key, event.target.value)}
+                >
+                  <option value="">选择</option>
+                  {dimensionOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
               );
             }
             if (field.options) {
@@ -2929,7 +3097,19 @@ function ReportUploadPage({ records, savingId, onSave }) {
   );
 }
 
-function FeedbackPage({ records, savingId, canImport, importPreview, onUpload, onConfirmImport, onClearImportPreview, onSave }) {
+function FeedbackPage({
+  records,
+  supplierOptions = [],
+  productLineOptions = [],
+  seriesOptions = [],
+  savingId,
+  canImport,
+  importPreview,
+  onUpload,
+  onConfirmImport,
+  onClearImportPreview,
+  onSave
+}) {
   const [filters, setFilters] = useState({
     supplierShortName: '',
     salesProductLine: '',
@@ -3007,21 +3187,18 @@ function FeedbackPage({ records, savingId, canImport, importPreview, onUpload, o
         </label>
       )}
       <div className="toolbar feedback-filter-toolbar">
-        <input
-          placeholder="筛选供应商简称"
-          value={filters.supplierShortName}
-          onChange={(event) => updateFilter('supplierShortName', event.target.value)}
-        />
-        <input
-          placeholder="筛选产品线"
-          value={filters.salesProductLine}
-          onChange={(event) => updateFilter('salesProductLine', event.target.value)}
-        />
-        <input
-          placeholder="筛选系列"
-          value={filters.series}
-          onChange={(event) => updateFilter('series', event.target.value)}
-        />
+        <select value={filters.supplierShortName} onChange={(event) => updateFilter('supplierShortName', event.target.value)}>
+          <option value="">全部供应商简称</option>
+          {supplierOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+        </select>
+        <select value={filters.salesProductLine} onChange={(event) => updateFilter('salesProductLine', event.target.value)}>
+          <option value="">全部产品线</option>
+          {productLineOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+        </select>
+        <select value={filters.series} onChange={(event) => updateFilter('series', event.target.value)}>
+          <option value="">全部系列</option>
+          {seriesOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+        </select>
         <input
           placeholder="筛选验货员"
           value={filters.inspector}
@@ -3305,8 +3482,31 @@ function InspectionStampPage({ records, savingId, onStamp }) {
   );
 }
 
-function ReportFileLibraryPage({ files, savingId, onUpload, onRename, onDelete }) {
+function ReportFileLibraryPage({ files, supplierOptions = [], productLineOptions = [], seriesOptions = [], savingId, onUpload, onRename, onDelete }) {
   const [drafts, setDrafts] = useState({});
+  const [filters, setFilters] = useState({
+    supplierShortName: '',
+    productLine: '',
+    series: '',
+    inspector: ''
+  });
+  const filteredFiles = useMemo(() => {
+    const normalizedFilters = Object.fromEntries(
+      Object.entries(filters).map(([key, value]) => [key, normalize(value).toLowerCase()])
+    );
+    return files.filter((file) => (
+      (!normalizedFilters.supplierShortName || normalize(file.supplierShortName).toLowerCase() === normalizedFilters.supplierShortName)
+      && (!normalizedFilters.productLine || normalize(file.productLine).toLowerCase() === normalizedFilters.productLine)
+      && (!normalizedFilters.series || normalize(file.series).toLowerCase() === normalizedFilters.series)
+      && (!normalizedFilters.inspector || normalize(file.inspector).toLowerCase().includes(normalizedFilters.inspector))
+    ));
+  }, [files, filters]);
+  function updateFilter(key, value) {
+    setFilters((current) => ({ ...current, [key]: value }));
+  }
+  function clearFilters() {
+    setFilters({ supplierShortName: '', productLine: '', series: '', inspector: '' });
+  }
 
   useEffect(() => {
     setDrafts(Object.fromEntries(files.map((file) => [file.id || file.fileName, file.fileName || ''])));
@@ -3316,7 +3516,7 @@ function ReportFileLibraryPage({ files, savingId, onUpload, onRename, onDelete }
     <section className="report-library-page">
       <div className="section-heading-row">
         <h2>报告单文件库</h2>
-        <span className="section-count">共 {files.length} 个文件</span>
+        <span className="section-count">筛选 {filteredFiles.length} 个 / 共 {files.length} 个文件</span>
       </div>
       <div
         className="report-library-upload-zone"
@@ -3356,10 +3556,30 @@ function ReportFileLibraryPage({ files, savingId, onUpload, onRename, onDelete }
           </label>
         </div>
       </div>
+      <div className="toolbar feedback-filter-toolbar">
+        <select value={filters.supplierShortName} onChange={(event) => updateFilter('supplierShortName', event.target.value)}>
+          <option value="">全部供应商简称</option>
+          {supplierOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+        </select>
+        <select value={filters.productLine} onChange={(event) => updateFilter('productLine', event.target.value)}>
+          <option value="">全部产品线</option>
+          {productLineOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+        </select>
+        <select value={filters.series} onChange={(event) => updateFilter('series', event.target.value)}>
+          <option value="">全部系列</option>
+          {seriesOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+        </select>
+        <input
+          placeholder="筛选验货员"
+          value={filters.inspector}
+          onChange={(event) => updateFilter('inspector', event.target.value)}
+        />
+        <button type="button" className="ghost compact-button" onClick={clearFilters}>清除筛选</button>
+      </div>
       <DataTable
         className="report-library-table"
-        rows={files}
-        columns={['文件名', '来源', '报告编码', '供应商', '产品线/系列', '盖章状态', '大小', '更新时间', '查看', '操作']}
+        rows={filteredFiles}
+        columns={['文件名', '来源', '报告编码', '供应商', '产品线/系列', '验货员', '盖章状态', '大小', '更新时间', '查看', '操作']}
         render={(file) => {
           const key = file.id || file.fileName;
           const draftName = drafts[key] ?? file.fileName ?? '';
@@ -3373,6 +3593,7 @@ function ReportFileLibraryPage({ files, savingId, onUpload, onRename, onDelete }
             file.reportNo || '',
             file.supplierShortName || '',
             [file.productLine, file.series].filter(Boolean).join(' / '),
+            file.inspector || '',
             file.stampedAt ? `已盖章 ${file.stampedAt}` : '未盖章',
             formatFileSize(file.size),
             file.modifiedAt || file.updatedAt || file.uploadedAt || '',
@@ -3402,7 +3623,19 @@ function ReportFileLibraryPage({ files, savingId, onUpload, onRename, onDelete }
   );
 }
 
-function ReportQueryPage({ records, query, statusFilter, onQuery, onStatusFilter }) {
+function ReportQueryPage({
+  records,
+  query,
+  statusFilter,
+  filters,
+  supplierOptions,
+  productLineOptions,
+  seriesOptions,
+  onQuery,
+  onStatusFilter,
+  onFilterChange,
+  onClearFilters
+}) {
   return (
     <>
       <div className="section-heading-row">
@@ -3411,10 +3644,27 @@ function ReportQueryPage({ records, query, statusFilter, onQuery, onStatusFilter
       </div>
       <div className="toolbar">
         <input placeholder="搜索供应商、采购订单、产品线、报告单号" value={query} onChange={(event) => onQuery(event.target.value)} />
+        <select value={filters.supplierShortName} onChange={(event) => onFilterChange('supplierShortName', event.target.value)}>
+          <option value="">全部供应商简称</option>
+          {supplierOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+        </select>
+        <select value={filters.businessDepartments} onChange={(event) => onFilterChange('businessDepartments', event.target.value)}>
+          <option value="">全部事业部</option>
+          {BUSINESS_DEPARTMENT_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+        </select>
+        <select value={filters.salesProductLine} onChange={(event) => onFilterChange('salesProductLine', event.target.value)}>
+          <option value="">全部产品线</option>
+          {productLineOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+        </select>
+        <select value={filters.series} onChange={(event) => onFilterChange('series', event.target.value)}>
+          <option value="">全部系列</option>
+          {seriesOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+        </select>
         <select value={statusFilter} onChange={(event) => onStatusFilter(event.target.value)}>
           <option value="">全部状态</option>
           {['未安排', '已安排', '验货中', '已完成', '已取消'].map((item) => <option key={item} value={item}>{item}</option>)}
         </select>
+        <button type="button" className="ghost compact-button" onClick={onClearFilters}>清除筛选</button>
       </div>
       <DataTable
         rows={records}

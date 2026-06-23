@@ -242,7 +242,8 @@ h3 {
   max-width: 180px;
 }
 
-.feedback-filter-toolbar input {
+.feedback-filter-toolbar input,
+.feedback-filter-toolbar select {
   min-width: 170px;
   max-width: 220px;
 }
@@ -468,7 +469,7 @@ th {
 }
 
 .report-library-table table {
-  min-width: 1480px;
+  min-width: 1600px;
 }
 
 .report-library-table a {
