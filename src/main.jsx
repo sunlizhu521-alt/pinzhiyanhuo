@@ -9,6 +9,7 @@ const STATIC_MODE = import.meta.env.VITE_STATIC_MODE === '1';
 const STATIC_DB_KEY = 'qualityInspectionStaticDb';
 const DIMENSION_LIBRARY_KEY = 'qualityInspectionDimensionLibrary';
 const REPORT_FILE_LIBRARY_KEY = 'qualityInspectionReportFileLibrary';
+const AUTH_USER_KEY = 'qualityInspectionUser';
 const QUALITY_SEAL_IMAGE = `${import.meta.env.BASE_URL}assets/quality-seal.png`;
 const DIMENSION_PREVIEW_ROW_LIMIT = 20;
 const DEFAULT_ADMIN_USER = { id: 'u-admin', name: '孙立柱', password: '521sunlizhu', role: '管理员' };
@@ -543,6 +544,27 @@ function saveReportFileLibrary(files) {
   } catch {
     return false;
   }
+}
+
+function readStoredUser() {
+  const storage = STATIC_MODE ? localStorage : sessionStorage;
+  if (!STATIC_MODE) localStorage.removeItem(AUTH_USER_KEY);
+  try {
+    return JSON.parse(storage.getItem(AUTH_USER_KEY) || 'null');
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredUser(user) {
+  const storage = STATIC_MODE ? localStorage : sessionStorage;
+  if (!STATIC_MODE) localStorage.removeItem(AUTH_USER_KEY);
+  storage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+}
+
+function clearStoredUser() {
+  localStorage.removeItem(AUTH_USER_KEY);
+  sessionStorage.removeItem(AUTH_USER_KEY);
 }
 
 function composedStaticRecords(db) {
@@ -1221,7 +1243,7 @@ function App() {
   const [password, setPassword] = useState('521sunlizhu');
   const [registerName, setRegisterName] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
-  const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('qualityInspectionUser') || 'null'));
+  const [user, setUser] = useState(readStoredUser);
   const [message, setMessage] = useState('');
   const [appVersionTime, setAppVersionTime] = useState('读取中...');
   const [noticeRows, setNoticeRows] = useState(() => [createNoticeRow()]);
@@ -1231,7 +1253,7 @@ function App() {
   const [feedbackImportPreview, setFeedbackImportPreview] = useState(null);
   const [initialData, setInitialData] = useState({ sheetName: '', columns: [], rows: [], updatedAt: '' });
   const [initialImportResult, setInitialImportResult] = useState(null);
-  const [dimensionLibrary, setDimensionLibrary] = useState(readDimensionLibrary);
+  const [dimensionLibrary, setDimensionLibrary] = useState(() => STATIC_MODE ? readDimensionLibrary() : normalizeDimensionLibrary());
   const [dimensionPendingFiles, setDimensionPendingFiles] = useState({});
   const [reportFiles, setReportFiles] = useState(() => readReportFileLibrary());
   const [permissionUsers, setPermissionUsers] = useState([]);
@@ -1374,7 +1396,7 @@ function App() {
           return;
         }
         const payload = { id: matchedUser.id, name: matchedUser.name, role: matchedUser.role, pageAccess: matchedUser.pageAccess || [] };
-        localStorage.setItem('qualityInspectionUser', JSON.stringify(payload));
+        saveStoredUser(payload);
         setUser(payload);
         setActiveTab(homeTabForUser(payload));
         return;
@@ -1387,7 +1409,7 @@ function App() {
       db.users.push(newUser);
       saveStaticDb(db);
       const payload = { id: newUser.id, name: newUser.name, role: newUser.role, pageAccess: newUser.pageAccess };
-      localStorage.setItem('qualityInspectionUser', JSON.stringify(payload));
+      saveStoredUser(payload);
       setUser(payload);
       setActiveTab(homeTabForUser(payload));
       setMessage('注册成功，请等待管理员孙立柱授权可访问页面。');
@@ -1406,14 +1428,14 @@ function App() {
       setMessage(payload.error || '登录失败');
       return;
     }
-    localStorage.setItem('qualityInspectionUser', JSON.stringify(payload));
+    saveStoredUser(payload);
     setUser(payload);
     setActiveTab(homeTabForUser(payload));
     if (!payload.pageAccess?.length) setMessage('注册成功，请等待管理员孙立柱授权可访问页面。');
   }
 
   function logout() {
-    localStorage.removeItem('qualityInspectionUser');
+    clearStoredUser();
     setUser(null);
   }
 
@@ -1779,6 +1801,7 @@ function App() {
     if (res.ok) {
       const library = normalizeDimensionLibrary((await res.json()).library || {});
       setDimensionLibrary(library);
+      saveDimensionLibrary(library);
       return library;
     }
     return dimensionLibrary;
@@ -1805,7 +1828,7 @@ function App() {
         setPermissionUsers(db.users);
         if (target.id === user.id) {
           const nextUser = { ...user, pageAccess: target.pageAccess };
-          localStorage.setItem('qualityInspectionUser', JSON.stringify(nextUser));
+          saveStoredUser(nextUser);
           setUser(nextUser);
         }
       }
