@@ -796,6 +796,11 @@ th {
   font-weight: 700;
 }
 
+.stamp-orientation-note {
+  color: #475569;
+  font-weight: 700;
+}
+
 .stamp-canvas {
   min-height: 0;
   display: grid;

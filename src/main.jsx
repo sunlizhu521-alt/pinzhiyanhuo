@@ -1315,20 +1315,36 @@ function loadImageElement(src) {
   });
 }
 
-async function createStampedImageDataUrl(record, rotation) {
+async function renderRotatedReportCanvas(record, rotation, maxSide = 0) {
   const image = await loadImageElement(reportHref(record));
   const normalizedRotation = ((rotation % 360) + 360) % 360;
   const swapSize = normalizedRotation === 90 || normalizedRotation === 270;
+  const rotatedWidth = swapSize ? image.naturalHeight : image.naturalWidth;
+  const rotatedHeight = swapSize ? image.naturalWidth : image.naturalHeight;
+  const scale = maxSide && Math.max(rotatedWidth, rotatedHeight) > maxSide
+    ? maxSide / Math.max(rotatedWidth, rotatedHeight)
+    : 1;
   const canvas = document.createElement('canvas');
-  canvas.width = swapSize ? image.naturalHeight : image.naturalWidth;
-  canvas.height = swapSize ? image.naturalWidth : image.naturalHeight;
+  canvas.width = Math.round(rotatedWidth * scale);
+  canvas.height = Math.round(rotatedHeight * scale);
   const ctx = canvas.getContext('2d');
   ctx.save();
   ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.scale(scale, scale);
   ctx.rotate((normalizedRotation * Math.PI) / 180);
   ctx.drawImage(image, -image.naturalWidth / 2, -image.naturalHeight / 2);
   ctx.restore();
+  return canvas;
+}
 
+async function createRotatedReportImageDataUrl(record, rotation, options = {}) {
+  const canvas = await renderRotatedReportCanvas(record, rotation, options.maxSide || 0);
+  return canvas.toDataURL(options.mime || imageMimeForReport(record), options.quality ?? 0.92);
+}
+
+async function createStampedImageDataUrl(record, rotation) {
+  const canvas = await renderRotatedReportCanvas(record, rotation);
+  const ctx = canvas.getContext('2d');
   const stampImage = await loadImageElement(QUALITY_SEAL_IMAGE);
   const sealWidth = Math.round(canvas.width * 0.18);
   const sealHeight = Math.round((stampImage.naturalHeight * sealWidth) / stampImage.naturalWidth);
@@ -1347,6 +1363,40 @@ async function createStampedImageDataUrl(record, rotation) {
   ctx.drawImage(sealCanvas, x, y);
 
   return canvas.toDataURL(imageMimeForReport(record), 0.92);
+}
+
+function scoreOcrResult(data = {}) {
+  const text = normalize(data.text);
+  const meaningfulChars = (text.match(/[\u4e00-\u9fffA-Za-z0-9]/g) || []).length;
+  const lineCount = Array.isArray(data.lines) ? data.lines.length : 0;
+  return Number(data.confidence || 0) + meaningfulChars * 1.2 + lineCount * 4;
+}
+
+async function detectReportTextRotation(record) {
+  const { recognize } = await import('tesseract.js');
+  const candidates = [0, 90, 180, 270];
+  const results = [];
+  for (const candidate of candidates) {
+    const dataUrl = await createRotatedReportImageDataUrl(record, candidate, {
+      maxSide: 1100,
+      mime: 'image/png',
+      quality: 0.9
+    });
+    const result = await recognize(dataUrl, 'chi_sim+eng');
+    results.push({
+      rotation: candidate,
+      score: scoreOcrResult(result.data),
+      textLength: normalize(result.data?.text).length
+    });
+  }
+  results.sort((a, b) => b.score - a.score);
+  const best = results[0] || { rotation: 0, score: 0 };
+  const second = results[1] || { score: 0 };
+  return {
+    rotation: best.rotation,
+    confident: best.score >= 18 && best.score - second.score >= 4,
+    score: best.score
+  };
 }
 
 function shouldShowFeedbackRecord(record) {
@@ -2458,7 +2508,7 @@ function App() {
     setMessage('验货反馈已保存。');
   }
 
-  async function stampReport(record, rotation, stampedDataUrl = '') {
+  async function stampReport(record, rotation, stampedDataUrl = '', skipStamp = false) {
     if (!record?.id || !reportHref(record)) {
       setMessage('当前没有可盖章的检验报告单。');
       return false;
@@ -2469,7 +2519,11 @@ function App() {
     }
     setSavingId(record.id);
     try {
-      const fileDataUrl = stampedDataUrl || await createStampedImageDataUrl(record, rotation);
+      const fileDataUrl = stampedDataUrl || (
+        skipStamp
+          ? await createRotatedReportImageDataUrl(record, rotation)
+          : await createStampedImageDataUrl(record, rotation)
+      );
       if (record.isStampUpload) {
         const fileName = record.report?.fileName || record.report?.originalName || `stamped-${Date.now()}.png`;
         if (STATIC_MODE) {
@@ -2480,8 +2534,9 @@ function App() {
               fileName,
               fileUrl: fileDataUrl,
               size: record.report?.size || 0,
-              source: '加盖上传',
-              stampedAt: nowText(),
+              source: skipStamp ? '无需盖章上传' : '加盖上传',
+              stampedAt: skipStamp ? '' : nowText(),
+              stampSkippedAt: skipStamp ? nowText() : '',
               modifiedAt: nowText()
             }
           ];
@@ -2498,7 +2553,7 @@ function App() {
           const payload = await res.json();
           setReportFiles(payload.files || []);
         }
-        setMessage('检验章已加盖，图片已保存到报告单文件库。');
+        setMessage(skipStamp ? '图片已按当前方向保存到报告单文件库。' : '检验章已加盖，图片已保存到报告单文件库。');
         return true;
       }
       if (STATIC_MODE) {
@@ -2506,20 +2561,21 @@ function App() {
         db.qualityInspection.reports[record.id] = {
           ...(db.qualityInspection.reports[record.id] || {}),
           fileDataUrl,
-          stampedAt: nowText(),
-          stampedBy: user.name,
+          ...(skipStamp
+            ? { stampSkippedAt: nowText(), stampSkippedBy: user.name }
+            : { stampedAt: nowText(), stampedBy: user.name }),
           stampRotation: rotation,
           updatedAt: nowText()
         };
         saveStaticDb(db);
         setRecords(composedStaticRecords(db).filter((item) => canReadClientRecord(user, item)));
-        setMessage('检验章已加盖，文件已覆盖保存。');
+        setMessage(skipStamp ? '图片已按当前方向保存，文件已覆盖保存。' : '检验章已加盖，文件已覆盖保存。');
         return true;
       }
       const res = await authFetch(`${API}/api/quality-inspection/reports/${encodeURIComponent(record.id)}/stamp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileDataUrl, rotation })
+        body: JSON.stringify({ fileDataUrl, rotation, skipStamp })
       });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
@@ -2527,7 +2583,7 @@ function App() {
         return false;
       }
       await refreshRecords();
-      setMessage('检验章已加盖，文件已覆盖保存到报告单文件库。');
+      setMessage(skipStamp ? '图片已按当前方向保存到报告单文件库。' : '检验章已加盖，文件已覆盖保存到报告单文件库。');
       return true;
     } catch {
       setMessage('检验章加盖失败，请确认报告单图片可以正常打开。');
@@ -2546,7 +2602,7 @@ function App() {
         recordId: record.id,
         fileName: record.report?.originalName || record.report?.fileName || record.report?.reportNo || '检验报告单',
         fileUrl: reportHref(record),
-        source: record.report?.stampedAt ? '已盖章报告' : '验货报告',
+        source: record.report?.stampedAt ? '已盖章报告' : (record.report?.stampSkippedAt ? '无需盖章报告' : '验货报告'),
         reportNo: record.report?.reportNo || '',
         supplierShortName: record.supplierShortName || '',
         productLine: record.salesProductLine || '',
@@ -2554,6 +2610,8 @@ function App() {
         inspector: record.schedule?.inspector || '',
         stampedAt: record.report?.stampedAt || '',
         stampedBy: record.report?.stampedBy || '',
+        stampSkippedAt: record.report?.stampSkippedAt || '',
+        stampSkippedBy: record.report?.stampSkippedBy || '',
         uploadedAt: record.report?.uploadedAt || '',
         modifiedAt: record.report?.updatedAt || record.report?.uploadedAt || ''
       }));
@@ -2868,7 +2926,7 @@ function App() {
         )}
         {canAccessPage(user, 'inspectionStamp') && activeTab === 'inspectionStamp' && (
           <InspectionStampPage
-            records={displayRecords.filter((record) => reportHref(record) && !record.report?.stampedAt)}
+            records={displayRecords.filter((record) => reportHref(record) && !record.report?.stampedAt && !record.report?.stampSkippedAt)}
             savingId={savingId}
             onStamp={stampReport}
           />
@@ -3617,6 +3675,8 @@ function InspectionStampPage({ records, savingId, onStamp }) {
   const [stampPreview, setStampPreview] = useState(null);
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState('');
+  const [orientationDetecting, setOrientationDetecting] = useState(false);
+  const [orientationStatus, setOrientationStatus] = useState('');
   const stampRecords = useMemo(() => [...uploadedRecords, ...records], [uploadedRecords, records]);
   const safeIndex = stampRecords.length ? Math.min(currentIndex, stampRecords.length - 1) : 0;
   const current = stampRecords[safeIndex];
@@ -3635,6 +3695,34 @@ function InspectionStampPage({ records, savingId, onStamp }) {
     setStampPreview(null);
     setPreviewError('');
   }, [current?.id, rotation]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function detectOrientation() {
+      setOrientationStatus('');
+      if (!current || !isImageReport(current)) return;
+      setOrientationDetecting(true);
+      setOrientationStatus('正在识别图片文字方向...');
+      try {
+        const result = await detectReportTextRotation(current);
+        if (cancelled) return;
+        if (result.confident) {
+          setRotation(result.rotation);
+          setOrientationStatus(result.rotation ? `已识别文字方向，自动旋转 ${result.rotation}°。` : '已识别文字方向，当前图片为正向。');
+        } else {
+          setOrientationStatus('文字方向识别不够确定，请用旋转按钮人工确认。');
+        }
+      } catch {
+        if (!cancelled) setOrientationStatus('文字方向识别失败，请用旋转按钮人工确认。');
+      } finally {
+        if (!cancelled) setOrientationDetecting(false);
+      }
+    }
+    detectOrientation();
+    return () => {
+      cancelled = true;
+    };
+  }, [current?.id]);
 
   function go(delta) {
     if (!stampRecords.length) return;
@@ -3663,6 +3751,24 @@ function InspectionStampPage({ records, savingId, onStamp }) {
       if (current?.isStampUpload) {
         setUploadedRecords((items) => items.filter((item) => item.id !== current.id));
       }
+    }
+  }
+
+  async function saveWithoutStamp() {
+    if (!canStamp) return;
+    setPreviewing(true);
+    setPreviewError('');
+    try {
+      const dataUrl = await createRotatedReportImageDataUrl(current, rotation);
+      const saved = await onStamp(current, rotation, dataUrl, true);
+      if (saved && current?.isStampUpload) {
+        setUploadedRecords((items) => items.filter((item) => item.id !== current.id));
+      }
+      if (saved) setStampPreview(null);
+    } catch {
+      setPreviewError('保存失败，请确认报告单图片可以正常打开。');
+    } finally {
+      setPreviewing(false);
     }
   }
 
@@ -3717,6 +3823,14 @@ function InspectionStampPage({ records, savingId, onStamp }) {
         >
           {previewing ? '生成预览中' : '加盖印章'}
         </button>
+        <button
+          type="button"
+          className="compact-button"
+          disabled={!canStamp || previewing || savingId === current?.id || orientationDetecting}
+          onClick={saveWithoutStamp}
+        >
+          {savingId === current?.id ? '保存中' : '保存'}
+        </button>
         {activePreview && (
           <>
             <button
@@ -3756,6 +3870,7 @@ function InspectionStampPage({ records, savingId, onStamp }) {
               <span>{current.supplierShortName || ''}</span>
               <span>{current.salesProductLine || ''} {current.series || ''}</span>
               {activePreview && <span className="stamp-preview-note">当前为盖章预览，确认保存后才会覆盖原文件。</span>}
+              {orientationStatus && <span className={orientationDetecting ? 'stamp-preview-note' : 'stamp-orientation-note'}>{orientationStatus}</span>}
               {previewError && <span className="stamp-warning">{previewError}</span>}
               {!canStamp && <span className="stamp-warning">当前文件不是图片格式，只能查看，不能直接加盖图片印章。</span>}
             </div>

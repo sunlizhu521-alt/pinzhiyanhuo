@@ -572,6 +572,8 @@ function reportReferenceMap(db) {
       inspector: record.schedule?.inspector || '',
       stampedAt: record.report.stampedAt || '',
       stampedBy: record.report.stampedBy || '',
+      stampSkippedAt: record.report.stampSkippedAt || '',
+      stampSkippedBy: record.report.stampSkippedBy || '',
       uploadedAt: record.report.uploadedAt || '',
       updatedAt: record.report.updatedAt || ''
     });
@@ -594,7 +596,7 @@ async function reportFileItems(db) {
         fileUrl: fileUrl(entry.name),
         size: stats.size,
         modifiedAt: format(stats.mtime, 'yyyy-MM-dd HH:mm:ss'),
-        source: linked.recordId ? '验货报告' : '历史上传',
+        source: linked.stampedAt ? '已盖章报告' : (linked.stampSkippedAt ? '无需盖章报告' : (linked.recordId ? '验货报告' : '历史上传')),
         ...linked
       };
     }));
@@ -1217,7 +1219,7 @@ app.post('/api/quality-inspection/reports/:id', requireAuth, requirePages('inspe
 app.get('/api/quality-inspection/stamp-reports', requireAuth, requirePages('inspectionStamp'), requireRoles(ROLE_ADMIN), async (req, res) => {
   const db = await readDb();
   const rows = composedRecords(db)
-    .filter((record) => record.report?.fileName && !record.report?.stampedAt)
+    .filter((record) => record.report?.fileName && !record.report?.stampedAt && !record.report?.stampSkippedAt)
     .map((record) => ({
       ...record,
       report: {
@@ -1240,13 +1242,16 @@ app.post('/api/quality-inspection/reports/:id/stamp', requireAuth, requirePages(
 
   const target = reportFilePath(previous.fileName);
   await writeFile(target, Buffer.from(match[2], 'base64'));
+  const skipStamp = Boolean(req.body.skipStamp);
+  const processedAt = nowText();
 
   const next = {
     ...previous,
-    stampedAt: nowText(),
-    stampedBy: req.authUser.name,
+    ...(skipStamp
+      ? { stampSkippedAt: processedAt, stampSkippedBy: req.authUser.name }
+      : { stampedAt: processedAt, stampedBy: req.authUser.name }),
     stampRotation: Number(req.body.rotation || 0),
-    updatedAt: nowText()
+    updatedAt: processedAt
   };
   db.qualityInspection.reports[req.params.id] = next;
   await saveDb(db);
