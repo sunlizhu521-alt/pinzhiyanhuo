@@ -1479,7 +1479,8 @@ function App() {
         ? payload.rows
         : payload.rows.filter((row) => row.inspectionApplicant === user.name);
       setNoticeSubmission({ ...payload, rows: visibleRows });
-      setNoticeRows(visibleRows.map((row) => createNoticeRow(row)));
+      setNoticeRows([createNoticeRow({ inspectionApplicant: user.name })]);
+      setNoticeImportPreview(null);
       setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
       setMessage(`验货通知已提交：共 ${payload.rows.length} 条。`);
       return;
@@ -1496,7 +1497,8 @@ function App() {
     }
     const payload = await res.json();
     setNoticeSubmission(payload);
-    setNoticeRows(payload.rows.map((row) => createNoticeRow(row)));
+    setNoticeRows([createNoticeRow({ inspectionApplicant: user.name })]);
+    setNoticeImportPreview(null);
     setMessage(`验货通知已提交：共 ${payload.rows.length} 条。`);
     await refreshRecords();
   }
