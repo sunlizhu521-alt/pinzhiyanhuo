@@ -1906,6 +1906,33 @@ function App() {
     return dimensionLibrary;
   }
 
+  async function syncDimensionLibraryFromServer() {
+    if (STATIC_MODE) {
+      const library = readDimensionLibrary();
+      setDimensionLibrary(library);
+      setMessage('当前是静态预览模式，已读取浏览器本地维度表文件库。');
+      return;
+    }
+    setSavingId('dimensionLibrarySync');
+    setDimensionLibraryLoading(true);
+    const res = await authFetch(`${API}/api/quality-inspection/dimension-library/sync`, {
+      method: 'POST',
+      cache: 'no-store'
+    });
+    setSavingId('');
+    setDimensionLibraryLoading(false);
+    if (!res.ok) {
+      setMessage('下载同步腾讯云维度表数据失败，请稍后重试。');
+      return;
+    }
+    const payload = await res.json();
+    const library = normalizeDimensionLibrary(payload.library || {});
+    setDimensionLibrary(library);
+    clearDimensionLibraryCache();
+    const appliedCount = DIMENSION_LIBRARY_SLOTS.filter((slot) => library[slot.id]?.applied).length;
+    setMessage(`已下载同步腾讯云最新维度表数据：已应用 ${appliedCount} 个槽位。`);
+  }
+
   async function refreshPermissionUsers() {
     if (STATIC_MODE) {
       setPermissionUsers(readStaticDb().users || []);
@@ -2839,6 +2866,7 @@ function App() {
             library={dimensionLibrary}
             loading={dimensionLibraryLoading}
             savingId={savingId}
+            onSync={syncDimensionLibraryFromServer}
             onUpload={uploadDimensionSlot}
             onApply={applyDimensionSlot}
             onDelete={deleteDimensionSlot}
@@ -4001,7 +4029,7 @@ function InitialDataPage({ data, result, onUpload }) {
   );
 }
 
-function DimensionLibraryPage({ slots, library, loading, savingId, onUpload, onApply, onDelete }) {
+function DimensionLibraryPage({ slots, library, loading, savingId, onSync, onUpload, onApply, onDelete }) {
   const filledCount = slots.filter((slot) => library[slot.id]).length;
   const appliedCount = slots.filter((slot) => library[slot.id]?.applied).length;
   return (
@@ -4009,6 +4037,14 @@ function DimensionLibraryPage({ slots, library, loading, savingId, onUpload, onA
       <div className="section-heading-row">
         <h2>维度表文件库</h2>
         <span className="section-count">{loading ? '正在同步腾讯云服务器最新维度表...' : `4 个槽位，已上传 ${filledCount} 个，已应用 ${appliedCount} 个`}</span>
+        <button
+          type="button"
+          className="ghost compact-button"
+          disabled={savingId === 'dimensionLibrarySync'}
+          onClick={onSync}
+        >
+          {savingId === 'dimensionLibrarySync' ? '下载同步中' : '下载腾讯云数据'}
+        </button>
       </div>
       <section className="dimension-library-grid">
         {slots.map((slot, index) => {

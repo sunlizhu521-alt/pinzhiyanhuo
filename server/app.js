@@ -357,11 +357,11 @@ function dimensionRecordNeedsFileData(record = {}) {
   return !hasSheets || !record.fileUrl || !record.sheetCount;
 }
 
-function ensureDimensionLibraryFileDataCache(db) {
+function ensureDimensionLibraryFileDataCache(db, force = false) {
   const library = db.qualityInspection.dimensionLibrary || {};
   let changed = false;
   Object.entries(library).forEach(([slotId, record]) => {
-    if (!record?.storedFileName || !dimensionRecordNeedsFileData(record)) return;
+    if (!record?.storedFileName || (!force && !dimensionRecordNeedsFileData(record))) return;
     try {
       const preview = parseDimensionWorkbookPreview(record.storedFileName);
       Object.assign(record, preview, {
@@ -900,6 +900,14 @@ app.get('/api/quality-inspection/dimension-library', requireAuth, requirePages('
     return;
   }
   res.json({ library });
+});
+
+app.post('/api/quality-inspection/dimension-library/sync', requireAuth, requirePages('dimensionLibrary'), async (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  const db = await readDb();
+  const updated = ensureDimensionLibraryFileDataCache(db, true);
+  if (updated) await saveDb(db);
+  res.json({ library: db.qualityInspection.dimensionLibrary || {}, updated });
 });
 
 app.post('/api/quality-inspection/dimension-library/:slotId/apply', requireAuth, requirePages('dimensionLibrary'), upload.single('file'), async (req, res) => {
