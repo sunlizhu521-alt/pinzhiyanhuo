@@ -2915,14 +2915,47 @@ function ReportUploadPage({ records, savingId, onSave }) {
 }
 
 function FeedbackPage({ records, savingId, canImport, importPreview, onUpload, onConfirmImport, onClearImportPreview, onSave }) {
+  const [filters, setFilters] = useState({
+    supplierShortName: '',
+    salesProductLine: '',
+    series: '',
+    inspector: ''
+  });
   const previewRows = importPreview?.items || [];
   const previewLimitedRows = previewRows.slice(0, 10);
   const matchedCount = previewRows.filter((item) => item.recordId).length;
+  const filteredRecords = useMemo(() => {
+    const normalizedFilters = Object.fromEntries(
+      Object.entries(filters).map(([key, value]) => [key, normalize(value).toLowerCase()])
+    );
+    return records.filter((record) => {
+      const values = {
+        supplierShortName: record.supplierShortName,
+        salesProductLine: record.salesProductLine,
+        series: record.series,
+        inspector: record.schedule?.inspector
+      };
+      return Object.entries(normalizedFilters).every(([key, value]) => (
+        !value || normalize(values[key]).toLowerCase().includes(value)
+      ));
+    });
+  }, [records, filters]);
+  function updateFilter(key, value) {
+    setFilters((current) => ({ ...current, [key]: value }));
+  }
+  function clearFilters() {
+    setFilters({
+      supplierShortName: '',
+      salesProductLine: '',
+      series: '',
+      inspector: ''
+    });
+  }
   return (
     <>
       <div className="section-heading-row">
         <h2>验货反馈</h2>
-        <span className="section-count">待反馈 {records.length} 条</span>
+        <span className="section-count">筛选 {filteredRecords.length} 条 / 待反馈 {records.length} 条</span>
         {canImport && (
           <label className="upload-button">
             批量上传
@@ -2958,6 +2991,29 @@ function FeedbackPage({ records, savingId, canImport, importPreview, onUpload, o
           <span>支持 .xlsx / .xls / .csv，解析后先预览，确认后写入已匹配的验货反馈</span>
         </label>
       )}
+      <div className="toolbar feedback-filter-toolbar">
+        <input
+          placeholder="筛选供应商简称"
+          value={filters.supplierShortName}
+          onChange={(event) => updateFilter('supplierShortName', event.target.value)}
+        />
+        <input
+          placeholder="筛选产品线"
+          value={filters.salesProductLine}
+          onChange={(event) => updateFilter('salesProductLine', event.target.value)}
+        />
+        <input
+          placeholder="筛选系列"
+          value={filters.series}
+          onChange={(event) => updateFilter('series', event.target.value)}
+        />
+        <input
+          placeholder="筛选验货员"
+          value={filters.inspector}
+          onChange={(event) => updateFilter('inspector', event.target.value)}
+        />
+        <button type="button" className="ghost compact-button" onClick={clearFilters}>清除筛选</button>
+      </div>
       {canImport && importPreview && (
         <section className="feedback-import-preview">
           <div className="section-heading-row">
@@ -2998,7 +3054,7 @@ function FeedbackPage({ records, savingId, canImport, importPreview, onUpload, o
       )}
       <DataTable
         className="inspection-feedback-table"
-        rows={records}
+        rows={filteredRecords}
         columns={[
           '检验报告单编码',
           '供应商简称',
