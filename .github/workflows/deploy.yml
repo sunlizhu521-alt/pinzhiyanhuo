@@ -1,0 +1,48 @@
+name: Deploy to Tencent Cloud
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: 129.211.9.242
+          username: ubuntu
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: 22
+          script: |
+            set -e
+            cd /home/ubuntu/zhuge-ai-lab/pinzhiyanhuo
+
+            echo ">>> Fetch latest code"
+            git fetch origin main
+            git reset --hard origin/main
+            git log -1 --oneline
+
+            echo ">>> Backup data"
+            npm run backup
+
+            echo ">>> Install dependencies"
+            rm -rf dist
+            npm ci --production=false
+
+            echo ">>> Build frontend"
+            npm run build
+
+            echo ">>> Restart service"
+            ADMIN_PASSWORD='${{ secrets.ADMIN_PASSWORD }}' pm2 restart pinzhiyanhuo --update-env
+            pm2 save
+            pm2 list
+
+            echo ">>> Verify deployed assets"
+            curl -s http://127.0.0.1:4002/ | grep -o 'assets/index-[^"]*\.js' || true
+            cat dist/index.html | grep -o 'assets/index-[^"]*\.js' || true
+
+            echo ">>> Deploy complete"
