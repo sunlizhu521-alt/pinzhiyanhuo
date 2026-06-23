@@ -889,7 +889,7 @@ app.post('/api/quality-inspection/reports/:id/stamp', requireAuth, requirePages(
   res.json(next);
 });
 
-app.get('/api/quality-inspection/report-files', requireAuth, requirePages('inspectionReportLibrary'), requireRoles(ROLE_ADMIN), async (req, res) => {
+app.get('/api/quality-inspection/report-files', requireAuth, requirePages('inspectionReportLibrary', 'inspectionReportQuery'), async (req, res) => {
   const db = await readDb();
   res.json({ files: await reportFileItems(db) });
 });

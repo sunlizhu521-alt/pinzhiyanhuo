@@ -741,6 +741,11 @@ th {
   color: #dc2626;
 }
 
+.stamp-preview-note {
+  color: #2563eb;
+  font-weight: 700;
+}
+
 .stamp-canvas {
   min-height: 0;
   display: grid;

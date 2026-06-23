@@ -168,12 +168,14 @@ function createId() {
 }
 
 function createNoticeRow(values = {}) {
-  return NOTICE_FIELDS.reduce((row, field) => ({
-    ...row,
+  const row = NOTICE_FIELDS.reduce((current, field) => ({
+    ...current,
     [field.key]: values[field.key] || ''
   }), {
     id: values.id || createId()
   });
+  if (values.importSource) row.importSource = values.importSource;
+  return row;
 }
 
 function normalize(value) {
@@ -869,7 +871,7 @@ function importedRowsToSummaryItems(importedRows, currentUserName) {
         noticeValues[field.key] = readImportedValue(normalizedSource, aliases);
       });
       if (!noticeValues.inspectionApplicant) noticeValues.inspectionApplicant = currentUserName;
-      const notice = createNoticeRow(noticeValues);
+      const notice = createNoticeRow({ ...noticeValues, importSource: 'summaryImport' });
       const schedule = {
         scheduledDate: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.scheduledDate),
         status: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.status),
@@ -1129,6 +1131,10 @@ function shouldShowFeedbackRecord(record) {
   return !normalize(record.feedback?.actualInspectionTime) || result === '返工';
 }
 
+function shouldShowSummaryRecord(record) {
+  return hasObjectValue(record.feedback) || normalize(record.importSource) === 'summaryImport';
+}
+
 function recordIdSignature(rows = []) {
   return rows.map((row) => row.id).filter(Boolean).join('|');
 }
@@ -1202,7 +1208,7 @@ function App() {
   }, [activeTab, user]);
 
   useEffect(() => {
-    if (!user || activeTab !== 'inspectionReportLibrary') return;
+    if (!user || !['inspectionReportLibrary', 'inspectionReportQuery'].includes(activeTab)) return;
     refreshReportFiles();
   }, [activeTab, user]);
 
@@ -2125,7 +2131,7 @@ function App() {
     setMessage('验货反馈已保存。');
   }
 
-  async function stampReport(record, rotation) {
+  async function stampReport(record, rotation, stampedDataUrl = '') {
     if (!record?.id || !reportHref(record)) {
       setMessage('当前没有可盖章的检验报告单。');
       return false;
@@ -2136,7 +2142,7 @@ function App() {
     }
     setSavingId(record.id);
     try {
-      const fileDataUrl = await createStampedImageDataUrl(record, rotation);
+      const fileDataUrl = stampedDataUrl || await createStampedImageDataUrl(record, rotation);
       if (record.isStampUpload) {
         const fileName = record.report?.fileName || record.report?.originalName || `stamped-${Date.now()}.png`;
         if (STATIC_MODE) {
@@ -2225,6 +2231,9 @@ function App() {
       }));
     return [...reportFiles, ...linkedFiles];
   }, [reportFiles, records]);
+  const reportLibraryRecordIds = useMemo(() => (
+    new Set(reportLibraryItems.map((file) => normalize(file.recordId)).filter(Boolean))
+  ), [reportLibraryItems]);
 
   async function uploadReportLibraryFiles(files) {
     const selectedFiles = Array.from(files || []).filter(isReportLibraryFile);
@@ -2373,15 +2382,21 @@ function App() {
       return matchesKeyword && matchesStatus;
     });
   }, [records, query, statusFilter]);
+  const reportQueryRecords = useMemo(() => (
+    filteredRecords.filter((record) => reportLibraryRecordIds.has(normalize(record.id)))
+  ), [filteredRecords, reportLibraryRecordIds]);
+  const summaryRecords = useMemo(() => (
+    filteredRecords.filter(shouldShowSummaryRecord)
+  ), [filteredRecords]);
 
   const summary = useMemo(() => {
-    const total = records.length;
-    const scheduled = records.filter((row) => normalize(row.schedule?.scheduledDate)).length;
-    const reported = records.filter((row) => normalize(row.report?.fileName || row.report?.reportNo)).length;
-    const passed = records.filter((row) => row.feedback?.result === '合格').length;
-    const failed = records.filter((row) => row.feedback?.result === '不合格').length;
+    const total = summaryRecords.length;
+    const scheduled = summaryRecords.filter((row) => normalize(row.schedule?.scheduledDate)).length;
+    const reported = summaryRecords.filter((row) => normalize(row.report?.fileName || row.report?.reportNo)).length;
+    const passed = summaryRecords.filter((row) => row.feedback?.result === '合格').length;
+    const failed = summaryRecords.filter((row) => row.feedback?.result === '不合格').length;
     return { total, scheduled, reported, passed, failed };
-  }, [records]);
+  }, [summaryRecords]);
 
   if (!user) {
     return (
@@ -2523,7 +2538,7 @@ function App() {
         )}
         {canAccessPage(user, 'inspectionReportQuery') && activeTab === 'inspectionReportQuery' && (
           <ReportQueryPage
-            records={filteredRecords}
+            records={reportQueryRecords}
             query={query}
             statusFilter={statusFilter}
             onQuery={setQuery}
@@ -2533,7 +2548,7 @@ function App() {
         {canAccessPage(user, 'inspectionSummary') && activeTab === 'inspectionSummary' && (
           <SummaryPage
             summary={summary}
-            records={filteredRecords}
+            records={summaryRecords}
             canImport={isAdminUser(user)}
             importPreview={summaryImportPreview}
             onUpload={previewSummaryRows}
@@ -3127,10 +3142,14 @@ function InspectionStampPage({ records, savingId, onStamp }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [rotation, setRotation] = useState(0);
   const [uploadedRecords, setUploadedRecords] = useState([]);
+  const [stampPreview, setStampPreview] = useState(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewError, setPreviewError] = useState('');
   const stampRecords = useMemo(() => [...uploadedRecords, ...records], [uploadedRecords, records]);
   const safeIndex = stampRecords.length ? Math.min(currentIndex, stampRecords.length - 1) : 0;
   const current = stampRecords[safeIndex];
   const canStamp = current && isImageReport(current);
+  const activePreview = stampPreview?.recordId === current?.id && stampPreview?.rotation === rotation ? stampPreview : null;
 
   useEffect(() => {
     if (currentIndex > Math.max(stampRecords.length - 1, 0)) setCurrentIndex(0);
@@ -3140,9 +3159,39 @@ function InspectionStampPage({ records, savingId, onStamp }) {
     setRotation(0);
   }, [current?.id]);
 
+  useEffect(() => {
+    setStampPreview(null);
+    setPreviewError('');
+  }, [current?.id, rotation]);
+
   function go(delta) {
     if (!stampRecords.length) return;
     setCurrentIndex((index) => (index + delta + stampRecords.length) % stampRecords.length);
+  }
+
+  async function previewStamp() {
+    if (!canStamp) return;
+    setPreviewing(true);
+    setPreviewError('');
+    try {
+      const dataUrl = await createStampedImageDataUrl(current, rotation);
+      setStampPreview({ recordId: current.id, rotation, dataUrl });
+    } catch {
+      setPreviewError('预览生成失败，请确认报告单图片可以正常打开。');
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  async function confirmStamp() {
+    if (!activePreview) return;
+    const stamped = await onStamp(current, activePreview.rotation, activePreview.dataUrl);
+    if (stamped) {
+      setStampPreview(null);
+      if (current?.isStampUpload) {
+        setUploadedRecords((items) => items.filter((item) => item.id !== current.id));
+      }
+    }
   }
 
   async function uploadStampImages(files) {
@@ -3164,6 +3213,8 @@ function InspectionStampPage({ records, savingId, onStamp }) {
     })));
     setUploadedRecords((current) => [...uploaded, ...current]);
     setCurrentIndex(0);
+    setStampPreview(null);
+    setPreviewError('');
   }
 
   return (
@@ -3189,16 +3240,24 @@ function InspectionStampPage({ records, savingId, onStamp }) {
         <button
           type="button"
           className="compact-button"
-          disabled={!canStamp || savingId === current?.id}
-          onClick={async () => {
-            const stamped = await onStamp(current, rotation);
-            if (stamped && current?.isStampUpload) {
-              setUploadedRecords((items) => items.filter((item) => item.id !== current.id));
-            }
-          }}
+          disabled={!canStamp || previewing || savingId === current?.id}
+          onClick={previewStamp}
         >
-          {savingId === current?.id ? '加盖中' : '加盖印章'}
+          {previewing ? '生成预览中' : '加盖印章'}
         </button>
+        {activePreview && (
+          <>
+            <button
+              type="button"
+              className="compact-button"
+              disabled={savingId === current?.id}
+              onClick={confirmStamp}
+            >
+              {savingId === current?.id ? '保存中' : '确认保存'}
+            </button>
+            <button type="button" className="ghost compact-button" onClick={() => setStampPreview(null)} disabled={savingId === current?.id}>取消预览</button>
+          </>
+        )}
       </div>
 
       {!current ? (
@@ -3224,14 +3283,16 @@ function InspectionStampPage({ records, savingId, onStamp }) {
               <strong>{current.isStampUpload ? '页面上传图片' : (current.report?.reportNo || '未填写报告编码')}</strong>
               <span>{current.supplierShortName || ''}</span>
               <span>{current.salesProductLine || ''} {current.series || ''}</span>
+              {activePreview && <span className="stamp-preview-note">当前为盖章预览，确认保存后才会覆盖原文件。</span>}
+              {previewError && <span className="stamp-warning">{previewError}</span>}
               {!canStamp && <span className="stamp-warning">当前文件不是图片格式，只能查看，不能直接加盖图片印章。</span>}
             </div>
             <div className="stamp-canvas">
               {isImageReport(current) ? (
                 <img
-                  src={reportHref(current)}
+                  src={activePreview?.dataUrl || reportHref(current)}
                   alt="检验报告单"
-                  style={{ transform: `rotate(${rotation}deg)` }}
+                  style={activePreview ? undefined : { transform: `rotate(${rotation}deg)` }}
                 />
               ) : (
                 <iframe title="检验报告单预览" src={reportHref(current)} />
