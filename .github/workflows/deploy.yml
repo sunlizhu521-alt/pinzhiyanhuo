@@ -26,12 +26,12 @@ jobs:
             git reset --hard origin/main
             git log -1 --oneline
 
-            echo ">>> Backup data"
-            npm run backup
-
             echo ">>> Install dependencies"
             rm -rf dist
             npm ci --production=false
+
+            echo ">>> Backup data"
+            npm run backup
 
             echo ">>> Build frontend"
             npm run build
