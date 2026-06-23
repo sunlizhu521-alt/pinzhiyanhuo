@@ -276,12 +276,15 @@ function uniqueValues(values) {
   });
 }
 
-function feedbackReportNo(record, actualInspectionTime) {
+function feedbackReportNo(record, actualInspectionTime, inspectionQuantity) {
+  const actualTime = normalize(actualInspectionTime);
+  const quantity = normalize(inspectionQuantity);
+  if (!actualTime || !quantity) return '';
   return [
     supplierInitials(record.supplierShortName),
-    formatCompactDate(actualInspectionTime),
+    formatCompactDate(actualTime),
     normalize(record.series),
-    normalize(record.totalQuantity)
+    quantity
   ].filter(Boolean).join('/');
 }
 
@@ -1717,9 +1720,11 @@ function App() {
           updatedAt: nowText()
         };
         const current = recordById.get(item.recordId);
-        const reportNo = item.feedback?.actualInspectionTime
-          ? feedbackReportNo(current || item.notice || {}, item.feedback.actualInspectionTime)
-          : '';
+        const reportNo = feedbackReportNo(
+          current || item.notice || {},
+          item.feedback?.actualInspectionTime,
+          item.feedback?.inspectionQuantity
+        );
         if (reportNo) {
           inspection.reports[item.recordId] = {
             ...(inspection.reports[item.recordId] || {}),
@@ -1750,9 +1755,11 @@ function App() {
     }
     const reportResponses = await Promise.all(matchedItems.map((item) => {
       const current = recordById.get(item.recordId);
-      const reportNo = item.feedback?.actualInspectionTime
-        ? feedbackReportNo(current || item.notice || {}, item.feedback.actualInspectionTime)
-        : '';
+      const reportNo = feedbackReportNo(
+        current || item.notice || {},
+        item.feedback?.actualInspectionTime,
+        item.feedback?.inspectionQuantity
+      );
       if (!reportNo) return Promise.resolve({ ok: true });
       const reportForm = new FormData();
       reportForm.append('reportNo', reportNo);
@@ -2269,12 +2276,10 @@ function App() {
       actualInspector: normalize(form.get('actualInspector')),
       feedbackText: normalize(form.get('feedbackText'))
     };
-    const reportNo = feedbackPatch.actualInspectionTime
-      ? feedbackReportNo(record, feedbackPatch.actualInspectionTime)
-      : '';
+    const reportNo = feedbackReportNo(record, feedbackPatch.actualInspectionTime, feedbackPatch.inspectionQuantity);
     if (file instanceof File && file.size > 0 && !reportNo) {
       setSavingId('');
-      setMessage('请先填写实际验货时间，系统会自动生成检验报告单编码后再上传检验报告单。');
+      setMessage('请先填写实际验货时间和验货数量，系统会自动生成检验报告单编码后再上传检验报告单。');
       return;
     }
     if (STATIC_MODE) {
@@ -3242,6 +3247,7 @@ function FeedbackPage({
     series: '',
     inspector: ''
   });
+  const [feedbackDrafts, setFeedbackDrafts] = useState({});
   const previewRows = importPreview?.items || [];
   const previewLimitedRows = previewRows.slice(0, 10);
   const matchedCount = previewRows.filter((item) => item.recordId).length;
@@ -3271,6 +3277,22 @@ function FeedbackPage({
       series: '',
       inspector: ''
     });
+  }
+  function feedbackDraft(record) {
+    return {
+      actualInspectionTime: record.feedback?.actualInspectionTime || '',
+      inspectionQuantity: record.feedback?.inspectionQuantity || '',
+      ...(feedbackDrafts[record.id] || {})
+    };
+  }
+  function updateFeedbackDraft(recordId, key, value) {
+    setFeedbackDrafts((current) => ({
+      ...current,
+      [recordId]: {
+        ...(current[recordId] || {}),
+        [key]: value
+      }
+    }));
   }
   return (
     <>
@@ -3374,7 +3396,6 @@ function FeedbackPage({
         className="inspection-feedback-table"
         rows={filteredRecords}
         columns={[
-          '检验报告单编码',
           '供应商简称',
           '产品线',
           '系列',
@@ -3389,6 +3410,7 @@ function FeedbackPage({
           '验货数量',
           '验货合格数量',
           '验货结果',
+          '检验报告单编码',
           '问题等级',
           '问题分类',
           '问题分类',
@@ -3397,45 +3419,68 @@ function FeedbackPage({
           '验货员',
           '提交按钮'
         ]}
-        render={(record) => [
-          <span className="readonly-cell wide-readonly-cell">{feedbackReportNo(record, record.feedback?.actualInspectionTime) || record.report?.reportNo || '填写实际验货时间后自动生成'}</span>,
-          record.supplierShortName,
-          record.salesProductLine,
-          record.series,
-          record.totalQuantity,
-          record.businessDepartments,
-          record.operation,
-          record.inspectionNotifier || record.inspectionApplicant,
-          <input name="actualInspector" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.actualInspector || ''} />,
-          <input name="actualInspectionTime" form={`feedback-form-${record.id}`} className="table-input" type="date" defaultValue={formatDate(record.feedback?.actualInspectionTime)} />,
-          <input name="inspectionDays" form={`feedback-form-${record.id}`} className="table-input narrow-input" defaultValue={record.feedback?.inspectionDays || ''} />,
-          <input name="inspectionMethod" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.inspectionMethod || ''} />,
-          <input name="inspectionQuantity" form={`feedback-form-${record.id}`} className="table-input narrow-input" defaultValue={record.feedback?.inspectionQuantity || ''} />,
-          <input name="qualifiedQuantity" form={`feedback-form-${record.id}`} className="table-input narrow-input" defaultValue={record.feedback?.qualifiedQuantity || ''} />,
-          <select name="result" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.result || ''}>
-            <option value="">选择</option>
-            <option value="通过">通过</option>
-            <option value="让步">让步</option>
-            <option value="返工">返工</option>
-          </select>,
-          <select name="issueLevel" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.issueLevel || ''}>
-            <option value="">选择</option>
-            <option value="一般">一般</option>
-            <option value="重要">重要</option>
-            <option value="严重">严重</option>
-          </select>,
-          <input name="issueCategoryPrimary" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.issueCategoryPrimary || ''} />,
-          <input name="issueCategorySecondary" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.issueCategorySecondary || ''} />,
-          <textarea name="feedbackText" form={`feedback-form-${record.id}`} className="table-textarea wide-textarea" defaultValue={record.feedback?.feedbackText || ''} />,
-          <div className="feedback-report-cell">
-            {reportHref(record) && <a href={reportHref(record)} target="_blank" rel="noreferrer">{record.report?.originalName || '查看报告'}</a>}
-            <input name="reportFile" form={`feedback-form-${record.id}`} type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx" />
-          </div>,
-          <span className="readonly-cell">{normalize(record.schedule?.inspector)}</span>,
-          <form id={`feedback-form-${record.id}`} onSubmit={(event) => { event.preventDefault(); onSave(record, event.currentTarget); }}>
-            <button type="submit" className="compact-button" disabled={savingId === record.id}>提交</button>
-          </form>
-        ]}
+        render={(record) => {
+          const draft = feedbackDraft(record);
+          const reportNo = feedbackReportNo(record, draft.actualInspectionTime, draft.inspectionQuantity);
+          return [
+            record.supplierShortName,
+            record.salesProductLine,
+            record.series,
+            record.totalQuantity,
+            record.businessDepartments,
+            record.operation,
+            record.inspectionNotifier || record.inspectionApplicant,
+            <input name="actualInspector" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.actualInspector || ''} />,
+            <input
+              name="actualInspectionTime"
+              form={`feedback-form-${record.id}`}
+              className="table-input"
+              type="date"
+              defaultValue={formatDate(record.feedback?.actualInspectionTime)}
+              onChange={(event) => updateFeedbackDraft(record.id, 'actualInspectionTime', event.target.value)}
+            />,
+            <input name="inspectionDays" form={`feedback-form-${record.id}`} className="table-input narrow-input" defaultValue={record.feedback?.inspectionDays || ''} />,
+            <select name="inspectionMethod" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.inspectionMethod || ''}>
+              <option value="">选择</option>
+              <option value="抽检">抽检</option>
+              <option value="全检">全检</option>
+              <option value="视频检验">视频检验</option>
+              <option value="随线检验">随线检验</option>
+            </select>,
+            <input
+              name="inspectionQuantity"
+              form={`feedback-form-${record.id}`}
+              className="table-input narrow-input"
+              defaultValue={record.feedback?.inspectionQuantity || ''}
+              onChange={(event) => updateFeedbackDraft(record.id, 'inspectionQuantity', event.target.value)}
+            />,
+            <input name="qualifiedQuantity" form={`feedback-form-${record.id}`} className="table-input narrow-input" defaultValue={record.feedback?.qualifiedQuantity || ''} />,
+            <select name="result" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.result || ''}>
+              <option value="">选择</option>
+              <option value="通过">通过</option>
+              <option value="让步">让步</option>
+              <option value="返工">返工</option>
+            </select>,
+            <span className="readonly-cell wide-readonly-cell">{reportNo}</span>,
+            <select name="issueLevel" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.issueLevel || ''}>
+              <option value="">选择</option>
+              <option value="一般">一般</option>
+              <option value="重要">重要</option>
+              <option value="严重">严重</option>
+            </select>,
+            <input name="issueCategoryPrimary" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.issueCategoryPrimary || ''} />,
+            <input name="issueCategorySecondary" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.issueCategorySecondary || ''} />,
+            <textarea name="feedbackText" form={`feedback-form-${record.id}`} className="table-textarea wide-textarea" defaultValue={record.feedback?.feedbackText || ''} />,
+            <div className="feedback-report-cell">
+              {reportHref(record) && <a href={reportHref(record)} target="_blank" rel="noreferrer">{record.report?.originalName || '查看报告'}</a>}
+              <input name="reportFile" form={`feedback-form-${record.id}`} type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx" />
+            </div>,
+            <span className="readonly-cell">{normalize(record.schedule?.inspector)}</span>,
+            <form id={`feedback-form-${record.id}`} onSubmit={(event) => { event.preventDefault(); onSave(record, event.currentTarget); }}>
+              <button type="submit" className="compact-button" disabled={savingId === record.id}>提交</button>
+            </form>
+          ];
+        }}
       />
     </>
   );
