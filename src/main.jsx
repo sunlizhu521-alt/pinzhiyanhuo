@@ -129,6 +129,10 @@ function isAdminUser(user) {
   return user?.role === ROLE_ADMIN;
 }
 
+function isSubmittedScheduleRecord(record) {
+  return normalize(record.schedule?.status) === '已安排' && normalize(record.schedule?.inspector);
+}
+
 function canReadClientRecord(user, record) {
   if (!user) return false;
   if (
@@ -140,7 +144,9 @@ function canReadClientRecord(user, record) {
     || canAccessPage(user, 'inspectionReportLibrary')
   ) return true;
   if (canAccessPage(user, 'inspectionNotice')) return record.inspectionApplicant === user.name;
-  if (canAccessPage(user, 'inspectionFeedback')) return record.schedule?.inspector === user.name;
+  if (canAccessPage(user, 'inspectionFeedback')) {
+    return isSubmittedScheduleRecord(record) && record.schedule?.inspector === user.name;
+  }
   return false;
 }
 
@@ -1117,9 +1123,14 @@ async function createStampedImageDataUrl(record, rotation) {
 }
 
 function shouldShowFeedbackRecord(record) {
+  if (normalize(record.schedule?.status) !== '已安排') return false;
   const result = normalize(record.feedback?.result);
   if (['通过', '让步', '合格', '让步接收'].includes(result)) return false;
   return !normalize(record.feedback?.actualInspectionTime) || result === '返工';
+}
+
+function recordIdSignature(rows = []) {
+  return rows.map((row) => row.id).filter(Boolean).join('|');
 }
 
 function App() {
@@ -1144,6 +1155,7 @@ function App() {
   const [reportFiles, setReportFiles] = useState(() => readReportFileLibrary());
   const [permissionUsers, setPermissionUsers] = useState([]);
   const [records, setRecords] = useState([]);
+  const [clearedScheduleSignature, setClearedScheduleSignature] = useState('');
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [savingId, setSavingId] = useState('');
@@ -1155,6 +1167,10 @@ function App() {
     () => buildSupplierShortNameOptions(dimensionLibrary),
     [dimensionLibrary]
   );
+  const currentRecordSignature = useMemo(() => recordIdSignature(records), [records]);
+  const schedulePageRecords = clearedScheduleSignature && clearedScheduleSignature === currentRecordSignature
+    ? []
+    : records;
 
   function authFetch(url, options = {}) {
     const headers = {
@@ -1868,6 +1884,7 @@ function App() {
       saveStaticDb(db);
       setSavingId('');
       setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
+      setClearedScheduleSignature(currentRecordSignature);
       setMessage(`验货安排已一键提交：共 ${entries.length} 条。`);
       return;
     }
@@ -1894,6 +1911,7 @@ function App() {
       return;
     }
     await refreshRecords();
+    setClearedScheduleSignature(currentRecordSignature);
     setMessage(`验货安排已一键提交：共 ${entries.length} 条。`);
   }
 
@@ -2465,7 +2483,7 @@ function App() {
         )}
         {canAccessPage(user, 'inspectionSchedule') && activeTab === 'inspectionSchedule' && (
           <InspectionSchedulePage
-            records={records}
+            records={schedulePageRecords}
             savingId={savingId}
             onSubmit={saveSchedules}
             onClear={clearScheduleContent}

@@ -237,6 +237,11 @@ function hasPageAccess(user, page) {
   return Array.isArray(user?.pageAccess) && user.pageAccess.includes(page);
 }
 
+function isSubmittedScheduleRecord(record) {
+  return String(record?.schedule?.status || '').trim() === '已安排'
+    && String(record?.schedule?.inspector || '').trim();
+}
+
 function requirePages(...pages) {
   return (req, res, next) => {
     if (pages.some((page) => hasPageAccess(req.authUser, page))) return next();
@@ -255,14 +260,18 @@ function canReadRecord(user, record) {
     || hasPageAccess(user, 'inspectionReportLibrary')
   ) return true;
   if (hasPageAccess(user, 'inspectionNotice')) return record.inspectionApplicant === user.name;
-  if (hasPageAccess(user, 'inspectionFeedback')) return record.schedule?.inspector === user.name;
+  if (hasPageAccess(user, 'inspectionFeedback')) {
+    return isSubmittedScheduleRecord(record) && record.schedule?.inspector === user.name;
+  }
   return false;
 }
 
 function canWriteFeedback(user, record) {
   if (!user || !record) return false;
   if (user.role === ROLE_ADMIN) return true;
-  return hasPageAccess(user, 'inspectionFeedback') && record.schedule?.inspector === user.name;
+  return hasPageAccess(user, 'inspectionFeedback')
+    && isSubmittedScheduleRecord(record)
+    && record.schedule?.inspector === user.name;
 }
 
 function reportFilePath(fileName) {
