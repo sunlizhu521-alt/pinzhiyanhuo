@@ -826,10 +826,76 @@ function buildDimensionValueOptions(dimensionLibrary = {}, slotId, aliases = [],
   return Array.from(options.values()).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
 }
 
+function addSeriesByProductLineOption(groups, productLine, series) {
+  const productLineText = normalize(productLine);
+  const seriesText = normalize(series);
+  if (!productLineText || !seriesText) return;
+  const key = normalizeHeader(productLineText);
+  if (!key) return;
+  if (!groups.has(key)) groups.set(key, new Map());
+  addDimensionOption(groups.get(key), seriesText);
+}
+
+function buildSeriesByProductLineOptionsFromSheets(sheets = []) {
+  const groups = new Map();
+  sheets.forEach((sheet) => {
+    (sheet.rows || []).forEach((row) => {
+      const normalizedSource = normalizedSourceMap(row);
+      addSeriesByProductLineOption(
+        groups,
+        readImportedValue(normalizedSource, SALES_PRODUCT_LINE_ALIASES),
+        readImportedValue(normalizedSource, SALES_SERIES_ALIASES)
+      );
+    });
+  });
+  return Object.fromEntries(
+    Array.from(groups.entries()).map(([key, options]) => [
+      key,
+      Array.from(options.values()).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
+    ])
+  );
+}
+
+function mergeSeriesByProductLineOptions(target, source = {}) {
+  Object.entries(source || {}).forEach(([productLine, seriesList]) => {
+    const key = normalizeHeader(productLine);
+    if (!key || !Array.isArray(seriesList)) return;
+    if (!target.has(key)) target.set(key, new Map());
+    seriesList.forEach((series) => addDimensionOption(target.get(key), series));
+  });
+}
+
+function buildSeriesByProductLineOptions(dimensionLibrary = {}) {
+  const record = dimensionLibrary[PRODUCT_CATEGORY_SLOT_ID] || {};
+  const groups = new Map();
+  mergeSeriesByProductLineOptions(groups, record.seriesByProductLine || {});
+  mergeSeriesByProductLineOptions(
+    groups,
+    buildSeriesByProductLineOptionsFromSheets(Array.isArray(record?.sheets) ? record.sheets : [])
+  );
+  if (Array.isArray(record?.rows) && record.rows.length) {
+    mergeSeriesByProductLineOptions(groups, buildSeriesByProductLineOptionsFromSheets([{ rows: record.rows }]));
+  }
+  return Object.fromEntries(
+    Array.from(groups.entries()).map(([key, options]) => [
+      key,
+      Array.from(options.values()).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
+    ])
+  );
+}
+
+function seriesOptionsForProductLine(productLine, allSeriesOptions = [], seriesByProductLine = {}) {
+  const key = normalizeHeader(productLine);
+  if (!key) return allSeriesOptions;
+  const scoped = Array.isArray(seriesByProductLine[key]) ? seriesByProductLine[key] : [];
+  return scoped.length ? scoped : allSeriesOptions;
+}
+
 function buildCategoryDimensionOptions(sheets = []) {
   return {
     salesProductLines: buildDimensionValueOptionsFromSheets(sheets, SALES_PRODUCT_LINE_ALIASES),
-    salesSeries: buildDimensionValueOptionsFromSheets(sheets, SALES_SERIES_ALIASES)
+    salesSeries: buildDimensionValueOptionsFromSheets(sheets, SALES_SERIES_ALIASES),
+    seriesByProductLine: buildSeriesByProductLineOptionsFromSheets(sheets)
   };
 }
 
@@ -1282,6 +1348,10 @@ function App() {
   );
   const seriesOptions = useMemo(
     () => buildSalesSeriesOptions(dimensionLibrary),
+    [dimensionLibrary]
+  );
+  const seriesByProductLine = useMemo(
+    () => buildSeriesByProductLineOptions(dimensionLibrary),
     [dimensionLibrary]
   );
   const displayRecords = useMemo(
@@ -2645,6 +2715,7 @@ function App() {
             supplierOptions={supplierOptions}
             productLineOptions={productLineOptions}
             seriesOptions={seriesOptions}
+            seriesByProductLine={seriesByProductLine}
             onAdd={addNoticeRow}
             onDelete={deleteNoticeRow}
             onClearRows={clearNoticeRows}
@@ -2764,6 +2835,7 @@ function InspectionNoticePage({
   supplierOptions = [],
   productLineOptions = [],
   seriesOptions = [],
+  seriesByProductLine = {},
   importPreview,
   onAdd,
   onDelete,
@@ -2945,14 +3017,23 @@ function InspectionNoticePage({
             const dimensionOptions = field.key === 'salesProductLine'
               ? productLineOptions
               : field.key === 'series'
-                ? seriesOptions
+                ? seriesOptionsForProductLine(row.salesProductLine, seriesOptions, seriesByProductLine)
                 : null;
             if (dimensionOptions) {
               return (
                 <select
                   className="table-input inspection-notice-input"
                   value={row[field.key] || ''}
-                  onChange={(event) => onChange(row.id, field.key, event.target.value)}
+                  onChange={(event) => {
+                    const nextValue = event.target.value;
+                    onChange(row.id, field.key, nextValue);
+                    if (field.key === 'salesProductLine') {
+                      const nextSeriesOptions = seriesOptionsForProductLine(nextValue, seriesOptions, seriesByProductLine);
+                      if (row.series && !findDimensionOption(row.series, nextSeriesOptions)) {
+                        onChange(row.id, 'series', '');
+                      }
+                    }
+                  }}
                 >
                   <option value="">选择</option>
                   {dimensionOptions.map((option) => <option key={option} value={option}>{option}</option>)}

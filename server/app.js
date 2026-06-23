@@ -246,16 +246,21 @@ function parseCategoryOptionsFromDimensionFile(fileName) {
   const workbook = xlsx.readFile(dimensionFilePath(fileName), { cellDates: true });
   const productLines = new Map();
   const series = new Map();
+  const seriesByProductLine = new Map();
   workbook.SheetNames.forEach((sheetName) => {
     parseDimensionSheetRows(workbook.Sheets[sheetName]).forEach((row) => {
       const normalizedSource = normalizedSourceMap(row);
-      addDimensionOption(productLines, readImportedValue(normalizedSource, SALES_PRODUCT_LINE_ALIASES));
-      addDimensionOption(series, readImportedValue(normalizedSource, SALES_SERIES_ALIASES));
+      const productLine = readImportedValue(normalizedSource, SALES_PRODUCT_LINE_ALIASES);
+      const seriesName = readImportedValue(normalizedSource, SALES_SERIES_ALIASES);
+      addDimensionOption(productLines, productLine);
+      addDimensionOption(series, seriesName);
+      addSeriesByProductLineOption(seriesByProductLine, productLine, seriesName);
     });
   });
   return {
     salesProductLines: Array.from(productLines.values()).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN')),
-    salesSeries: Array.from(series.values()).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
+    salesSeries: Array.from(series.values()).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN')),
+    seriesByProductLine: formatSeriesByProductLine(seriesByProductLine)
   };
 }
 
@@ -263,11 +268,13 @@ async function ensureProductCategoryOptionCache(db) {
   const record = db.qualityInspection.dimensionLibrary?.[PRODUCT_CATEGORY_SLOT_ID];
   if (!record?.storedFileName) return false;
   if (Array.isArray(record.salesProductLines) && record.salesProductLines.length
-    && Array.isArray(record.salesSeries) && record.salesSeries.length) return false;
+    && Array.isArray(record.salesSeries) && record.salesSeries.length
+    && record.seriesByProductLine && Object.keys(record.seriesByProductLine).length) return false;
   try {
     const options = parseCategoryOptionsFromDimensionFile(record.storedFileName);
     record.salesProductLines = options.salesProductLines;
     record.salesSeries = options.salesSeries;
+    record.seriesByProductLine = options.seriesByProductLine;
     record.updatedAt = nowText();
     return true;
   } catch {
@@ -549,6 +556,25 @@ function addDimensionOption(set, value) {
   set.set(normalizeHeader(text), text);
 }
 
+function addSeriesByProductLineOption(groups, productLine, series) {
+  const productLineText = normalizeText(productLine);
+  const seriesText = normalizeText(series);
+  if (!productLineText || !seriesText) return;
+  const key = normalizeHeader(productLineText);
+  if (!key) return;
+  if (!groups.has(key)) groups.set(key, new Map());
+  addDimensionOption(groups.get(key), seriesText);
+}
+
+function formatSeriesByProductLine(groups) {
+  return Object.fromEntries(
+    Array.from(groups.entries()).map(([key, options]) => [
+      key,
+      Array.from(options.values()).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
+    ])
+  );
+}
+
 function buildDimensionValueMapFromSheets(sheets = [], aliases = []) {
   const options = new Map();
   sheets.forEach((sheet) => {
@@ -757,7 +783,8 @@ app.get('/api/quality-inspection/dimension-library', requireAuth, requirePages('
           applied: Boolean(productCategory.applied),
           appliedAt: productCategory.appliedAt || '',
           salesProductLines: productCategory.salesProductLines || [],
-          salesSeries: productCategory.salesSeries || []
+          salesSeries: productCategory.salesSeries || [],
+          seriesByProductLine: productCategory.seriesByProductLine || {}
         },
         [PURCHASE_WORK_DIVISION_SLOT_ID]: {
           id: PURCHASE_WORK_DIVISION_SLOT_ID,
