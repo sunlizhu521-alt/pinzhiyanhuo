@@ -4046,6 +4046,16 @@ function ReportQueryPage({
   onFilterChange,
   onClearFilters
 }) {
+  const [previewRecord, setPreviewRecord] = useState(null);
+  const previewUrl = previewRecord ? reportHref(previewRecord) : '';
+  const previewExt = previewRecord ? reportFileExt(previewRecord) : '';
+
+  useEffect(() => {
+    if (previewRecord && !records.some((record) => record.id === previewRecord.id)) {
+      setPreviewRecord(null);
+    }
+  }, [records, previewRecord]);
+
   return (
     <>
       <div className="section-heading-row">
@@ -4077,21 +4087,48 @@ function ReportQueryPage({
         <button type="button" className="ghost compact-button" onClick={onClearFilters}>清除筛选</button>
       </div>
       <DataTable
+        className="report-query-table"
         rows={records}
-        columns={['供应商', '采购订单', '计划日期', '验货员', '状态', '报告单号', '报告文件', '反馈结果']}
+        columns={['供应商', '实际验货时间', '实际验货员', '报告单号', '报告文件', '验货结果']}
         render={(record) => [
           record.supplierShortName,
-          record.kingdeeOrderNo,
-          record.schedule?.scheduledDate || '',
-          record.schedule?.inspector || '',
-          record.schedule?.status || '未安排',
+          formatDate(record.feedback?.actualInspectionTime),
+          record.feedback?.actualInspector || record.schedule?.inspector || '',
           record.report?.reportNo || '',
           reportHref(record)
-            ? <a href={reportHref(record)} target="_blank" rel="noreferrer">{record.report.originalName || '查看文件'}</a>
+            ? (
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => setPreviewRecord(record)}
+              >
+                {record.report.originalName || '查看文件'}
+              </button>
+            )
             : '',
           record.feedback?.result || ''
         ]}
       />
+      {previewRecord && (
+        <section className="report-query-preview">
+          <div className="section-heading-row">
+            <h3>{previewRecord.report?.originalName || previewRecord.report?.reportNo || '报告文件预览'}</h3>
+            <div className="table-action-row">
+              {previewUrl && <a className="compact-button" href={previewUrl} target="_blank" rel="noreferrer">打开原文件</a>}
+              <button type="button" className="ghost compact-button" onClick={() => setPreviewRecord(null)}>关闭预览</button>
+            </div>
+          </div>
+          <div className="report-query-preview-body">
+            {REPORT_IMAGE_EXTENSIONS.has(previewExt) ? (
+              <img src={previewUrl} alt="检验单预览" />
+            ) : previewExt === '.pdf' ? (
+              <iframe title="检验单预览" src={previewUrl} />
+            ) : (
+              <div className="empty-state">当前文件格式暂不支持本页直接预览，请点击“打开原文件”查看。</div>
+            )}
+          </div>
+        </section>
+      )}
     </>
   );
 }
