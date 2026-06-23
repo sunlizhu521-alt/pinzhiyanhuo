@@ -769,6 +769,7 @@ app.post('/api/quality-inspection/initial-data/import', requireAuth, requirePage
 });
 
 app.get('/api/quality-inspection/dimension-library', requireAuth, requirePages('dimensionLibrary', 'inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'inspectionReportLibrary', 'inspectionReportQuery', 'inspectionSummary'), async (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   const db = await readDb();
   if (await ensureProductCategoryOptionCache(db)) await saveDb(db);
   const library = db.qualityInspection.dimensionLibrary || {};

@@ -530,6 +530,14 @@ function saveDimensionLibrary(library) {
   }
 }
 
+function clearDimensionLibraryCache() {
+  try {
+    localStorage.removeItem(DIMENSION_LIBRARY_KEY);
+  } catch {
+    // Ignore unavailable browser storage.
+  }
+}
+
 function readReportFileLibrary() {
   try {
     const saved = JSON.parse(localStorage.getItem(REPORT_FILE_LIBRARY_KEY) || '[]');
@@ -1326,6 +1334,7 @@ function App() {
   const [initialData, setInitialData] = useState({ sheetName: '', columns: [], rows: [], updatedAt: '' });
   const [initialImportResult, setInitialImportResult] = useState(null);
   const [dimensionLibrary, setDimensionLibrary] = useState(() => STATIC_MODE ? readDimensionLibrary() : normalizeDimensionLibrary());
+  const [dimensionLibraryLoading, setDimensionLibraryLoading] = useState(false);
   const [dimensionPendingFiles, setDimensionPendingFiles] = useState({});
   const [reportFiles, setReportFiles] = useState(() => readReportFileLibrary());
   const [permissionUsers, setPermissionUsers] = useState([]);
@@ -1382,6 +1391,7 @@ function App() {
   }
 
   useEffect(() => {
+    if (!STATIC_MODE) clearDimensionLibraryCache();
     if (STATIC_MODE) {
       setAppVersionTime(nowText().slice(0, 16));
       return;
@@ -1881,12 +1891,17 @@ function App() {
       setDimensionLibrary(library);
       return library;
     }
-    const res = await authFetch(`${API}/api/quality-inspection/dimension-library`, { cache: 'no-store' });
-    if (res.ok) {
-      const library = normalizeDimensionLibrary((await res.json()).library || {});
-      setDimensionLibrary(library);
-      saveDimensionLibrary(library);
-      return library;
+    setDimensionLibraryLoading(true);
+    try {
+      const res = await authFetch(`${API}/api/quality-inspection/dimension-library`, { cache: 'no-store' });
+      if (res.ok) {
+        const library = normalizeDimensionLibrary((await res.json()).library || {});
+        setDimensionLibrary(library);
+        clearDimensionLibraryCache();
+        return library;
+      }
+    } finally {
+      setDimensionLibraryLoading(false);
     }
     return dimensionLibrary;
   }
@@ -2821,6 +2836,7 @@ function App() {
           <DimensionLibraryPage
             slots={DIMENSION_LIBRARY_SLOTS}
             library={dimensionLibrary}
+            loading={dimensionLibraryLoading}
             savingId={savingId}
             onUpload={uploadDimensionSlot}
             onApply={applyDimensionSlot}
@@ -3973,14 +3989,14 @@ function InitialDataPage({ data, result, onUpload }) {
   );
 }
 
-function DimensionLibraryPage({ slots, library, savingId, onUpload, onApply, onDelete }) {
+function DimensionLibraryPage({ slots, library, loading, savingId, onUpload, onApply, onDelete }) {
   const filledCount = slots.filter((slot) => library[slot.id]).length;
   const appliedCount = slots.filter((slot) => library[slot.id]?.applied).length;
   return (
     <>
       <div className="section-heading-row">
         <h2>维度表文件库</h2>
-        <span className="section-count">4 个槽位，已上传 {filledCount} 个，已应用 {appliedCount} 个</span>
+        <span className="section-count">{loading ? '正在同步腾讯云服务器最新维度表...' : `4 个槽位，已上传 ${filledCount} 个，已应用 ${appliedCount} 个`}</span>
       </div>
       <section className="dimension-library-grid">
         {slots.map((slot, index) => {
