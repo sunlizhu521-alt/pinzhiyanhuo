@@ -24,7 +24,7 @@ const DEFAULT_USERS = [
   { id: 'u-settlement', name: '结算员', password: '123456', role: ROLE_SETTLEMENT }
 ];
 
-const BUSINESS_DEPARTMENT_OPTIONS = ['海外事业一部', '海外事业二部', '全球招商部', '国内事业部', '其他'];
+const BUSINESS_DEPARTMENT_OPTIONS = ['海外事业一部', '海外事业二部', '全球招商事业部', '国内事业部', '其他'];
 
 const NOTICE_FIELDS = [
   { key: 'inspectionApplicant', label: '验货填写人', readonly: true },
