@@ -18,10 +18,9 @@ const dbPath = path.join(dataDir, 'db.json');
 const port = Number(process.env.PORT || 4002);
 const DEFAULT_ADMIN_USER = { id: 'u-admin', name: '孙立柱', password: '521sunlizhu', role: '管理员' };
 const ROLE_ADMIN = '管理员';
-const ROLE_PURCHASER = '采购跟单员';
-const ROLE_INSPECTOR = '验货员';
-const ROLE_SETTLEMENT = '结算员';
 const ROLE_USER = '普通用户';
+const LEGACY_DEFAULT_USER_IDS = new Set(['u-purchaser', 'u-inspector', 'u-settlement']);
+const LEGACY_ROLE_NAMES = new Set(['采购跟单员', '验货员', '结算员']);
 const PAGE_KEYS = [
   'inspectionNotice',
   'inspectionSchedule',
@@ -37,16 +36,10 @@ const PAGE_KEYS = [
 ];
 const DEFAULT_PAGE_ACCESS_BY_ROLE = {
   [ROLE_ADMIN]: PAGE_KEYS,
-  [ROLE_PURCHASER]: ['inspectionNotice'],
-  [ROLE_INSPECTOR]: ['inspectionFeedback'],
-  [ROLE_SETTLEMENT]: ['inspectionReportQuery', 'inspectionSummary', 'inspectionLedger'],
   [ROLE_USER]: []
 };
 const DEFAULT_USERS = [
-  DEFAULT_ADMIN_USER,
-  { id: 'u-purchaser', name: '采购跟单员', password: '123456', role: ROLE_PURCHASER },
-  { id: 'u-inspector', name: '验货员', password: '123456', role: ROLE_INSPECTOR },
-  { id: 'u-settlement', name: '结算员', password: '123456', role: ROLE_SETTLEMENT }
+  DEFAULT_ADMIN_USER
 ];
 const PRODUCT_CATEGORY_SLOT_ID = 'dimension-slot-1';
 const PURCHASE_WORK_DIVISION_SLOT_ID = 'dimension-slot-2';
@@ -113,8 +106,8 @@ function fixMojibakeText(value) {
 
 function normalizeRole(role, name) {
   if (name === DEFAULT_ADMIN_USER.name || role === ROLE_ADMIN) return ROLE_ADMIN;
-  if ([ROLE_PURCHASER, ROLE_INSPECTOR, ROLE_SETTLEMENT, ROLE_USER].includes(role)) return role;
-  if (String(name || '').includes('验货')) return ROLE_INSPECTOR;
+  if (role === ROLE_USER) return ROLE_USER;
+  if (LEGACY_ROLE_NAMES.has(role) || LEGACY_ROLE_NAMES.has(name)) return ROLE_USER;
   return ROLE_USER;
 }
 
@@ -133,7 +126,11 @@ function normalizePageAccess(user) {
 function normalizeDb(db = {}) {
   const qualityInspection = db.qualityInspection || {};
   const sourceUsers = Array.isArray(db.users) && db.users.length ? db.users : DEFAULT_USERS;
-  const usersByName = new Map(sourceUsers.map((user) => [user.name, user]));
+  const activeUsers = sourceUsers.filter((user) => (
+    isPrimaryAdminUser(user)
+    || (!LEGACY_DEFAULT_USER_IDS.has(user.id) && !LEGACY_ROLE_NAMES.has(user.name))
+  ));
+  const usersByName = new Map(activeUsers.map((user) => [user.name, user]));
   DEFAULT_USERS.forEach((user) => {
     if (!usersByName.has(user.name)) usersByName.set(user.name, user);
   });

@@ -13,15 +13,11 @@ const QUALITY_SEAL_IMAGE = `${import.meta.env.BASE_URL}assets/quality-seal.png`;
 const DIMENSION_PREVIEW_ROW_LIMIT = 20;
 const DEFAULT_ADMIN_USER = { id: 'u-admin', name: '孙立柱', password: '521sunlizhu', role: '管理员' };
 const ROLE_ADMIN = '管理员';
-const ROLE_PURCHASER = '采购跟单员';
-const ROLE_INSPECTOR = '验货员';
-const ROLE_SETTLEMENT = '结算员';
 const ROLE_USER = '普通用户';
+const LEGACY_DEFAULT_USER_IDS = new Set(['u-purchaser', 'u-inspector', 'u-settlement']);
+const LEGACY_ROLE_NAMES = new Set(['采购跟单员', '验货员', '结算员']);
 const DEFAULT_USERS = [
-  DEFAULT_ADMIN_USER,
-  { id: 'u-purchaser', name: '采购跟单员', password: '123456', role: ROLE_PURCHASER },
-  { id: 'u-inspector', name: '验货员', password: '123456', role: ROLE_INSPECTOR },
-  { id: 'u-settlement', name: '结算员', password: '123456', role: ROLE_SETTLEMENT }
+  DEFAULT_ADMIN_USER
 ];
 
 const BUSINESS_DEPARTMENT_OPTIONS = ['全球招商事业部', '海外事业一部', '海外事业二部', '国内事业部', '其他'];
@@ -113,9 +109,6 @@ const PAGE_OPTIONS = [
 
 const ROLE_PAGE_ACCESS = {
   [ROLE_ADMIN]: PAGE_OPTIONS.map((page) => page.tab),
-  [ROLE_PURCHASER]: ['inspectionNotice'],
-  [ROLE_INSPECTOR]: ['inspectionFeedback'],
-  [ROLE_SETTLEMENT]: ['inspectionReportQuery', 'inspectionSummary', 'inspectionLedger'],
   [ROLE_USER]: []
 };
 
@@ -534,7 +527,11 @@ function normalizeStaticDb(db = {}) {
   const fallback = defaultStaticDb();
   const inspection = db.qualityInspection || {};
   const sourceUsers = Array.isArray(db.users) && db.users.length ? db.users : fallback.users;
-  const usersByName = new Map(sourceUsers.map((item) => [item.name, item]));
+  const activeUsers = sourceUsers.filter((item) => (
+    isPrimaryAdminUser(item)
+    || (!LEGACY_DEFAULT_USER_IDS.has(item.id) && !LEGACY_ROLE_NAMES.has(item.name))
+  ));
+  const usersByName = new Map(activeUsers.map((item) => [item.name, item]));
   DEFAULT_USERS.forEach((item) => {
     if (!usersByName.has(item.name)) usersByName.set(item.name, item);
   });
@@ -544,8 +541,8 @@ function normalizeStaticDb(db = {}) {
       if (user.id === DEFAULT_ADMIN_USER.id || user.name === DEFAULT_ADMIN_USER.name || user.role === ROLE_ADMIN) {
         return { ...user, ...DEFAULT_ADMIN_USER, pageAccess: ROLE_PAGE_ACCESS[ROLE_ADMIN] };
       }
-      const role = [ROLE_PURCHASER, ROLE_INSPECTOR, ROLE_SETTLEMENT, ROLE_USER].includes(user.role)
-        ? user.role
+      const role = user.role === ROLE_ADMIN
+        ? ROLE_ADMIN
         : ROLE_USER;
       const pageAccess = normalizePageAccessList(Array.isArray(user.pageAccess)
         ? user.pageAccess
