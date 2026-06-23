@@ -243,16 +243,6 @@ function formatQuantity(value) {
   return Number.isInteger(number) ? String(number) : String(Number(number.toFixed(4)));
 }
 
-const BUSINESS_DEPARTMENT_CODES = {
-  海外事业一部: 'HW1',
-  海外事业部一部: 'HW1',
-  海外事业二部: 'HW2',
-  海外事业部二部: 'HW2',
-  全球招商事业部: 'QQ',
-  国内事业部: 'GN',
-  其他: 'QT'
-};
-
 function formatCompactDate(value) {
   return formatDate(value).replace(/-/g, '');
 }
@@ -285,18 +275,13 @@ function uniqueValues(values) {
   });
 }
 
-function businessDepartmentCode(value) {
-  return BUSINESS_DEPARTMENT_CODES[normalize(value)] || normalize(value);
-}
-
-function scheduleReportNo(record) {
+function feedbackReportNo(record, actualInspectionTime) {
   return [
-    normalize(record.kingdeeOrderNo),
     supplierInitials(record.supplierShortName),
-    uniqueValues(splitMultiValue(record.businessDepartments)).map(businessDepartmentCode).join('/'),
-    formatCompactDate(record.inspectionFillTime),
-    normalize(record.series)
-  ].filter(Boolean).join('-');
+    formatCompactDate(actualInspectionTime),
+    normalize(record.series),
+    normalize(record.totalQuantity)
+  ].filter(Boolean).join('/');
 }
 
 function mergeScheduleRecords(records = []) {
@@ -334,11 +319,6 @@ function mergeScheduleRecords(records = []) {
       remark: mergedRemarkParts.join('；'),
       schedule: first.schedule || {},
       report: { ...(first.report || {}) }
-    };
-    merged.generatedReportNo = scheduleReportNo(merged);
-    merged.report = {
-      ...merged.report,
-      reportNo: merged.generatedReportNo
     };
     return merged;
   });
@@ -1637,12 +1617,24 @@ function App() {
     if (STATIC_MODE) {
       const db = readStaticDb();
       const inspection = db.qualityInspection;
+      const recordById = new Map(composedStaticRecords(db).map((record) => [record.id, record]));
       matchedItems.forEach((item) => {
         inspection.feedback[item.recordId] = {
           ...(inspection.feedback[item.recordId] || {}),
           ...item.feedback,
           updatedAt: nowText()
         };
+        const current = recordById.get(item.recordId);
+        const reportNo = item.feedback?.actualInspectionTime
+          ? feedbackReportNo(current || item.notice || {}, item.feedback.actualInspectionTime)
+          : '';
+        if (reportNo) {
+          inspection.reports[item.recordId] = {
+            ...(inspection.reports[item.recordId] || {}),
+            reportNo,
+            updatedAt: nowText()
+          };
+        }
       });
       saveStaticDb(db);
       setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
@@ -1651,7 +1643,7 @@ function App() {
       return;
     }
 
-    const recordById = new Map(records.map((record) => [record.id, record]));
+    const recordById = new Map(displayRecords.map((record) => [record.id, record]));
     const responses = await Promise.all(matchedItems.map((item) => {
       const current = recordById.get(item.recordId);
       return authFetch(`${API}/api/quality-inspection/feedback/${encodeURIComponent(item.recordId)}`, {
@@ -1662,6 +1654,24 @@ function App() {
     }));
     if (responses.some((res) => !res.ok)) {
       setMessage('验货反馈批量导入失败，请稍后重试。');
+      return;
+    }
+    const reportResponses = await Promise.all(matchedItems.map((item) => {
+      const current = recordById.get(item.recordId);
+      const reportNo = item.feedback?.actualInspectionTime
+        ? feedbackReportNo(current || item.notice || {}, item.feedback.actualInspectionTime)
+        : '';
+      if (!reportNo) return Promise.resolve({ ok: true });
+      const reportForm = new FormData();
+      reportForm.append('reportNo', reportNo);
+      return authFetch(`${API}/api/quality-inspection/reports/${encodeURIComponent(item.recordId)}`, {
+        method: 'POST',
+        body: reportForm
+      });
+    }));
+    if (reportResponses.some((res) => !res.ok)) {
+      setMessage('验货反馈已导入，但检验报告单编码保存失败。');
+      await refreshRecords();
       return;
     }
     await refreshRecords();
@@ -1989,7 +1999,6 @@ function App() {
         const targetIds = Array.isArray(draft.sourceIds) && draft.sourceIds.length ? draft.sourceIds : [recordId];
         const scheduledDate = normalize(draft.scheduledDate);
         const inspector = normalize(draft.inspector);
-        const reportNo = normalize(draft.reportNo);
         targetIds.forEach((targetId) => {
           db.qualityInspection.schedules[targetId] = {
             ...(db.qualityInspection.schedules[targetId] || {}),
@@ -1997,11 +2006,6 @@ function App() {
             inspector,
             remark: normalize(draft.remark),
             status: scheduledDate || inspector ? '已安排' : '未安排',
-            updatedAt: nowText()
-          };
-          db.qualityInspection.reports[targetId] = {
-            ...(db.qualityInspection.reports[targetId] || {}),
-            reportNo,
             updatedAt: nowText()
           };
         });
@@ -2017,14 +2021,12 @@ function App() {
       const targetIds = Array.isArray(draft.sourceIds) && draft.sourceIds.length ? draft.sourceIds : [recordId];
       const scheduledDate = normalize(draft.scheduledDate);
       const inspector = normalize(draft.inspector);
-      const reportNo = normalize(draft.reportNo);
       return targetIds.map((targetId) => authFetch(`${API}/api/quality-inspection/schedules/${encodeURIComponent(targetId)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           scheduledDate,
           inspector,
-          reportNo,
           remark: normalize(draft.remark),
           status: scheduledDate || inspector ? '已安排' : '未安排'
         })
@@ -2161,12 +2163,6 @@ function App() {
     setSavingId(record.id);
     const form = new FormData(formElement);
     const file = form.get('reportFile');
-    const reportNo = normalize(form.get('reportNo')) || normalize(record.report?.reportNo);
-    if (file instanceof File && file.size > 0 && !reportNo) {
-      setSavingId('');
-      setMessage('请先填写检验报告单编码，再上传检验报告单。');
-      return;
-    }
     const feedbackPatch = {
       actualInspectionTime: normalize(form.get('actualInspectionTime')),
       inspectionDays: normalize(form.get('inspectionDays')),
@@ -2180,6 +2176,14 @@ function App() {
       actualInspector: normalize(form.get('actualInspector')),
       feedbackText: normalize(form.get('feedbackText'))
     };
+    const reportNo = feedbackPatch.actualInspectionTime
+      ? feedbackReportNo(record, feedbackPatch.actualInspectionTime)
+      : '';
+    if (file instanceof File && file.size > 0 && !reportNo) {
+      setSavingId('');
+      setMessage('请先填写实际验货时间，系统会自动生成检验报告单编码后再上传检验报告单。');
+      return;
+    }
     if (STATIC_MODE) {
       const db = readStaticDb();
       db.qualityInspection.feedback[record.id] = {
@@ -2999,7 +3003,6 @@ function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete
       {
         scheduledDate: formatDate(record.schedule?.scheduledDate),
         inspector: record.schedule?.inspector || '',
-        reportNo: record.report?.reportNo || '',
         remark: record.schedule?.remark || '',
         sourceIds: record.sourceIds || [record.id]
       }
@@ -3040,7 +3043,7 @@ function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete
       <DataTable
         className="inspection-schedule-table"
         rows={scheduleRows}
-        columns={['供应商简称', '地址', '产品线', '系列', '数量', '事业部', '运营', '验货通知人', '备注', '检验报告单编码', '计划验货时间', '验货员', '安排备注', '操作']}
+        columns={['供应商简称', '地址', '产品线', '系列', '数量', '事业部', '运营', '验货通知人', '备注', '计划验货时间', '验货员', '安排备注', '操作']}
         render={(record) => [
           record.supplierShortName,
           record.supplierAddress,
@@ -3051,11 +3054,6 @@ function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete
           record.operation,
           record.inspectionNotifier || record.inspectionApplicant,
           <span className="readonly-cell wide-readonly-cell">{record.remark || ''}</span>,
-          <input
-            className="table-input wide-input"
-            value={drafts[record.id]?.reportNo || ''}
-            onChange={(event) => updateDraft(record.id, 'reportNo', event.target.value)}
-          />,
           <input
             className="table-input"
             type="date"
@@ -3296,7 +3294,7 @@ function FeedbackPage({
           '提交按钮'
         ]}
         render={(record) => [
-          <input name="reportNo" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.report?.reportNo || ''} />,
+          <span className="readonly-cell wide-readonly-cell">{feedbackReportNo(record, record.feedback?.actualInspectionTime) || record.report?.reportNo || '填写实际验货时间后自动生成'}</span>,
           record.supplierShortName,
           record.salesProductLine,
           record.series,

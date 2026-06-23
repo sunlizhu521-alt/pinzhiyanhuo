@@ -968,19 +968,12 @@ app.post('/api/quality-inspection/summary-import', requireAuth, requirePages('in
 
 app.patch('/api/quality-inspection/schedules/:id', requireAuth, requirePages('inspectionSchedule'), requireRoles(ROLE_ADMIN), async (req, res) => {
   const db = await readDb();
-  const { reportNo, ...schedulePayload } = req.body || {};
+  const { reportNo: _ignoredReportNo, ...schedulePayload } = req.body || {};
   db.qualityInspection.schedules[req.params.id] = {
     ...(db.qualityInspection.schedules[req.params.id] || {}),
     ...schedulePayload,
     updatedAt: nowText()
   };
-  if (typeof reportNo !== 'undefined') {
-    db.qualityInspection.reports[req.params.id] = {
-      ...(db.qualityInspection.reports[req.params.id] || {}),
-      reportNo: String(reportNo || '').trim(),
-      updatedAt: nowText()
-    };
-  }
   await saveDb(db);
   res.json(db.qualityInspection.schedules[req.params.id]);
 });
