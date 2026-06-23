@@ -29,6 +29,7 @@ const PAGE_KEYS = [
   'inspectionReportLibrary',
   'inspectionReportQuery',
   'inspectionSummary',
+  'inspectionLedger',
   'inspectionInitialData',
   'dimensionLibrary',
   'permissionManagement'
@@ -37,7 +38,7 @@ const DEFAULT_PAGE_ACCESS_BY_ROLE = {
   [ROLE_ADMIN]: PAGE_KEYS,
   [ROLE_PURCHASER]: ['inspectionNotice'],
   [ROLE_INSPECTOR]: ['inspectionFeedback'],
-  [ROLE_SETTLEMENT]: ['inspectionReportQuery', 'inspectionSummary'],
+  [ROLE_SETTLEMENT]: ['inspectionReportQuery', 'inspectionSummary', 'inspectionLedger'],
   [ROLE_USER]: []
 };
 const DEFAULT_USERS = [
@@ -491,6 +492,7 @@ function canReadRecord(user, record) {
     user.role === ROLE_ADMIN
     || hasPageAccess(user, 'inspectionReportQuery')
     || hasPageAccess(user, 'inspectionSummary')
+    || hasPageAccess(user, 'inspectionLedger')
     || hasPageAccess(user, 'inspectionSchedule')
     || hasPageAccess(user, 'inspectionStamp')
     || hasPageAccess(user, 'inspectionReportLibrary')
@@ -929,7 +931,7 @@ app.post('/api/quality-inspection/initial-data/import', requireAuth, requirePage
   }
 });
 
-app.get('/api/quality-inspection/dimension-library', requireAuth, requirePages('dimensionLibrary', 'inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'inspectionReportLibrary', 'inspectionReportQuery', 'inspectionSummary'), async (req, res) => {
+app.get('/api/quality-inspection/dimension-library', requireAuth, requirePages('dimensionLibrary', 'inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'inspectionReportLibrary', 'inspectionReportQuery', 'inspectionSummary', 'inspectionLedger'), async (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   const db = await readDb();
   const recovered = await recoverDimensionLibraryRecordsFromUploadedFiles(db);
@@ -1116,7 +1118,7 @@ app.delete('/api/quality-inspection/notices/:id', requireAuth, requirePages('ins
   res.json({ notices: db.qualityInspection.notices, rows: composedRecords(db) });
 });
 
-app.get('/api/quality-inspection/records', requireAuth, requirePages('inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'inspectionStamp', 'inspectionReportLibrary', 'inspectionReportQuery', 'inspectionSummary'), async (req, res) => {
+app.get('/api/quality-inspection/records', requireAuth, requirePages('inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'inspectionStamp', 'inspectionReportLibrary', 'inspectionReportQuery', 'inspectionSummary', 'inspectionLedger'), async (req, res) => {
   const db = await readDb();
   res.json({ rows: composedRecords(db).filter((record) => canReadRecord(req.authUser, record)) });
 });

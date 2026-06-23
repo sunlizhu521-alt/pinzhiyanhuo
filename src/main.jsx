@@ -95,6 +95,7 @@ const MENU_PAGES = [
   { tab: 'inspectionStamp', label: '加盖检验章' },
   { tab: 'inspectionReportQuery', label: '查询检验单' },
   { tab: 'inspectionSummary', label: '验货反馈表' },
+  { tab: 'inspectionLedger', label: '验货台账' },
   { tab: 'dimensionLibrary', label: '维度表文件库' },
   { tab: 'inspectionReportLibrary', label: '报告单文件库' },
   { tab: 'permissionManagement', label: '权限管理' }
@@ -109,7 +110,7 @@ const ROLE_PAGE_ACCESS = {
   [ROLE_ADMIN]: PAGE_OPTIONS.map((page) => page.tab),
   [ROLE_PURCHASER]: ['inspectionNotice'],
   [ROLE_INSPECTOR]: ['inspectionFeedback'],
-  [ROLE_SETTLEMENT]: ['inspectionReportQuery', 'inspectionSummary'],
+  [ROLE_SETTLEMENT]: ['inspectionReportQuery', 'inspectionSummary', 'inspectionLedger'],
   [ROLE_USER]: []
 };
 
@@ -138,6 +139,7 @@ function canReadClientRecord(user, record) {
     user.role === ROLE_ADMIN
     || canAccessPage(user, 'inspectionReportQuery')
     || canAccessPage(user, 'inspectionSummary')
+    || canAccessPage(user, 'inspectionLedger')
     || canAccessPage(user, 'inspectionSchedule')
     || canAccessPage(user, 'inspectionStamp')
     || canAccessPage(user, 'inspectionReportLibrary')
@@ -1556,7 +1558,7 @@ function App() {
       return;
     }
     if (initialRes.ok) setInitialData(await initialRes.json());
-    if (['dimensionLibrary', 'inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'inspectionReportLibrary', 'inspectionReportQuery', 'inspectionSummary'].some((page) => canAccessPage(user, page))) {
+    if (['dimensionLibrary', 'inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'inspectionReportLibrary', 'inspectionReportQuery', 'inspectionSummary', 'inspectionLedger'].some((page) => canAccessPage(user, page))) {
       await refreshDimensionLibrary();
     }
     if (noticeRes.ok) {
@@ -2964,6 +2966,19 @@ function App() {
         )}
         {canAccessPage(user, 'inspectionSummary') && activeTab === 'inspectionSummary' && (
           <SummaryPage
+            title="验货反馈表"
+            summary={summary}
+            records={summaryRecords}
+            canImport={isAdminUser(user)}
+            importPreview={summaryImportPreview}
+            onUpload={previewSummaryRows}
+            onConfirmImport={confirmSummaryImport}
+            onClearImportPreview={clearSummaryImportPreview}
+          />
+        )}
+        {canAccessPage(user, 'inspectionLedger') && activeTab === 'inspectionLedger' && (
+          <SummaryPage
+            title="验货台账"
             summary={summary}
             records={summaryRecords}
             canImport={isAdminUser(user)}
@@ -4133,13 +4148,13 @@ function ReportQueryPage({
   );
 }
 
-function SummaryPage({ summary, records, canImport, importPreview, onUpload, onConfirmImport, onClearImportPreview }) {
+function SummaryPage({ title = '验货反馈表', summary, records, canImport, importPreview, onUpload, onConfirmImport, onClearImportPreview }) {
   const previewRows = importPreview?.items || [];
   const previewLimitedRows = previewRows.slice(0, 10);
   return (
     <>
       <div className="section-heading-row">
-        <h2>验货反馈表</h2>
+        <h2>{title}</h2>
         <span className="section-count">按当前数据实时汇总</span>
       </div>
       {canImport && (
