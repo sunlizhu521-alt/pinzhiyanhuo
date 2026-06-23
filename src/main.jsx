@@ -20,10 +20,9 @@ const DEFAULT_USERS = [
   DEFAULT_ADMIN_USER
 ];
 
-const BUSINESS_DEPARTMENT_OPTIONS = ['全球招商事业部', '海外事业一部', '海外事业二部', '国内事业部', '其他'];
+const BUSINESS_DEPARTMENT_OPTIONS = ['全球招商事业部', '海外事业一部', '海外事业二部', '国内事业部', '美护事业部', '其他'];
 
 const NOTICE_FIELDS = [
-  { key: 'inspectionApplicant', label: '验货填写人', readonly: true },
   { key: 'inspectionNotifier', label: '验货通知人' },
   { key: 'inspectionFillTime', label: '验货填写时间', type: 'date' },
   { key: 'supplierFinishTime', label: '供应商完工时间', type: 'date' },
@@ -188,7 +187,8 @@ function createNoticeRow(values = {}) {
     ...current,
     [field.key]: values[field.key] || ''
   }), {
-    id: values.id || createId()
+    id: values.id || createId(),
+    inspectionApplicant: values.inspectionApplicant || ''
   });
   if (values.importSource) row.importSource = values.importSource;
   return row;

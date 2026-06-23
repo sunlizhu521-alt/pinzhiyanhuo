@@ -50,7 +50,6 @@ const DIMENSION_ADDRESS_ALIASES = ['产品线明细地址', '供应商地址', '
 const SALES_PRODUCT_LINE_ALIASES = ['销售产品线', '产品线', '一级产品线'];
 const SALES_SERIES_ALIASES = ['销售系列', '系列', '产品系列'];
 const NOTICE_REQUIRED_FIELDS = [
-  { key: 'inspectionApplicant', label: '验货填写人' },
   { key: 'inspectionNotifier', label: '验货通知人' },
   { key: 'inspectionFillTime', label: '验货填写时间' },
   { key: 'supplierFinishTime', label: '供应商完工时间' },
@@ -804,7 +803,7 @@ function prepareNoticeRows(rows, user, supplierMap, categoryMaps) {
     return {
       id: row.id || randomUUID(),
       ...row,
-      inspectionApplicant: user.role === ROLE_ADMIN ? row.inspectionApplicant : user.name,
+      inspectionApplicant: normalizeText(row.inspectionApplicant) || user.name,
       supplierShortName: supplierRecord?.supplierShortName || normalizeText(row.supplierShortName),
       supplierAddress: supplierRecord?.address || normalizeText(row.supplierAddress),
       businessDepartments: joinBusinessDepartments(splitMultiValue(row.businessDepartments)),
