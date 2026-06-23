@@ -155,7 +155,7 @@ function canReadClientRecord(user, record) {
   ) return true;
   if (canAccessPage(user, 'inspectionNotice')) return record.inspectionApplicant === user.name;
   if (canAccessPage(user, 'inspectionFeedback')) {
-    return isSubmittedScheduleRecord(record) && record.schedule?.inspector === user.name;
+    return isSubmittedScheduleRecord(record);
   }
   return false;
 }

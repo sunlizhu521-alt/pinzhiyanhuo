@@ -507,7 +507,7 @@ function canReadRecord(user, record) {
   ) return true;
   if (hasPageAccess(user, 'inspectionNotice')) return record.inspectionApplicant === user.name;
   if (hasPageAccess(user, 'inspectionFeedback')) {
-    return isSubmittedScheduleRecord(record) && record.schedule?.inspector === user.name;
+    return isSubmittedScheduleRecord(record);
   }
   return false;
 }
@@ -516,8 +516,7 @@ function canWriteFeedback(user, record) {
   if (!user || !record) return false;
   if (user.role === ROLE_ADMIN) return true;
   return hasPageAccess(user, 'inspectionFeedback')
-    && isSubmittedScheduleRecord(record)
-    && record.schedule?.inspector === user.name;
+    && isSubmittedScheduleRecord(record);
 }
 
 function reportFilePath(fileName) {
