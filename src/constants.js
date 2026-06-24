@@ -86,12 +86,12 @@ const MENU_PAGES = [
   { tab: 'inspectionSchedule', label: '验货安排' },
   { tab: 'inspectionFeedback', label: '验货反馈' },
   { tab: 'reworkRecords', label: '复验通知' },
-  { tab: 'inspectionStamp', label: '加盖检验章' },
-  { tab: 'inspectionReportQuery', label: '查询检验单' },
+  { tab: 'inspectionStamp', label: '盖检验章' },
+  { tab: 'inspectionReportQuery', label: '查检验单' },
   { tab: 'inspectionSummary', label: '验货状态' },
   { tab: 'inspectionLedger', label: '验货台账' },
-  { tab: 'dimensionLibrary', label: '维度表文件库' },
-  { tab: 'inspectionReportLibrary', label: '报告单文件库' },
+  { tab: 'dimensionLibrary', label: '维度表库' },
+  { tab: 'inspectionReportLibrary', label: '报告单库' },
   { tab: 'permissionManagement', label: '权限管理' }
 ];
 

@@ -125,7 +125,7 @@ function InspectionStampPage({ records, savingId, onStamp }) {
   return (
     <section className="stamp-page">
       <div className="section-heading-row">
-        <h2>加盖检验章</h2>
+        <h2>盖检验章</h2>
         <span className="section-count">待盖章 {stampRecords.length} 份</span>
         <label className="upload-button">
           批量上传图片
