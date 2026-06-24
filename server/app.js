@@ -994,7 +994,7 @@ app.post('/api/auth/login', async (req, res) => {
     id: user.id,
     name: user.name,
     role: user.role,
-    pageAccess: user.pageAccess || [],
+    pageAccess: (user.name === DEFAULT_ADMIN_USER.name || user.role === ROLE_ADMIN) ? PAGE_KEYS : (user.pageAccess || []),
     token,
     mustResetPassword: !!user.mustResetPassword
   });
