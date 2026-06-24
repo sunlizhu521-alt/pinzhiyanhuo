@@ -183,6 +183,7 @@ function FeedbackPage({
           '运营',
           '验货通知人',
           '备注',
+          '计划日期',
           '验货员',
           '实际验货人',
           '实际验货时间',
@@ -195,6 +196,7 @@ function FeedbackPage({
           '问题等级',
           '问题分类',
           '问题反馈',
+          '检验单文件',
           '检验报告单上传功能',
           '提交按钮'
         ]}
@@ -211,6 +213,7 @@ function FeedbackPage({
             record.operation,
             record.inspectionNotifier || record.inspectionApplicant,
             <span className="readonly-cell wide-readonly-cell">{record.remark}</span>,
+            formatDate(record.schedule?.scheduledDate),
             <span className="readonly-cell">{normalize(record.schedule?.inspector)}</span>,
             <input name="actualInspector" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.actualInspector || ''} />,
             <input
@@ -257,6 +260,19 @@ function FeedbackPage({
               <option value="外观">外观</option>
             </select>,
             <textarea name="feedbackText" form={`feedback-form-${record.id}`} className="table-textarea wide-textarea" defaultValue={record.feedback?.feedbackText || ''} />,
+            (() => {
+              const href = reportHref(record);
+              if (!href) return '';
+              return (
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => window.open(href, '_blank')}
+                >
+                  {record.report?.originalName || '查看报告'}
+                </button>
+              );
+            })(),
             <div className="feedback-report-cell">
               {reportHref(record) && <a href={reportHref(record)} target="_blank" rel="noreferrer">{record.report?.originalName || '查看报告'}</a>}
               <input name="reportFile" form={`feedback-form-${record.id}`} type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx" />

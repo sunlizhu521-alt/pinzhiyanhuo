@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BUSINESS_DEPARTMENT_OPTIONS } from '../constants.js';
-import { canReadClientRecord, formatDate } from '../utils.js';
+import { canReadClientRecord, formatDate, normalize } from '../utils.js';
 import { reportHref, isImageReport, reportFileExt, formatFileSize } from '../file-utils.js';
 import DataTable from './DataTable.jsx';
 import EmptyState from './EmptyState.jsx';
@@ -13,6 +13,7 @@ function ReportQueryPage({
   supplierOptions,
   productLineOptions,
   seriesOptions,
+  reportLibraryItems = [],
   onQuery,
   onStatusFilter,
   onFilterChange,
@@ -23,11 +24,48 @@ function ReportQueryPage({
   onExport
 }) {
   const [previewRecord, setPreviewRecord] = useState(null);
-  const previewUrl = previewRecord ? reportHref(previewRecord) : '';
-  const previewExt = previewRecord ? reportFileExt(previewRecord) : '';
+  const previewUrl = previewRecord?._overrideUrl || (previewRecord ? reportHref(previewRecord) : '');
+  const previewExt = previewRecord?._overrideExt ?? (previewRecord ? reportFileExt(previewRecord) : '');
   const columns = canDelete
     ? ['供应商', '实际验货时间', '实际验货员', '报告单号', '报告文件', '验货结果', '操作']
     : ['供应商', '实际验货时间', '实际验货员', '报告单号', '报告文件', '验货结果'];
+
+  const recordReportFiles = useMemo(() => {
+    const map = {};
+    for (const record of records) {
+      const files = [];
+      if (reportHref(record)) {
+        files.push({
+          key: 'record-report',
+          label: record.report?.stampedAt ? '已盖章' : '直接保存',
+          url: reportHref(record),
+          name: record.report?.originalName || '查看文件'
+        });
+      }
+      const matched = reportLibraryItems.filter(
+        (file) => normalize(file.recordId || '') === normalize(record.id || '')
+          || normalize(file.reportNo || '') === normalize(record.report?.reportNo || '')
+      );
+      for (const file of matched) {
+        if (file.fileUrl) {
+          files.push({
+            key: file.id || file.fileName,
+            label: file.stampedAt ? '已盖章' : (file.source || '历史'),
+            url: file.fileUrl,
+            name: file.fileName || '查看文件'
+          });
+        }
+      }
+      map[record.id] = files;
+    }
+    return map;
+  }, [records, reportLibraryItems]);
+
+  function filePreviewExt(file) {
+    return String(file.url || file.name || '')
+      .split('?')[0]
+      .match(/\.[^.]+$/)?.[0]?.toLowerCase() || '';
+  }
 
   useEffect(() => {
     if (previewRecord && !records.some((record) => record.id === previewRecord.id)) {
@@ -83,17 +121,33 @@ function ReportQueryPage({
             formatDate(record.feedback?.actualInspectionTime),
             record.feedback?.actualInspector || record.schedule?.inspector || '',
             record.report?.reportNo || '',
-            reportHref(record)
-              ? (
-                <button
-                  type="button"
-                  className="link-button"
-                  onClick={() => setPreviewRecord(record)}
-                >
-                  {record.report.originalName || '查看文件'}
-                </button>
-              )
-              : '',
+            (() => {
+              const files = recordReportFiles[record.id] || [];
+              if (!files.length) return '';
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  {files.map((file) => (
+                    <button
+                      key={file.key}
+                      type="button"
+                      className="link-button"
+                      onClick={() => setPreviewRecord({
+                        ...record,
+                        report: {
+                          ...record.report,
+                          originalName: file.name,
+                          reportNo: record.report?.reportNo
+                        },
+                        _overrideUrl: file.url,
+                        _overrideExt: filePreviewExt(file)
+                      })}
+                    >
+                      [{file.label}] {file.name}
+                    </button>
+                  ))}
+                </div>
+              );
+            })(),
             record.feedback?.result || ''
           ];
           if (canDelete) {
