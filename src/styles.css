@@ -144,6 +144,8 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  overflow-x: hidden;
+  white-space: nowrap;
 }
 
 .sidebar h1 {
@@ -195,6 +197,23 @@ textarea {
 .submenu-list button {
   padding: 8px 10px;
   font-size: 14px;
+}
+
+.sidebar-nav {
+  display: grid;
+  gap: 4px;
+}
+
+.sidebar-nav button {
+  padding: 8px 10px;
+  font-size: 14px;
+  text-align: left;
+}
+
+.sidebar-nav button.active {
+  background: #2563eb;
+  color: white;
+  box-shadow: inset 3px 0 0 #93c5fd;
 }
 
 .sidebar button.active,
@@ -323,6 +342,11 @@ th {
   position: sticky;
   top: 0;
   z-index: 1;
+}
+
+.required-star {
+  color: #dc2626;
+  font-weight: 800;
 }
 
 .empty,

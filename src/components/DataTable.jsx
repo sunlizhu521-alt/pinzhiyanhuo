@@ -1,9 +1,22 @@
 function DataTable({ rows, columns, render, className = '' }) {
+  function renderHeader(col) {
+    const label = col.label || col;
+    if (typeof label === 'string' && label.endsWith(' *')) {
+      return (
+        <>
+          {label.slice(0, -2)}
+          <span className="required-star"> *</span>
+        </>
+      );
+    }
+    return label;
+  }
+
   return (
     <div className={`data-table-wrapper table-wrap ${className}`}>
       <table className="data-table">
         <thead>
-          <tr>{columns.map((col) => <th key={col.key || col}>{col.label || col}</th>)}</tr>
+          <tr>{columns.map((col) => <th key={col.key || col}>{renderHeader(col)}</th>)}</tr>
         </thead>
         <tbody>
           {rows.length === 0 ? (

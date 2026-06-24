@@ -15,18 +15,18 @@ const DEFAULT_USERS = [DEFAULT_ADMIN_USER];
 const BUSINESS_DEPARTMENT_OPTIONS = ['全球招商事业部', '海外事业一部', '海外事业二部', '国内事业部', '美护事业部', '其他'];
 
 const NOTICE_FIELDS = [
-  { key: 'inspectionNotifier', label: '验货通知人' },
-  { key: 'inspectionFillTime', label: '验货填写时间', type: 'date' },
-  { key: 'supplierFinishTime', label: '供应商完工时间', type: 'date' },
-  { key: 'shipmentTime', label: '可验货时间', type: 'date' },
-  { key: 'supplierShortName', label: '供应商简称' },
-  { key: 'supplierAddress', label: '供应商地址' },
-  { key: 'businessDepartments', label: '事业部', options: BUSINESS_DEPARTMENT_OPTIONS },
-  { key: 'operation', label: '运营' },
-  { key: 'firstInspection', label: '是否首批验货', options: ['是', '否'] },
-  { key: 'salesProductLine', label: '产品线' },
-  { key: 'series', label: '系列' },
-  { key: 'totalQuantity', label: '合计数量' },
+  { key: 'inspectionNotifier', label: '验货通知人', required: true },
+  { key: 'inspectionFillTime', label: '验货填写时间', type: 'date', required: true },
+  { key: 'supplierFinishTime', label: '供应商完工时间', type: 'date', required: true },
+  { key: 'shipmentTime', label: '可验货时间', type: 'date', required: true },
+  { key: 'supplierShortName', label: '供应商简称', required: true },
+  { key: 'supplierAddress', label: '供应商地址', required: true },
+  { key: 'businessDepartments', label: '事业部', options: BUSINESS_DEPARTMENT_OPTIONS, required: true },
+  { key: 'operation', label: '运营', required: true },
+  { key: 'firstInspection', label: '是否首批验货', options: ['是', '否'], required: true },
+  { key: 'salesProductLine', label: '产品线', required: true },
+  { key: 'series', label: '系列', required: true },
+  { key: 'totalQuantity', label: '合计数量', required: true },
   { key: 'skuQuantity', label: 'SKU及数量', multiline: true },
   { key: 'remark', label: '备注', multiline: true }
 ];

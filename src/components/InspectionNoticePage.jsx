@@ -149,7 +149,7 @@ function InspectionNoticePage({
       <DataTable
         className="inspection-notice-table"
         rows={rows}
-        columns={[...NOTICE_FIELDS.map((field) => field.label), '操作']}
+        columns={[...NOTICE_FIELDS.map((field) => field.required ? `${field.label} *` : field.label), '操作']}
         render={(row) => [
           ...NOTICE_FIELDS.map((field) => {
             if (field.readonly) return <span className="readonly-cell">{user.name}</span>;
