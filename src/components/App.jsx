@@ -1579,8 +1579,9 @@ function App() {
       await refreshRecords();
       setMessage(skipStamp ? '图片已按当前方向保存到报告单文件库。' : '检验章已加盖，文件已覆盖保存到报告单文件库。');
       return true;
-    } catch {
-      setMessage('检验章加盖失败，请确认报告单图片可以正常打开。');
+    } catch (error) {
+      console.error('stampReport failed', error);
+      setMessage(`检验章加盖失败：${error?.message || '请确认报告单图片可以正常打开。'}`);
       return false;
     } finally {
       setSavingId('');

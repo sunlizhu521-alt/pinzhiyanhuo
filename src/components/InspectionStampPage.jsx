@@ -68,8 +68,9 @@ function InspectionStampPage({ records, savingId, onStamp }) {
           setUploadedRecords((items) => items.filter((item) => item.id !== current.id));
         }
       }
-    } catch {
-      setPreviewError('保存失败，请确认报告单图片可以正常打开。');
+    } catch (error) {
+      console.error('stamp save failed', error);
+      setPreviewError(`保存失败：${error?.message || '请确认报告单图片可以正常打开。'}`);
     } finally {
       setPreviewing(false);
     }
@@ -87,8 +88,9 @@ function InspectionStampPage({ records, savingId, onStamp }) {
     try {
       const dataUrl = await createRotatedReportImageDataUrl(current, rotation);
       await saveStampResult(dataUrl, true);
-    } catch {
-      setPreviewError('保存失败，请确认报告单图片可以正常打开。');
+    } catch (error) {
+      console.error('stamp save without stamp failed', error);
+      setPreviewError(`保存失败：${error?.message || '请确认报告单图片可以正常打开。'}`);
     } finally {
       setPreviewing(false);
     }
