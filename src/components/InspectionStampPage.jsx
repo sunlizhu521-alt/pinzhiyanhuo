@@ -178,7 +178,7 @@ function InspectionStampPage({ records, savingId, onStamp }) {
             }
           }}
         >
-          {savingId === current?.id ? '保存中' : '确认保存'}
+          {savingId === current?.id ? '保存中' : '已盖章保存'}
         </button>
         {activePreview && (
           <button type="button" className="ghost compact-button" onClick={() => setStampPreview(null)} disabled={savingId === current?.id}>取消预览</button>
