@@ -528,9 +528,10 @@ function canReadRecord(user, record) {
     || hasPageAccess(user, 'inspectionSchedule')
     || hasPageAccess(user, 'inspectionStamp')
     || hasPageAccess(user, 'inspectionReportLibrary')
+    || hasPageAccess(user, 'reworkRecords')
   ) return true;
   if (hasPageAccess(user, 'inspectionNotice')) return record.inspectionApplicant === user.name;
-  if (hasPageAccess(user, 'inspectionFeedback')) {
+  if (hasPageAccess(user, 'inspectionFeedback') || hasPageAccess(user, 'reworkRecords')) {
     return isSubmittedScheduleRecord(record);
   }
   return false;
@@ -539,7 +540,7 @@ function canReadRecord(user, record) {
 function canWriteFeedback(user, record) {
   if (!user || !record) return false;
   if (user.role === ROLE_ADMIN) return true;
-  return hasPageAccess(user, 'inspectionFeedback')
+  return (hasPageAccess(user, 'inspectionFeedback') || hasPageAccess(user, 'reworkRecords'))
     && isSubmittedScheduleRecord(record);
 }
 
@@ -670,7 +671,8 @@ function composedRecords(db) {
     rowNumber: row.rowNumber || index + 1,
     schedule: inspection.schedules[row.id] || {},
     report: inspection.reports[row.id] || {},
-    feedback: inspection.feedback[row.id] || {}
+    feedback: inspection.feedback[row.id] || {},
+    rework: inspection.feedback[row.id]?.rework || {}
   }));
 }
 
@@ -1210,12 +1212,19 @@ app.post('/api/quality-inspection/notices', requireAuth, requirePages('inspectio
   const validationMessage = validateNoticeRows(preparedRows, supplierMap, categoryMaps);
   if (validationMessage) return res.status(400).json({ error: validationMessage });
   const existingRows = db.qualityInspection.notices.rows || [];
-  const nextRows = user.role === ROLE_ADMIN
-    ? preparedRows
-    : [
-        ...existingRows.filter((row) => row.inspectionApplicant !== user.name),
+  const appendMode = req.query.append === '1' || req.body.append === true;
+  const preparedIds = new Set(preparedRows.map((row) => row.id).filter(Boolean));
+  const nextRows = appendMode
+    ? [
+        ...existingRows.filter((row) => !preparedIds.has(row.id)),
         ...preparedRows
-      ];
+      ]
+    : user.role === ROLE_ADMIN
+      ? preparedRows
+      : [
+          ...existingRows.filter((row) => row.inspectionApplicant !== user.name),
+          ...preparedRows
+        ];
   db.qualityInspection.notices = {
     rows: nextRows.map((row, index) => ({
       rowNumber: index + 1,
@@ -1268,7 +1277,7 @@ app.delete('/api/quality-inspection/notices/:id', requireAuth, requirePages('ins
   res.json({ notices: db.qualityInspection.notices, rows: composedRecords(db) });
 });
 
-app.get('/api/quality-inspection/records', requireAuth, requirePages('inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'inspectionStamp', 'inspectionReportLibrary', 'inspectionReportQuery', 'inspectionSummary', 'inspectionLedger'), async (req, res) => {
+app.get('/api/quality-inspection/records', requireAuth, requirePages('inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'reworkRecords', 'inspectionStamp', 'inspectionReportLibrary', 'inspectionReportQuery', 'inspectionSummary', 'inspectionLedger'), async (req, res) => {
   const db = await readDb();
   res.json({ rows: composedRecords(db).filter((record) => canReadRecord(req.authUser, record)) });
 });
@@ -1529,7 +1538,7 @@ app.delete('/api/quality-inspection/report-files/:fileName', requireAuth, requir
   res.json({ files: await reportFileItems(db) });
 });
 
-app.patch('/api/quality-inspection/feedback/:id', requireAuth, requirePages('inspectionFeedback'), async (req, res) => {
+app.patch('/api/quality-inspection/feedback/:id', requireAuth, requirePages('inspectionFeedback', 'reworkRecords'), async (req, res) => {
   const db = await readDb();
   const record = composedRecords(db).find((item) => item.id === req.params.id);
   if (!canWriteFeedback(req.authUser, record)) return res.status(403).json({ error: '无权保存该验货反馈' });

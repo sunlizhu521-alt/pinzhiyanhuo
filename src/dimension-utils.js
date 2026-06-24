@@ -126,13 +126,15 @@ function supplierMatchesQuery(supplier, query) {
 }
 
 function findSupplierShortNameOption(value, supplierOptions = []) {
-  const text = normalize(value);
+  const text = normalize(value).toLowerCase();
   if (!text) return '';
-  const header = normalizeHeader(text);
-  const key = normalizeSupplierKey(text) || header;
-  return supplierOptions.find((supplier) => normalizeHeader(supplier) === header)
-    || supplierOptions.find((supplier) => normalizeSupplierKey(supplier) === key)
-    || '';
+  const exact = supplierOptions.find((option) => normalize(option).toLowerCase() === text);
+  if (exact) return exact;
+  const includes = supplierOptions.find((option) => {
+    const optionText = normalize(option).toLowerCase();
+    return optionText.includes(text) || text.includes(optionText);
+  });
+  return includes || '';
 }
 
 function optionMatchesQuery(option, query) {

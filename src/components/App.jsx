@@ -14,8 +14,10 @@ import InspectionSchedulePage from './InspectionSchedulePage.jsx';
 import InspectionStampPage from './InspectionStampPage.jsx';
 import ReportFileLibraryPage from './ReportFileLibraryPage.jsx';
 import ReportQueryPage from './ReportQueryPage.jsx';
+import ReworkRecordsPage from './ReworkRecordsPage.jsx';
 import InspectionNoticePage from './InspectionNoticePage.jsx';
 import SummaryPage from './SummaryPage.jsx';
+import LedgerPage from './LedgerPage.jsx';
 import PermissionManagementPage from './PermissionManagementPage.jsx';
 
 async function exportRowsToWorkbook(rows, sheetName, fileName) {
@@ -111,6 +113,10 @@ function App() {
   const displayRecords = useMemo(
     () => records.map((record) => normalizeRecordDimensions(record, supplierOptions, productLineOptions, seriesOptions, dimensionLibrary)),
     [records, supplierOptions, productLineOptions, seriesOptions, dimensionLibrary]
+  );
+  const reworkRecords = useMemo(
+    () => displayRecords.filter((record) => record.feedback?.result === '返工' && !record.rework?.completedAt),
+    [displayRecords]
   );
   const pendingScheduleRecords = useMemo(
     () => displayRecords.filter(shouldShowScheduleRecord),
@@ -570,8 +576,8 @@ function App() {
     setMessage('已清除当前验货通知填写内容。');
   }
 
-  async function submitNotices() {
-    const rows = mergeNoticeRowsForImport(noticeRows
+  async function submitNoticesRows(sourceRows, { append = false, clearRows = true, successText = '' } = {}) {
+    const rows = mergeNoticeRowsForImport(sourceRows
       .map((row) => ({
         ...row,
         businessDepartments: joinBusinessDepartments(splitMultiValue(row.businessDepartments)),
@@ -591,12 +597,18 @@ function App() {
     if (STATIC_MODE) {
       const db = readStaticDb();
       const existingRows = db.qualityInspection.notices.rows || [];
-      const nextRows = isAdminUser(user)
-        ? rows
-        : [
-            ...existingRows.filter((row) => row.inspectionApplicant !== user.name),
+      const rowIds = new Set(rows.map((row) => row.id).filter(Boolean));
+      const nextRows = append
+        ? [
+            ...existingRows.filter((row) => !rowIds.has(row.id)),
             ...rows
-          ];
+          ]
+        : isAdminUser(user)
+          ? rows
+          : [
+              ...existingRows.filter((row) => row.inspectionApplicant !== user.name),
+              ...rows
+            ];
       const payload = {
         rows: nextRows.map((row, index) => ({ ...row, id: row.id || createId(), rowNumber: index + 1 })),
         submittedAt: nowText(),
@@ -608,28 +620,48 @@ function App() {
         ? payload.rows
         : payload.rows.filter((row) => row.inspectionApplicant === user.name);
       setNoticeSubmission({ ...payload, rows: visibleRows });
-      setNoticeRows([createNoticeRow({ inspectionApplicant: user.name })]);
+      if (clearRows) setNoticeRows([createNoticeRow({ inspectionApplicant: user.name })]);
       setNoticeImportPreview(null);
       setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
-      setMessage(`验货通知已提交：共 ${payload.rows.length} 条。`);
-      return;
+      setMessage(successText || `验货通知已提交：共 ${payload.rows.length} 条。`);
+      return true;
     }
-    const res = await authFetch(`${API}/api/quality-inspection/notices?user=${encodeURIComponent(user.name)}`, {
+    const params = new URLSearchParams({ user: user.name });
+    if (append) params.set('append', '1');
+    const res = await authFetch(`${API}/api/quality-inspection/notices?${params.toString()}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rows, user: user.name })
+      body: JSON.stringify({ rows, user: user.name, append })
     });
     if (!res.ok) {
       const payload = await res.json().catch(() => ({}));
       setMessage(payload.error || '验货通知提交失败。');
-      return;
+      return false;
     }
     const payload = await res.json();
     setNoticeSubmission(payload);
-    setNoticeRows([createNoticeRow({ inspectionApplicant: user.name })]);
+    if (clearRows) setNoticeRows([createNoticeRow({ inspectionApplicant: user.name })]);
     setNoticeImportPreview(null);
-    setMessage(`验货通知已提交：共 ${payload.rows.length} 条。`);
+    setMessage(successText || `验货通知已提交：共 ${payload.rows.length} 条。`);
     await refreshRecords();
+    return true;
+  }
+
+  async function submitNotices() {
+    await submitNoticesRows(noticeRows);
+  }
+
+  async function submitNoticeRow(row) {
+    const saved = await submitNoticesRows([row], {
+      append: true,
+      clearRows: false,
+      successText: '已提交 1 条验货通知。'
+    });
+    if (!saved) return;
+    setNoticeRows((rows) => {
+      const nextRows = rows.filter((item) => item.id !== row.id);
+      return nextRows.length ? nextRows : [createNoticeRow({ inspectionApplicant: user.name })];
+    });
   }
 
   async function refreshRecords() {
@@ -1228,6 +1260,87 @@ function App() {
     return true;
   }
 
+  async function saveReworkRecord(record, draft = {}) {
+    setSavingId(record.id);
+    const reworkResult = normalize(draft.reworkResult);
+    const rework = {
+      ...(record.rework || {}),
+      reworkReason: normalize(draft.reworkReason),
+      reworkPlan: normalize(draft.reworkPlan),
+      reworkCompleteTime: normalize(draft.reworkCompleteTime),
+      reworkResult,
+      reworkRemark: normalize(draft.reworkRemark),
+      updatedAt: nowText(),
+      updatedBy: user.name
+    };
+    if (['通过', '让步'].includes(reworkResult)) {
+      rework.completedAt = nowText();
+      rework.completedBy = user.name;
+    } else {
+      delete rework.completedAt;
+      delete rework.completedBy;
+    }
+    if (STATIC_MODE) {
+      const db = readStaticDb();
+      db.qualityInspection.feedback[record.id] = {
+        ...(db.qualityInspection.feedback[record.id] || record.feedback || {}),
+        rework
+      };
+      saveStaticDb(db);
+      setSavingId('');
+      setRecords(composedStaticRecords(db).filter((item) => canReadClientRecord(user, item)));
+      setMessage('返工记录已保存。');
+      return true;
+    }
+    const res = await authFetch(`${API}/api/quality-inspection/feedback/${encodeURIComponent(record.id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...(record.feedback || {}), rework })
+    });
+    setSavingId('');
+    if (!res.ok) {
+      setMessage('返工记录保存失败。');
+      return false;
+    }
+    await refreshRecords();
+    setMessage('返工记录已保存。');
+    return true;
+  }
+
+  async function deleteReworkRecord(record) {
+    if (!isPrimaryAdminUser(user)) {
+      setMessage('仅孙立柱管理员可以删除返工记录。');
+      return false;
+    }
+    if (!record || !window.confirm('确认删除当前返工记录？')) return false;
+    setSavingId(record.id);
+    if (STATIC_MODE) {
+      const db = readStaticDb();
+      db.qualityInspection.feedback[record.id] = {
+        ...(db.qualityInspection.feedback[record.id] || record.feedback || {}),
+        rework: {}
+      };
+      saveStaticDb(db);
+      setSavingId('');
+      setRecords(composedStaticRecords(db).filter((item) => canReadClientRecord(user, item)));
+      setMessage('返工记录已删除。');
+      return true;
+    }
+    const res = await authFetch(`${API}/api/quality-inspection/feedback/${encodeURIComponent(record.id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...(record.feedback || {}), rework: {} })
+    });
+    setSavingId('');
+    if (!res.ok) {
+      setMessage('返工记录删除失败。');
+      return false;
+    }
+    await refreshRecords();
+    setMessage('返工记录已删除。');
+    return true;
+  }
+
   async function stampReport(record, rotation, stampedDataUrl = '', skipStamp = false) {
     if (!record?.id || !reportHref(record)) {
       setMessage('当前没有可盖章的检验报告单。');
@@ -1676,8 +1789,8 @@ function App() {
     setMessage(`查询检验单已导出：${rows.length} 条。`);
   }
 
-  async function exportSummaryData(title = '验货台账') {
-    const rows = summaryRecords.map((record, index) => recordToMigrationLedgerRow(record, index, reportHref));
+  async function exportSummaryData(title = '验货台账', sourceRecords = summaryRecords) {
+    const rows = sourceRecords.map((record, index) => recordToMigrationLedgerRow(record, index, reportHref));
     if (!rows.length) {
       setMessage(`暂无可导出的${title}数据。`);
       return;
@@ -1846,6 +1959,7 @@ function App() {
             onConfirmImport={confirmNoticeImport}
             onClearImportPreview={clearNoticeImportPreview}
             onSubmit={submitNotices}
+            onSubmitRow={submitNoticeRow}
           />
         )}
         {canAccessPage(user, 'inspectionSchedule') && activeTab === 'inspectionSchedule' && (
@@ -1875,6 +1989,15 @@ function App() {
             onSave={saveFeedback}
             canDelete={canDeleteInspectionInfo}
             onDelete={deleteInspectionRecord}
+          />
+        )}
+        {canAccessPage(user, 'reworkRecords') && activeTab === 'reworkRecords' && (
+          <ReworkRecordsPage
+            records={reworkRecords}
+            savingId={savingId}
+            onSave={saveReworkRecord}
+            onDelete={deleteReworkRecord}
+            canDelete={isAdminUser(user)}
           />
         )}
         {canAccessPage(user, 'inspectionStamp') && activeTab === 'inspectionStamp' && (
@@ -1938,19 +2061,9 @@ function App() {
           />
         )}
         {canAccessPage(user, 'inspectionLedger') && activeTab === 'inspectionLedger' && (
-          <SummaryPage
-            title="验货台账"
-            summary={summary}
-            records={summaryRecords}
-            canImport={isAdminUser(user)}
-            importPreview={summaryImportPreview}
-            onUpload={previewSummaryRows}
-            onConfirmImport={confirmSummaryImport}
-            onClearImportPreview={clearSummaryImportPreview}
-            savingId={savingId}
-            canDelete={canDeleteInspectionInfo}
-            onDelete={deleteInspectionRecord}
-            onExport={() => exportSummaryData('验货台账')}
+          <LedgerPage
+            records={displayRecords}
+            onExport={() => exportSummaryData('验货台账', displayRecords)}
           />
         )}
         {canAccessPage(user, 'inspectionInitialData') && activeTab === 'inspectionInitialData' && (

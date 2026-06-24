@@ -4,7 +4,15 @@ import DataTable from './DataTable.jsx';
 
 function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete }) {
   const [drafts, setDrafts] = useState({});
+  const [filterProvince, setFilterProvince] = useState('');
   const scheduleRows = useMemo(() => mergeScheduleRecords(records), [records]);
+  const filteredRows = useMemo(() => {
+    if (!filterProvince) return scheduleRows;
+    return scheduleRows.filter((row) => {
+      const addr = row.supplierAddress || '';
+      return addr.includes(filterProvince);
+    });
+  }, [scheduleRows, filterProvince]);
 
   useEffect(() => {
     setDrafts(Object.fromEntries(scheduleRows.map((record) => [
@@ -32,7 +40,7 @@ function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete
     <>
       <div className="section-heading-row">
         <h2>验货安排</h2>
-        <span className="section-count">来自验货通知 {records.length} 条，按系列合并 {scheduleRows.length} 条</span>
+        <span className="section-count">来自验货通知 {records.length} 条，按系列合并 {filteredRows.length} 条</span>
         <button
           type="button"
           disabled={savingId === 'inspectionSchedule' || scheduleRows.length === 0}
@@ -49,9 +57,20 @@ function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete
           清除内容
         </button>
       </div>
+      <div className="toolbar" style={{ marginBottom: '12px' }}>
+        <input
+          placeholder="筛选省份"
+          value={filterProvince}
+          onChange={(event) => setFilterProvince(event.target.value)}
+          style={{ maxWidth: '180px' }}
+        />
+        {filterProvince && (
+          <button type="button" className="ghost compact-button" onClick={() => setFilterProvince('')}>清除</button>
+        )}
+      </div>
       <DataTable
         className="inspection-schedule-table"
-        rows={scheduleRows}
+        rows={filteredRows}
         columns={['供应商简称', '地址', '产品线', '系列', '数量', '事业部', '运营', '验货通知人', '备注', '验货员', '计划验货时间', '安排备注', '操作']}
         render={(record) => [
           record.supplierShortName,

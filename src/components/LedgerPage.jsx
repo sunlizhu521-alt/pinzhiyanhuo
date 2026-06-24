@@ -1,0 +1,93 @@
+import { useMemo, useState } from 'react';
+import DataTable from './DataTable.jsx';
+import { normalize, formatDate } from '../utils.js';
+import { reportHref } from '../file-utils.js';
+
+function LedgerPage({ records, onExport }) {
+  const [filters, setFilters] = useState({
+    supplierShortName: '',
+    status: '',
+    result: '',
+    keyword: ''
+  });
+
+  const filteredRecords = useMemo(() => {
+    const normalizedFilters = Object.fromEntries(
+      Object.entries(filters).map(([key, value]) => [key, normalize(value).toLowerCase()])
+    );
+    return records.filter((record) => (
+      (!normalizedFilters.supplierShortName || normalize(record.supplierShortName).toLowerCase().includes(normalizedFilters.supplierShortName))
+      && (!normalizedFilters.status || normalize(record.schedule?.status).toLowerCase() === normalizedFilters.status)
+      && (!normalizedFilters.result || normalize(record.feedback?.result).toLowerCase() === normalizedFilters.result)
+      && (!normalizedFilters.keyword
+        || normalize(`${record.supplierShortName}${record.salesProductLine}${record.series}${record.schedule?.inspector || ''}`).toLowerCase().includes(normalizedFilters.keyword))
+    ));
+  }, [records, filters]);
+
+  const stats = useMemo(() => ({
+    total: records.length,
+    passed: records.filter((record) => record.feedback?.result === '通过').length,
+    failed: records.filter((record) => record.feedback?.result === '返工').length,
+    pending: records.filter((record) => !record.feedback?.result).length
+  }), [records]);
+
+  function updateFilter(key, value) {
+    setFilters((current) => ({ ...current, [key]: value }));
+  }
+
+  function clearFilters() {
+    setFilters({ supplierShortName: '', status: '', result: '', keyword: '' });
+  }
+
+  return (
+    <>
+      <div className="section-heading-row">
+        <h2>验货台账</h2>
+        <span className="section-count">全部 {records.length} 条 | 通过 {stats.passed} | 返工 {stats.failed} | 待反馈 {stats.pending}</span>
+        <button type="button" className="ghost compact-button" disabled={!records.length} onClick={onExport}>导出</button>
+      </div>
+      <div className="toolbar">
+        <input
+          placeholder="搜索供应商/产品线/系列/验货员"
+          value={filters.keyword}
+          onChange={(event) => updateFilter('keyword', event.target.value)}
+        />
+        <input
+          placeholder="供应商简称"
+          value={filters.supplierShortName}
+          onChange={(event) => updateFilter('supplierShortName', event.target.value)}
+        />
+        <select value={filters.status} onChange={(event) => updateFilter('status', event.target.value)}>
+          <option value="">全部状态</option>
+          {['未安排', '已安排', '验货中', '已完成', '已取消'].map((status) => <option key={status} value={status}>{status}</option>)}
+        </select>
+        <select value={filters.result} onChange={(event) => updateFilter('result', event.target.value)}>
+          <option value="">全部结果</option>
+          {['通过', '让步', '返工'].map((result) => <option key={result} value={result}>{result}</option>)}
+        </select>
+        <button type="button" className="ghost compact-button" onClick={clearFilters}>清除</button>
+      </div>
+      <DataTable
+        rows={filteredRecords}
+        columns={['供应商', '产品线', '系列', '数量', '事业部', '验货员', '计划日期', '状态', '实际验货时间', '验货结果', '报告结论', '报告文件', '是否返工']}
+        render={(record) => [
+          record.supplierShortName,
+          record.salesProductLine,
+          record.series,
+          record.totalQuantity,
+          record.businessDepartments,
+          record.schedule?.inspector || '',
+          formatDate(record.schedule?.scheduledDate),
+          record.schedule?.status || '未安排',
+          formatDate(record.feedback?.actualInspectionTime),
+          record.feedback?.result || '',
+          record.report?.conclusion || '',
+          reportHref(record) ? <a href={reportHref(record)} target="_blank" rel="noreferrer">查看</a> : '',
+          record.rework?.completedAt ? '是' : '否'
+        ]}
+      />
+    </>
+  );
+}
+
+export default LedgerPage;

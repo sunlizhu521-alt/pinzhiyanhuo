@@ -32,7 +32,8 @@ function InspectionNoticePage({
   onUpload,
   onConfirmImport,
   onClearImportPreview,
-  onSubmit
+  onSubmit,
+  onSubmitRow
 }) {
   const [focusedSupplierRowId, setFocusedSupplierRowId] = useState('');
   const [supplierSuggestionPosition, setSupplierSuggestionPosition] = useState(null);
@@ -353,7 +354,10 @@ function InspectionNoticePage({
               />
             );
           }),
-          <button type="button" className="danger-button compact-button" onClick={() => onDelete(row.id)}>删除</button>
+          <div className="table-action-row">
+            <button type="button" className="compact-button" onClick={() => onSubmitRow(row)}>提交</button>
+            <button type="button" className="danger-button compact-button" onClick={() => onDelete(row.id)}>删除</button>
+          </div>
         ]}
       />
     </>

@@ -154,7 +154,8 @@ function composedStaticRecords(db) {
     rowNumber: row.rowNumber || index + 1,
     schedule: inspection.schedules[row.id] || {},
     report: inspection.reports[row.id] || {},
-    feedback: inspection.feedback[row.id] || {}
+    feedback: inspection.feedback[row.id] || {},
+    rework: inspection.feedback[row.id]?.rework || {}
   }));
 }
 

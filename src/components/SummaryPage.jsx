@@ -1,5 +1,6 @@
 import DataTable from './DataTable.jsx';
 import MetricCard from './MetricCard.jsx';
+import { formatDate } from '../utils.js';
 function SummaryPage({
   title = '验货反馈表',
   summary,
@@ -17,8 +18,8 @@ function SummaryPage({
   const previewRows = importPreview?.items || [];
   const previewLimitedRows = previewRows.slice(0, 10);
   const columns = canDelete
-    ? ['序号', '供应商', '事业部', '产品线', '系列', '数量', '计划日期', '状态', '报告结论', '反馈结果', '操作']
-    : ['序号', '供应商', '事业部', '产品线', '系列', '数量', '计划日期', '状态', '报告结论', '反馈结果'];
+    ? ['供应商', '事业部', '产品线', '系列', '数量', '验货通知人', '计划日期', '状态', '实际验货时间', '实际验货数量', '检验数量', '合格数量', '合格率', '是否返工过', '报告结论', '反馈结果', '操作']
+    : ['供应商', '事业部', '产品线', '系列', '数量', '验货通知人', '计划日期', '状态', '实际验货时间', '实际验货数量', '检验数量', '合格数量', '合格率', '是否返工过', '报告结论', '反馈结果'];
   return (
     <>
       <div className="section-heading-row">
@@ -86,14 +87,25 @@ function SummaryPage({
         columns={columns}
         render={(record) => {
           const cells = [
-            record.rowNumber,
             record.supplierShortName,
             record.businessDepartments,
             record.salesProductLine,
             record.series,
             record.totalQuantity,
+            record.inspectionNotifier || record.inspectionApplicant,
             record.schedule?.scheduledDate || '',
             record.schedule?.status || '未安排',
+            formatDate(record.feedback?.actualInspectionTime),
+            record.feedback?.inspectionQuantity || '',
+            record.feedback?.checkQuantity || '',
+            record.feedback?.qualifiedQuantity || '',
+            (() => {
+              const qualified = Number(record.feedback?.qualifiedQuantity);
+              const checked = Number(record.feedback?.checkQuantity);
+              if (!checked || Number.isNaN(qualified)) return '';
+              return `${Math.round((qualified / checked) * 100)}%`;
+            })(),
+            record.rework?.completedAt ? '是' : '否',
             record.report?.conclusion || '',
             record.feedback?.result || ''
           ];

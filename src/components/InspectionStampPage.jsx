@@ -1,25 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createId, normalize, nowText } from '../utils.js';
-import { QUALITY_SEAL_IMAGE } from '../constants.js';
 import {
   reportHref,
   isImageReport,
   isReportImageFile,
-  reportFileExt,
-  imageMimeForReport,
   normalizeStampUploadFileName,
   readFileAsDataUrl,
-  formatFileSize,
   createRotatedReportImageDataUrl,
   createStampedImageDataUrl
 } from '../file-utils.js';
-import DataTable from './DataTable.jsx';
 import EmptyState from './EmptyState.jsx';
 function InspectionStampPage({ records, savingId, onStamp }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [rotation, setRotation] = useState(0);
   const [uploadedRecords, setUploadedRecords] = useState([]);
-  const [stampPreview, setStampPreview] = useState(null);
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState('');
   const [uploadMessage, setUploadMessage] = useState('');
@@ -27,7 +21,6 @@ function InspectionStampPage({ records, savingId, onStamp }) {
   const safeIndex = stampRecords.length ? Math.min(currentIndex, stampRecords.length - 1) : 0;
   const current = stampRecords[safeIndex];
   const canStamp = current && isImageReport(current);
-  const activePreview = stampPreview?.recordId === current?.id && stampPreview?.rotation === rotation ? stampPreview : null;
 
   useEffect(() => {
     if (currentIndex > Math.max(stampRecords.length - 1, 0)) setCurrentIndex(0);
@@ -38,7 +31,6 @@ function InspectionStampPage({ records, savingId, onStamp }) {
   }, [current?.id]);
 
   useEffect(() => {
-    setStampPreview(null);
     setPreviewError('');
   }, [current?.id, rotation]);
 
@@ -47,42 +39,18 @@ function InspectionStampPage({ records, savingId, onStamp }) {
     setCurrentIndex((index) => (index + delta + stampRecords.length) % stampRecords.length);
   }
 
-  async function previewStamp() {
+  async function saveStamp() {
     if (!canStamp) return;
     setPreviewing(true);
     setPreviewError('');
     try {
-      const dataUrl = await createStampedImageDataUrl(current, rotation);
-      setStampPreview({ recordId: current.id, rotation, dataUrl });
-    } catch {
-      setPreviewError('预览生成失败，请确认报告单图片可以正常打开。');
-    } finally {
-      setPreviewing(false);
-    }
-  }
-
-  async function confirmStamp() {
-    if (!activePreview) return;
-    const stamped = await onStamp(current, activePreview.rotation, activePreview.dataUrl);
-    if (stamped) {
-      setStampPreview(null);
-      if (current?.isStampUpload) {
-        setUploadedRecords((items) => items.filter((item) => item.id !== current.id));
-      }
-    }
-  }
-
-  async function saveWithoutStamp() {
-    if (!canStamp) return;
-    setPreviewing(true);
-    setPreviewError('');
-    try {
-      const dataUrl = await createRotatedReportImageDataUrl(current, rotation);
-      const saved = await onStamp(current, rotation, dataUrl, true);
+      const dataUrl = rotation
+        ? await createStampedImageDataUrl(current, rotation)
+        : await createRotatedReportImageDataUrl(current, rotation);
+      const saved = await onStamp(current, rotation, dataUrl, !rotation);
       if (saved && current?.isStampUpload) {
         setUploadedRecords((items) => items.filter((item) => item.id !== current.id));
       }
-      if (saved) setStampPreview(null);
     } catch {
       setPreviewError('保存失败，请确认报告单图片可以正常打开。');
     } finally {
@@ -129,7 +97,6 @@ function InspectionStampPage({ records, savingId, onStamp }) {
     })));
     setUploadedRecords((current) => [...uploaded, ...current]);
     setCurrentIndex(0);
-    setStampPreview(null);
     setPreviewError('');
     setUploadMessage(`已批量上传 ${uploaded.length} 张图片，请在左侧列表逐张处理。`);
   }
@@ -158,31 +125,10 @@ function InspectionStampPage({ records, savingId, onStamp }) {
           type="button"
           className="compact-button"
           disabled={!canStamp || previewing || savingId === current?.id}
-          onClick={previewStamp}
+          onClick={saveStamp}
         >
-          {previewing ? '生成预览中' : '加盖印章'}
+          {savingId === current?.id ? '保存中' : '确认保存'}
         </button>
-        <button
-          type="button"
-          className="compact-button"
-          disabled={!canStamp || previewing || savingId === current?.id}
-          onClick={saveWithoutStamp}
-        >
-          {savingId === current?.id ? '保存中' : '保存'}
-        </button>
-        {activePreview && (
-          <>
-            <button
-              type="button"
-              className="compact-button"
-              disabled={savingId === current?.id}
-              onClick={confirmStamp}
-            >
-              {savingId === current?.id ? '保存中' : '确认保存'}
-            </button>
-            <button type="button" className="ghost compact-button" onClick={() => setStampPreview(null)} disabled={savingId === current?.id}>取消预览</button>
-          </>
-        )}
       </div>
 
       <label
@@ -241,16 +187,15 @@ function InspectionStampPage({ records, savingId, onStamp }) {
               )}
               <span>{current.supplierShortName || ''}</span>
               <span>{current.salesProductLine || ''} {current.series || ''}</span>
-              {activePreview && <span className="stamp-preview-note">当前为盖章预览，确认保存后才会覆盖原文件。</span>}
               {previewError && <span className="stamp-warning">{previewError}</span>}
               {!canStamp && <span className="stamp-warning">当前文件不是图片格式，只能查看，不能直接加盖图片印章。</span>}
             </div>
             <div className="stamp-canvas">
               {isImageReport(current) ? (
                 <img
-                  src={activePreview?.dataUrl || reportHref(current)}
+                  src={reportHref(current)}
                   alt="检验报告单"
-                  style={activePreview ? undefined : { transform: `rotate(${rotation}deg)` }}
+                  style={{ transform: `rotate(${rotation}deg)` }}
                 />
               ) : (
                 <iframe title="检验报告单预览" src={reportHref(current)} />

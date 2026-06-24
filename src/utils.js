@@ -194,9 +194,10 @@ function canReadClientRecord(user, record) {
     || canAccessPage(user, 'inspectionSchedule')
     || canAccessPage(user, 'inspectionStamp')
     || canAccessPage(user, 'inspectionReportLibrary')
+    || canAccessPage(user, 'reworkRecords')
   ) return true;
   if (canAccessPage(user, 'inspectionNotice')) return record.inspectionApplicant === user.name;
-  if (canAccessPage(user, 'inspectionFeedback')) {
+  if (canAccessPage(user, 'inspectionFeedback') || canAccessPage(user, 'reworkRecords')) {
     return isSubmittedScheduleRecord(record);
   }
   return false;

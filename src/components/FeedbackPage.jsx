@@ -23,7 +23,8 @@ function FeedbackPage({
     supplierShortName: '',
     salesProductLine: '',
     series: '',
-    inspector: ''
+    inspector: '',
+    result: ''
   });
   const [feedbackDrafts, setFeedbackDrafts] = useState({});
   const previewRows = importPreview?.items || [];
@@ -39,10 +40,13 @@ function FeedbackPage({
         supplierShortName: record.supplierShortName,
         salesProductLine: record.salesProductLine,
         series: record.series,
-        inspector: record.schedule?.inspector
+        inspector: record.schedule?.inspector,
+        result: record.feedback?.result
       };
       return Object.entries(normalizedFilters).every(([key, value]) => (
-        !value || normalize(values[key]).toLowerCase().includes(value)
+        !value || (key === 'result'
+          ? normalize(values[key]).toLowerCase() === value
+          : normalize(values[key]).toLowerCase().includes(value))
       ));
     });
   }, [mergedRecords, filters]);
@@ -54,7 +58,8 @@ function FeedbackPage({
       supplierShortName: '',
       salesProductLine: '',
       series: '',
-      inspector: ''
+      inspector: '',
+      result: ''
     });
   }
   function feedbackDraft(record) {
@@ -131,6 +136,12 @@ function FeedbackPage({
           value={filters.inspector}
           onChange={(event) => updateFilter('inspector', event.target.value)}
         />
+        <select value={filters.result} onChange={(event) => updateFilter('result', event.target.value)}>
+          <option value="">全部验货结果</option>
+          <option value="通过">通过</option>
+          <option value="让步">让步</option>
+          <option value="返工">返工</option>
+        </select>
         <button type="button" className="ghost compact-button" onClick={clearFilters}>清除筛选</button>
       </div>
       {canImport && importPreview && (
