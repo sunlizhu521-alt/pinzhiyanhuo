@@ -170,13 +170,15 @@ function InspectionStampPage({ records, savingId, onStamp }) {
           type="button"
           className="compact-button"
           disabled={!canStamp || savingId === current?.id}
-          onClick={() => {
-            if (activePreview) {
-              confirmStamp();
-            } else {
-              saveWithoutStamp();
-            }
-          }}
+          onClick={saveWithoutStamp}
+        >
+          {savingId === current?.id ? '保存中' : '直接保存'}
+        </button>
+        <button
+          type="button"
+          className="compact-button"
+          disabled={!activePreview || savingId === current?.id}
+          onClick={confirmStamp}
         >
           {savingId === current?.id ? '保存中' : '已盖章保存'}
         </button>
