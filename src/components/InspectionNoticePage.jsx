@@ -41,7 +41,7 @@ function InspectionNoticePage({
   const [seriesSuggestionPosition, setSeriesSuggestionPosition] = useState(null);
   const previewRows = importPreview?.rows || [];
   const previewColumns = NOTICE_FIELDS.map((field) => field.label);
-  const previewLimitedRows = previewRows.slice(0, 10);
+  const previewLimitedRows = previewRows;
 
   useEffect(() => {
     if (!focusedSupplierRowId && !focusedSeriesRowId) return undefined;
@@ -159,9 +159,6 @@ function InspectionNoticePage({
               return row[field.key] || '';
             })}
           />
-          {previewRows.length > previewLimitedRows.length && (
-            <p className="preview-note">当前仅预览前 {previewLimitedRows.length} 条，确认导入会导入全部 {previewRows.length} 条。</p>
-          )}
         </section>
       )}
       <DataTable
