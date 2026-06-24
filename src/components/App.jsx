@@ -1562,10 +1562,14 @@ function App() {
         setMessage(skipStamp ? '图片已按当前方向保存，文件已覆盖保存。' : '检验章已加盖，文件已覆盖保存。');
         return true;
       }
+      const stampFileName = record.report?.fileName || record.report?.originalName || 'stamped-report.png';
+      const form = new FormData();
+      form.append('file', await dataUrlToFile(fileDataUrl, stampFileName));
+      form.append('rotation', String(rotation));
+      form.append('skipStamp', skipStamp ? '1' : '0');
       const res = await authFetch(`${API}/api/quality-inspection/reports/${encodeURIComponent(record.id)}/stamp`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileDataUrl, rotation, skipStamp })
+        body: form
       });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
