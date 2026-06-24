@@ -139,7 +139,7 @@ textarea {
 .sidebar {
   min-height: 100vh;
   padding: 22px 16px;
-  background: #172033;
+  background: #1e1e20;
   color: white;
   display: flex;
   flex-direction: column;
@@ -150,7 +150,8 @@ textarea {
 
 .sidebar h1 {
   margin: 0;
-  font-size: 22px;
+  color: #f5f5f7;
+  font-size: 24px;
 }
 
 .app-version-time {
@@ -170,10 +171,11 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 9px 10px;
-  border-radius: 6px;
-  background: rgba(37, 99, 235, .24);
-  color: #f8fafc;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(10, 132, 255, .15);
+  color: #f5f5f7;
+  font-size: 17px;
   font-weight: 700;
 }
 
@@ -191,12 +193,19 @@ textarea {
 .sidebar button {
   text-align: left;
   background: transparent;
-  color: #cbd5e1;
+  color: #98989d;
 }
 
 .submenu-list button {
-  padding: 8px 10px;
-  font-size: 14px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  color: #98989d;
+  font-size: 16px;
+}
+
+.submenu-list button:hover {
+  background: rgba(255, 255, 255, .08);
+  color: #f5f5f7;
 }
 
 .sidebar-nav {
@@ -205,27 +214,29 @@ textarea {
 }
 
 .sidebar-nav button {
-  padding: 8px 10px;
-  font-size: 14px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  color: #98989d;
+  font-size: 18px;
   text-align: left;
+  transition: all .15s ease;
+}
+
+.sidebar-nav button:hover {
+  background: rgba(255, 255, 255, .08);
+  color: #f5f5f7;
 }
 
 .sidebar-nav button.active {
-  background: #2563eb;
-  color: white;
-  box-shadow: inset 3px 0 0 #93c5fd;
-}
-
-.sidebar button.active,
-.sidebar button:hover {
-  background: #24324d;
-  color: white;
+  background: #0A84FF;
+  color: #fff;
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, .3);
 }
 
 .submenu-list button.active {
-  background: #2563eb;
-  color: white;
-  box-shadow: inset 3px 0 0 #93c5fd;
+  background: #0A84FF;
+  color: #fff;
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, .3);
 }
 
 .user-box {
