@@ -304,11 +304,11 @@ function validateNoticeRows(rows, supplierOptions = [], productLineOptions = [],
   const requiredFields = NOTICE_FIELDS.filter((field) => !NOTICE_OPTIONAL_KEYS.has(field.key));
   const invalidSupplierIndex = rows.findIndex((row) => !findSupplierShortNameOption(row.supplierShortName, supplierOptions));
   if (invalidSupplierIndex >= 0) {
-    return `第 ${invalidSupplierIndex + 1} 行供应商简称不在采购分工明细中，请从模糊匹配结果里选择。`;
+    return `第 ${invalidSupplierIndex + 1} 行供应商简称"${rows[invalidSupplierIndex].supplierShortName || '(空)'}"不在采购分工明细中，请从模糊匹配结果里选择。`;
   }
   const invalidProductLineIndex = rows.findIndex((row) => !findDimensionOption(row.salesProductLine, productLineOptions));
   if (invalidProductLineIndex >= 0) {
-    return `第 ${invalidProductLineIndex + 1} 行产品线不在商品分类维表的销售产品线中，请选择正确产品线。`;
+    return `第 ${invalidProductLineIndex + 1} 行销售产品线"${rows[invalidProductLineIndex].salesProductLine || '(空)'}"不在商品分类维表中，请从模糊匹配结果里选择。`;
   }
   const invalidSeriesIndex = rows.findIndex((row) => (
     !findDimensionOption(row.series, seriesOptionsForProductLine(row.salesProductLine, seriesOptions, seriesByProductLine))
