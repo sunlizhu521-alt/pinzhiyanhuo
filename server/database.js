@@ -1,0 +1,251 @@
+import initSqlJs from 'sql.js';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const rootDir = path.resolve(__dirname, '..');
+const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(rootDir, 'data');
+const dbPath = process.env.DB_PATH || path.join(dataDir, 'db.sqlite');
+
+mkdirSync(dataDir, { recursive: true });
+
+let SQL = null;
+let db = null;
+
+// Initialize the SQLite database and create the first version schema.
+export async function initDatabase() {
+  SQL = await initSqlJs();
+
+  if (existsSync(dbPath)) {
+    const buffer = readFileSync(dbPath);
+    db = new SQL.Database(buffer);
+  } else {
+    db = new SQL.Database();
+  }
+
+  db.run(`CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    name TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT '普通用户',
+    page_access TEXT NOT NULL DEFAULT '[]'
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS notices (id TEXT, data TEXT NOT NULL)`);
+  db.run(`CREATE TABLE IF NOT EXISTS schedules (id TEXT PRIMARY KEY, data TEXT NOT NULL)`);
+  db.run(`CREATE TABLE IF NOT EXISTS reports (id TEXT PRIMARY KEY, data TEXT NOT NULL)`);
+  db.run(`CREATE TABLE IF NOT EXISTS feedback (id TEXT PRIMARY KEY, data TEXT NOT NULL)`);
+  db.run(`CREATE TABLE IF NOT EXISTS dimension_library (slot_id TEXT PRIMARY KEY, data TEXT NOT NULL)`);
+  db.run(`CREATE TABLE IF NOT EXISTS initial_data (id INTEGER PRIMARY KEY DEFAULT 1, data TEXT NOT NULL)`);
+  db.run(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+
+  saveDb();
+}
+
+function saveDb() {
+  const buffer = db.export();
+  writeFileSync(dbPath, Buffer.from(buffer));
+}
+
+function queryOne(sql, params = []) {
+  const stmt = db.prepare(sql);
+  stmt.bind(params);
+  if (stmt.step()) {
+    const obj = stmt.getAsObject();
+    stmt.free();
+    return obj;
+  }
+  stmt.free();
+  return null;
+}
+
+function queryAll(sql, params = []) {
+  const stmt = db.prepare(sql);
+  stmt.bind(params);
+  const rows = [];
+  while (stmt.step()) {
+    rows.push(stmt.getAsObject());
+  }
+  stmt.free();
+  return rows;
+}
+
+function parsePageAccess(value) {
+  try {
+    return JSON.parse(value || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function mapUser(row) {
+  if (!row) return null;
+  const { page_access: pageAccessRaw, ...user } = row;
+  return { ...user, pageAccess: parsePageAccess(pageAccessRaw) };
+}
+
+export function getUsers() {
+  return queryAll('SELECT * FROM users').map(mapUser);
+}
+
+export function getUserByName(name) {
+  return mapUser(queryOne('SELECT * FROM users WHERE name = ?', [name]));
+}
+
+export function getUserById(id) {
+  return mapUser(queryOne('SELECT * FROM users WHERE id = ?', [id]));
+}
+
+export function upsertUser(user) {
+  db.run('INSERT OR REPLACE INTO users (id, name, password, role, page_access) VALUES (?, ?, ?, ?, ?)', [
+    user.id,
+    user.name,
+    user.password,
+    user.role || '普通用户',
+    JSON.stringify(user.pageAccess || [])
+  ]);
+  saveDb();
+}
+
+export function deleteUser(id) {
+  db.run('DELETE FROM users WHERE id = ?', [id]);
+  db.run('DELETE FROM sessions WHERE user_id = ?', [id]);
+  saveDb();
+}
+
+export function createUser(user) {
+  upsertUser(user);
+}
+
+export function getSessions() {
+  const rows = queryAll('SELECT * FROM sessions');
+  const sessions = {};
+  rows.forEach((row) => {
+    sessions[row.token] = { userId: row.user_id, createdAt: row.created_at };
+  });
+  return sessions;
+}
+
+export function setSession(token, userId, createdAt) {
+  db.run('INSERT OR REPLACE INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)', [token, userId, createdAt]);
+  saveDb();
+}
+
+export function deleteSession(token) {
+  db.run('DELETE FROM sessions WHERE token = ?', [token]);
+  saveDb();
+}
+
+export function deleteSessionsByUserId(userId) {
+  db.run('DELETE FROM sessions WHERE user_id = ?', [userId]);
+  saveDb();
+}
+
+export function getNotices() {
+  const metaAt = queryOne("SELECT value FROM meta WHERE key = 'notices_submittedAt'");
+  const metaBy = queryOne("SELECT value FROM meta WHERE key = 'notices_submittedBy'");
+  const rows = queryAll('SELECT * FROM notices');
+  return {
+    rows: rows.map((row) => JSON.parse(row.data)),
+    submittedAt: metaAt?.value || '',
+    submittedBy: metaBy?.value || ''
+  };
+}
+
+export function saveNotices(rows, submittedAt, submittedBy) {
+  db.run('DELETE FROM notices');
+  const insert = db.prepare('INSERT INTO notices (id, data) VALUES (?, ?)');
+  rows.forEach((row) => {
+    insert.bind([row.id, JSON.stringify(row)]);
+    insert.step();
+    insert.reset();
+  });
+  insert.free();
+  setMeta('notices_submittedAt', submittedAt);
+  setMeta('notices_submittedBy', submittedBy);
+  saveDb();
+}
+
+export function getSchedule(id) {
+  const row = queryOne('SELECT * FROM schedules WHERE id = ?', [id]);
+  return row ? JSON.parse(row.data) : {};
+}
+
+export function saveSchedule(id, data) {
+  db.run('INSERT OR REPLACE INTO schedules (id, data) VALUES (?, ?)', [id, JSON.stringify(data)]);
+  saveDb();
+}
+
+export function deleteSchedule(id) {
+  db.run('DELETE FROM schedules WHERE id = ?', [id]);
+  saveDb();
+}
+
+export function getReport(id) {
+  const row = queryOne('SELECT * FROM reports WHERE id = ?', [id]);
+  return row ? JSON.parse(row.data) : {};
+}
+
+export function saveReport(id, data) {
+  db.run('INSERT OR REPLACE INTO reports (id, data) VALUES (?, ?)', [id, JSON.stringify(data)]);
+  saveDb();
+}
+
+export function deleteReport(id) {
+  db.run('DELETE FROM reports WHERE id = ?', [id]);
+  saveDb();
+}
+
+export function getFeedback(id) {
+  const row = queryOne('SELECT * FROM feedback WHERE id = ?', [id]);
+  return row ? JSON.parse(row.data) : {};
+}
+
+export function saveFeedback(id, data) {
+  db.run('INSERT OR REPLACE INTO feedback (id, data) VALUES (?, ?)', [id, JSON.stringify(data)]);
+  saveDb();
+}
+
+export function deleteFeedback(id) {
+  db.run('DELETE FROM feedback WHERE id = ?', [id]);
+  saveDb();
+}
+
+export function getDimensionLibrary() {
+  const rows = queryAll('SELECT * FROM dimension_library');
+  const library = {};
+  rows.forEach((row) => {
+    library[row.slot_id] = JSON.parse(row.data);
+  });
+  return library;
+}
+
+export function saveDimensionLibrary(slotId, data) {
+  db.run('INSERT OR REPLACE INTO dimension_library (slot_id, data) VALUES (?, ?)', [slotId, JSON.stringify(data)]);
+  saveDb();
+}
+
+export function deleteDimensionLibrary(slotId) {
+  db.run('DELETE FROM dimension_library WHERE slot_id = ?', [slotId]);
+  saveDb();
+}
+
+export function getInitialData() {
+  const row = queryOne('SELECT * FROM initial_data WHERE id = 1');
+  return row ? JSON.parse(row.data) : { sheetName: '', columns: [], rows: [], updatedAt: '' };
+}
+
+export function saveInitialData(data) {
+  db.run('INSERT OR REPLACE INTO initial_data (id, data) VALUES (1, ?)', [JSON.stringify(data)]);
+  saveDb();
+}
+
+function setMeta(key, value) {
+  db.run('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', [key, value]);
+  saveDb();
+}

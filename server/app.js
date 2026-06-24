@@ -5,7 +5,8 @@ import xlsx from 'xlsx';
 import compression from 'compression';
 import { format } from 'date-fns';
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { initDatabase, getUsers, getUserByName, getUserById, upsertUser, createUser, getSessions, setSession, deleteSession, deleteSessionsByUserId, getNotices, saveNotices, getSchedule, saveSchedule, deleteSchedule, getReport, saveReport, deleteReport, getFeedback, saveFeedback, deleteFeedback, getDimensionLibrary, saveDimensionLibrary, deleteDimensionLibrary, getInitialData, saveInitialData } from './database.js';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
 import { fileURLToPath } from 'node:url';
@@ -143,74 +144,52 @@ function normalizePageAccess(user) {
   return normalized;
 }
 
-function normalizeDb(db = {}) {
-  const qualityInspection = db.qualityInspection || {};
-  const sourceUsers = Array.isArray(db.users) && db.users.length ? db.users : DEFAULT_USERS;
-  const activeUsers = sourceUsers.filter((user) => (
-    isPrimaryAdminUser(user)
-    || (!LEGACY_DEFAULT_USER_IDS.has(user.id) && !LEGACY_ROLE_NAMES.has(user.name))
-  ));
-  const usersByName = new Map(activeUsers.map((user) => [user.name, user]));
-  DEFAULT_USERS.forEach((user) => {
-    if (!usersByName.has(user.name)) usersByName.set(user.name, user);
-  });
-  const users = Array.from(usersByName.values());
-  return {
-    users: users.map((user) => {
-      const normalized = user.id === DEFAULT_ADMIN_USER.id || user.name === DEFAULT_ADMIN_USER.name
-        ? {
-            ...DEFAULT_ADMIN_USER,
-            ...user,
-            id: DEFAULT_ADMIN_USER.id,
-            name: DEFAULT_ADMIN_USER.name,
-            role: ROLE_ADMIN,
-            password: user.password || DEFAULT_ADMIN_USER.password
-          }
-        : user;
-      return {
-        ...normalized,
-        id: normalized.id || randomUUID(),
-        role: normalizeRole(normalized.role, normalized.name),
-        pageAccess: normalizePageAccess(normalized)
-      };
-    }),
-    sessions: db.sessions || {},
-    qualityInspection: {
-      initialData: {
-        sheetName: '',
-        columns: [],
-        rows: [],
-        updatedAt: '',
-        ...(qualityInspection.initialData || {})
-      },
-      notices: {
-        rows: [],
-        submittedAt: '',
-        submittedBy: '',
-        ...(qualityInspection.notices || {})
-      },
-      schedules: qualityInspection.schedules || {},
-      reports: qualityInspection.reports || {},
-      feedback: qualityInspection.feedback || {},
-      dimensionLibrary: qualityInspection.dimensionLibrary || {}
-    }
-  };
-}
+let dbReady = false;
 
-async function readDb() {
-  await mkdir(dataDir, { recursive: true });
-  try {
-    return normalizeDb(JSON.parse(await readFile(dbPath, 'utf8')));
-  } catch {
-    const db = normalizeDb();
-    await saveDb(db);
-    return db;
+async function ensureDb() {
+  if (!dbReady) {
+    await initDatabase();
+    dbReady = true;
   }
 }
 
+async function readDb() {
+  await ensureDb();
+  const qualityInspection = {
+    initialData: getInitialData(),
+    notices: getNotices(),
+    schedules: {},
+    reports: {},
+    feedback: {},
+    dimensionLibrary: getDimensionLibrary()
+  };
+  // schedules/reports/feedback are loaded for known notice rows to keep the old object shape.
+  const noticesRows = qualityInspection.notices.rows || [];
+  noticesRows.forEach((row) => {
+    qualityInspection.schedules[row.id] = getSchedule(row.id);
+    qualityInspection.reports[row.id] = getReport(row.id);
+    qualityInspection.feedback[row.id] = getFeedback(row.id);
+  });
+  return {
+    users: getUsers(),
+    sessions: getSessions(),
+    qualityInspection
+  };
+}
+
 async function saveDb(db) {
-  await mkdir(dataDir, { recursive: true });
-  await writeFile(dbPath, JSON.stringify(normalizeDb(db), null, 2), 'utf8');
+  await ensureDb();
+  if (db.users) db.users.forEach((u) => upsertUser(u));
+  if (db.sessions) {
+    Object.entries(db.sessions).forEach(([token, s]) => setSession(token, s.userId, s.createdAt));
+  }
+  const qi = db.qualityInspection;
+  if (qi?.notices?.rows) saveNotices(qi.notices.rows, qi.notices.submittedAt || '', qi.notices.submittedBy || '');
+  if (qi?.schedules) Object.entries(qi.schedules).forEach(([id, data]) => { if (Object.keys(data).length) saveSchedule(id, data); });
+  if (qi?.reports) Object.entries(qi.reports).forEach(([id, data]) => { if (Object.keys(data).length) saveReport(id, data); });
+  if (qi?.feedback) Object.entries(qi.feedback).forEach(([id, data]) => { if (Object.keys(data).length) saveFeedback(id, data); });
+  if (qi?.dimensionLibrary) Object.entries(qi.dimensionLibrary).forEach(([slotId, data]) => saveDimensionLibrary(slotId, data));
+  if (qi?.initialData?.columns?.length) saveInitialData(qi.initialData);
 }
 
 async function removeUploadedFile(file) {
