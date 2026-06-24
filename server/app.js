@@ -107,7 +107,7 @@ async function verifyPassword(password, hash) {
 }
 
 function safeFileBaseName(value, fallback) {
-  const cleaned = String(value || '')
+  const cleaned = fixUploadFileName(value)
     .trim()
     .replace(/[\\/:*?"<>|]+/g, '_')
     .replace(/\s+/g, '_');
@@ -123,6 +123,18 @@ function fixMojibakeText(value) {
   } catch {
     return text;
   }
+}
+
+function fixUploadFileName(value) {
+  const text = String(value || '').trim();
+  if (!text) return text;
+  try {
+    const decoded = Buffer.from(text, 'latin1').toString('utf8');
+    if (/[\u4e00-\u9fff]/.test(decoded) && decoded !== text) return decoded;
+  } catch {
+    // Keep the original filename if it cannot be decoded safely.
+  }
+  return fixMojibakeText(text);
 }
 
 function normalizeRole(role, name) {
@@ -539,9 +551,16 @@ function dimensionFilePath(fileName) {
   return path.join(dimensionUploadDir, path.basename(fileName || ''));
 }
 
-async function uniqueUploadName(fileName) {
+function preferredUploadName(fileName, fallback = 'report') {
   const ext = path.extname(fileName || '');
-  const base = safeFileBaseName(path.basename(fileName || 'report', ext), `report-${Date.now()}`);
+  const base = safeFileBaseName(path.basename(fileName || fallback, ext), fallback);
+  return `${base}${ext}`;
+}
+
+async function uniqueUploadName(fileName) {
+  const preferredName = preferredUploadName(fileName, `report-${Date.now()}`);
+  const ext = path.extname(preferredName || '');
+  const base = path.basename(preferredName || `report-${Date.now()}`, ext);
   let candidate = `${base}${ext}`;
   let index = 1;
   while (true) {
@@ -606,21 +625,41 @@ async function reportFileItems(db) {
   await mkdir(uploadDir, { recursive: true });
   const references = reportReferenceMap(db);
   const entries = await readdir(uploadDir, { withFileTypes: true }).catch(() => []);
-  const files = await Promise.all(entries
-    .filter((entry) => entry.isFile())
-    .map(async (entry) => {
-      const stats = await stat(reportFilePath(entry.name));
-      const linked = references.get(entry.name) || {};
-      return {
-        id: entry.name,
-        fileName: entry.name,
-        fileUrl: fileUrl(entry.name),
-        size: stats.size,
-        modifiedAt: format(stats.mtime, 'yyyy-MM-dd HH:mm:ss'),
-        source: linked.stampedAt ? '已盖章报告' : (linked.stampSkippedAt ? '无需盖章报告' : (linked.recordId ? '验货报告' : '历史上传')),
-        ...linked
-      };
-    }));
+  const files = [];
+  let renamed = false;
+  for (const entry of entries.filter((item) => item.isFile())) {
+    let fileName = entry.name;
+    const preferredName = preferredUploadName(fileName, fileName);
+    const linked = references.get(fileName) || {};
+    if (preferredName && preferredName !== fileName) {
+      const nextName = await uniqueUploadName(preferredName);
+      try {
+        await rename(reportFilePath(fileName), reportFilePath(nextName));
+        Object.values(db.qualityInspection.reports || {}).forEach((report) => {
+          if (report.fileName === fileName) {
+            report.fileName = nextName;
+            report.originalName = nextName;
+            report.updatedAt = nowText();
+          }
+        });
+        fileName = nextName;
+        renamed = true;
+      } catch {
+        fileName = entry.name;
+      }
+    }
+    const stats = await stat(reportFilePath(fileName));
+    files.push({
+      id: fileName,
+      fileName,
+      fileUrl: fileUrl(fileName),
+      size: stats.size,
+      modifiedAt: format(stats.mtime, 'yyyy-MM-dd HH:mm:ss'),
+      source: linked.stampedAt ? '已盖章报告' : (linked.stampSkippedAt ? '无需盖章报告' : (linked.recordId ? '验货报告' : '历史上传')),
+      ...linked
+    });
+  }
+  if (renamed) await saveDb(db);
   return files.sort((a, b) => String(b.modifiedAt).localeCompare(String(a.modifiedAt)));
 }
 
@@ -1444,6 +1483,30 @@ app.patch('/api/quality-inspection/report-files/:fileName', requireAuth, require
     await saveDb(db);
   }
   res.json({ files: await reportFileItems(db) });
+});
+
+app.post('/api/quality-inspection/report-files/batch-delete', requireAuth, requirePages('inspectionReportLibrary'), requireRoles(ROLE_ADMIN), async (req, res) => {
+  const db = await readDb();
+  const fileNames = [...new Set((Array.isArray(req.body.fileNames) ? req.body.fileNames : [])
+    .map((fileName) => path.basename(String(fileName || '').trim()))
+    .filter(Boolean))];
+  if (!fileNames.length) return res.status(400).json({ error: '请选择要删除的文件' });
+
+  await Promise.all(fileNames.map((fileName) => unlink(reportFilePath(fileName)).catch(() => {})));
+  const fileNameSet = new Set(fileNames);
+  Object.values(db.qualityInspection.reports || {}).forEach((report) => {
+    if (fileNameSet.has(report.fileName)) {
+      delete report.fileName;
+      delete report.originalName;
+      delete report.uploadedAt;
+      delete report.stampedAt;
+      delete report.stampedBy;
+      delete report.stampRotation;
+      report.updatedAt = nowText();
+    }
+  });
+  await saveDb(db);
+  res.json({ deleted: fileNames.length, files: await reportFileItems(db) });
 });
 
 app.delete('/api/quality-inspection/report-files/:fileName', requireAuth, requirePages('inspectionReportLibrary'), requireRoles(ROLE_ADMIN), async (req, res) => {

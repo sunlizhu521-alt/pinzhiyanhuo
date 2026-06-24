@@ -1,0 +1,106 @@
+import { useEffect, useMemo, useState } from 'react';
+import { formatDate, mergeScheduleRecords } from '../utils.js';
+import DataTable from './DataTable.jsx';
+
+function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete }) {
+  const [drafts, setDrafts] = useState({});
+  const scheduleRows = useMemo(() => mergeScheduleRecords(records), [records]);
+
+  useEffect(() => {
+    setDrafts(Object.fromEntries(scheduleRows.map((record) => [
+      record.id,
+      {
+        scheduledDate: formatDate(record.schedule?.scheduledDate),
+        inspector: record.schedule?.inspector || '',
+        remark: record.schedule?.remark || '',
+        sourceIds: record.sourceIds || [record.id]
+      }
+    ])));
+  }, [scheduleRows]);
+
+  function updateDraft(recordId, key, value) {
+    setDrafts((current) => ({
+      ...current,
+      [recordId]: {
+        ...(current[recordId] || {}),
+        [key]: value
+      }
+    }));
+  }
+
+  return (
+    <>
+      <div className="section-heading-row">
+        <h2>验货安排</h2>
+        <span className="section-count">来自验货通知 {records.length} 条，按系列合并 {scheduleRows.length} 条</span>
+        <button
+          type="button"
+          disabled={savingId === 'inspectionSchedule' || scheduleRows.length === 0}
+          onClick={() => onSubmit(drafts)}
+        >
+          一键提交
+        </button>
+        <button
+          type="button"
+          className="ghost compact-button"
+          disabled={savingId === 'inspectionScheduleClear' || scheduleRows.length === 0}
+          onClick={onClear}
+        >
+          清除内容
+        </button>
+      </div>
+      <DataTable
+        className="inspection-schedule-table"
+        rows={scheduleRows}
+        columns={['供应商简称', '地址', '产品线', '系列', '数量', '事业部', '运营', '验货通知人', '备注', '验货员', '计划验货时间', '安排备注', '操作']}
+        render={(record) => [
+          record.supplierShortName,
+          record.supplierAddress,
+          record.salesProductLine,
+          record.series,
+          record.totalQuantity,
+          record.businessDepartments,
+          record.operation,
+          record.inspectionNotifier || record.inspectionApplicant,
+          <span className="readonly-cell wide-readonly-cell">{record.remark || ''}</span>,
+          <input
+            className="table-input"
+            value={drafts[record.id]?.inspector || ''}
+            onChange={(event) => updateDraft(record.id, 'inspector', event.target.value)}
+          />,
+          <input
+            className="table-input"
+            type="date"
+            value={drafts[record.id]?.scheduledDate || ''}
+            onChange={(event) => updateDraft(record.id, 'scheduledDate', event.target.value)}
+          />,
+          <input
+            className="table-input wide-input"
+            value={drafts[record.id]?.remark || ''}
+            onChange={(event) => updateDraft(record.id, 'remark', event.target.value)}
+          />,
+          <div className="table-action-row">
+            <button
+              type="button"
+              className="compact-button"
+              disabled={savingId === record.id}
+              onClick={() => onSubmit({ [record.id]: drafts[record.id] || {} }, { single: true, savingId: record.id })}
+            >
+              提交
+            </button>
+            <button
+              type="button"
+              className="danger-button compact-button"
+              disabled={(record.sourceIds || [record.id]).includes(savingId)}
+              onClick={() => onDelete(record.sourceIds || [record.id])}
+            >
+              删除
+            </button>
+          </div>
+        ]}
+      />
+    </>
+  );
+}
+
+export default InspectionSchedulePage;
