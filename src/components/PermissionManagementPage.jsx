@@ -1,12 +1,14 @@
-import { useEffect, useState } from 'react';
-import { ROLE_ADMIN, DEFAULT_ADMIN_USER, PAGE_OPTIONS } from '../constants.js';
-import { isAdminUser, isPrimaryAdminUser } from '../utils.js';
-import { readStaticDb, saveStaticDb } from '../db-utils.js';
+import { useEffect, useMemo, useState } from 'react';
+import { DEFAULT_ADMIN_USER, PAGE_OPTIONS } from '../constants.js';
 import DataTable from './DataTable.jsx';
-import EmptyState from './EmptyState.jsx';
 
-function PermissionManagementPage({ users, savingId, canDeleteUsers = false, onSave, onDelete }) {
+function PermissionManagementPage({ users, savingId, canDeleteUsers = false, onSave, onDelete, onCreateUser }) {
   const [drafts, setDrafts] = useState({});
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('');
+  const [createError, setCreateError] = useState('');
+  const userNames = useMemo(() => new Set(users.map((user) => user.name)), [users]);
 
   useEffect(() => {
     setDrafts(Object.fromEntries(users.map((user) => [user.id, user.pageAccess || []])));
@@ -21,12 +23,44 @@ function PermissionManagementPage({ users, savingId, canDeleteUsers = false, onS
     });
   }
 
+  async function handleCreateUser() {
+    const name = newUserName.trim();
+    const password = newUserPassword.trim();
+    setCreateError('');
+    if (!name || !password) {
+      setCreateError('姓名和密码不能为空');
+      return;
+    }
+    if (userNames.has(name)) {
+      setCreateError('该用户已存在');
+      return;
+    }
+    const created = await onCreateUser(name, password);
+    if (!created) return;
+    setNewUserName('');
+    setNewUserPassword('');
+    setShowCreateForm(false);
+  }
+
   return (
     <section className="permission-page">
       <div className="section-heading-row">
         <h2>权限管理</h2>
+        {canDeleteUsers && (
+          <button type="button" className="compact-button" onClick={() => setShowCreateForm((value) => !value)}>
+            {showCreateForm ? '取消' : '创建用户'}
+          </button>
+        )}
         <span className="section-count">注册用户 {users.length} 个</span>
       </div>
+      {canDeleteUsers && showCreateForm && (
+        <div className="create-user-form" style={{ marginBottom: '16px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <input placeholder="姓名" value={newUserName} onChange={(event) => setNewUserName(event.target.value)} />
+          <input placeholder="密码" type="password" value={newUserPassword} onChange={(event) => setNewUserPassword(event.target.value)} />
+          <button type="button" className="compact-button" onClick={handleCreateUser} disabled={Boolean(savingId)}>创建</button>
+          {createError && <span style={{ color: 'red' }}>{createError}</span>}
+        </div>
+      )}
       <DataTable
         className="permission-table"
         rows={users}

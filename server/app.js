@@ -6,7 +6,7 @@ import compression from 'compression';
 import { format } from 'date-fns';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
-import { initDatabase, getUsers, getUserByName, getUserById, upsertUser, createUser, getSessions, setSession, deleteSession, deleteSessionsByUserId, getNotices, saveNotices, getSchedule, saveSchedule, deleteSchedule, getReport, saveReport, deleteReport, getFeedback, saveFeedback, deleteFeedback, getDimensionLibrary, saveDimensionLibrary, deleteDimensionLibrary, getInitialData, saveInitialData } from './database.js';
+import { initDatabase, getUsers, getUserByName, getUserById, upsertUser, createUser, deleteUser, getSessions, setSession, deleteSession, deleteSessionsByUserId, getNotices, saveNotices, getSchedule, saveSchedule, deleteSchedule, getReport, saveReport, deleteReport, getFeedback, saveFeedback, deleteFeedback, getDimensionLibrary, saveDimensionLibrary, deleteDimensionLibrary, getInitialData, saveInitialData } from './database.js';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
 import { fileURLToPath } from 'node:url';
@@ -992,7 +992,7 @@ app.post('/api/auth/login', async (req, res) => {
   res.json({ id: user.id, name: user.name, role: user.role, pageAccess: user.pageAccess || [], token });
 });
 
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', requireAuth, requirePrimaryAdmin, async (req, res) => {
   const db = await readDb();
   const name = String(req.body.name || '').trim();
   const password = String(req.body.password || '').trim();
@@ -1049,6 +1049,7 @@ app.delete('/api/auth/users/:id', requireAuth, requirePages('permissionManagemen
   Object.entries(db.sessions || {}).forEach(([token, session]) => {
     if (session.userId === target.id) delete db.sessions[token];
   });
+  deleteUser(target.id);
   await saveDb(db);
   res.json({
     users: db.users.map((user) => ({

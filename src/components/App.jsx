@@ -825,6 +825,48 @@ function App() {
     setMessage('账号已删除。');
   }
 
+  async function createUserAccount(name, password) {
+    if (!isPrimaryAdminUser(user)) {
+      setMessage('仅孙立柱管理员可以创建账号。');
+      return false;
+    }
+    setSavingId('creating');
+    if (STATIC_MODE) {
+      const db = readStaticDb();
+      const exists = (db.users || []).some((item) => item.name === name);
+      if (exists) {
+        setMessage('该用户已存在。');
+        setSavingId('');
+        return false;
+      }
+      const createdUser = { id: createId(), name, password, role: ROLE_USER, pageAccess: [] };
+      db.users = [...(db.users || []), createdUser];
+      saveStaticDb(db);
+      setPermissionUsers(db.users);
+      setSavingId('');
+      setMessage(`用户 ${name} 已创建。`);
+      return true;
+    }
+    const res = await authFetch(`${API}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, password })
+    });
+    setSavingId('');
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      setMessage(payload.error || '创建失败。');
+      return false;
+    }
+    const payload = await res.json();
+    setPermissionUsers((current) => [
+      ...current,
+      { id: payload.id, name: payload.name, role: payload.role, pageAccess: payload.pageAccess || [] }
+    ]);
+    setMessage(`用户 ${name} 已创建。`);
+    return true;
+  }
+
   async function uploadInitialData(files) {
     const file = files?.[0];
     if (!file) return;
@@ -2088,6 +2130,7 @@ function App() {
             canDeleteUsers={isPrimaryAdminUser(user)}
             onSave={saveUserPageAccess}
             onDelete={deleteUserAccount}
+            onCreateUser={createUserAccount}
           />
         )}
       </section>
