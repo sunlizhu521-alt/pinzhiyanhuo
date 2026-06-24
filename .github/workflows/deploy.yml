@@ -22,7 +22,17 @@ jobs:
             cd /home/ubuntu/zhuge-ai-lab/pinzhiyanhuo
 
             echo ">>> Fetch latest code"
-            git fetch origin main
+            for attempt in 1 2 3; do
+              if git -c http.version=HTTP/1.1 fetch origin main; then
+                break
+              fi
+              if [ "$attempt" = "3" ]; then
+                echo "git fetch failed after 3 attempts"
+                exit 1
+              fi
+              echo "git fetch failed, retrying in 10 seconds..."
+              sleep 10
+            done
             git reset --hard origin/main
             git log -1 --oneline
 
