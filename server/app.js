@@ -28,6 +28,7 @@ const PAGE_KEYS = [
   'inspectionNotice',
   'inspectionSchedule',
   'inspectionFeedback',
+  'reworkRecords',
   'inspectionStamp',
   'inspectionReportLibrary',
   'inspectionReportQuery',

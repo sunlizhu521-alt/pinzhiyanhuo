@@ -218,7 +218,7 @@ function App() {
       return;
     }
     if (initialRes.ok) setInitialData(await initialRes.json());
-    if (['dimensionLibrary', 'inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'inspectionReportLibrary', 'inspectionReportQuery', 'inspectionSummary', 'inspectionLedger'].some((page) => canAccessPage(user, page))) {
+    if (['dimensionLibrary', 'inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'reworkRecords', 'inspectionReportLibrary', 'inspectionReportQuery', 'inspectionSummary', 'inspectionLedger'].some((page) => canAccessPage(user, page))) {
       await refreshDimensionLibrary();
     }
     if (noticeRes.ok) {
