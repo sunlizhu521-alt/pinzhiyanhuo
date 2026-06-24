@@ -1416,18 +1416,18 @@ function App() {
 
   async function saveReworkRecord(record, draft = {}) {
     setSavingId(record.id);
-    const reworkResult = normalize(draft.reworkResult);
+    const baseRemark = normalize(record.feedback?.remark);
+    const feedbackRemark = baseRemark.includes('返工后验货')
+      ? baseRemark
+      : (baseRemark ? `${baseRemark}；返工后验货` : '返工后验货');
     const rework = {
       ...(record.rework || {}),
-      reworkReason: normalize(draft.reworkReason),
-      reworkPlan: normalize(draft.reworkPlan),
       reworkCompleteTime: normalize(draft.reworkCompleteTime),
-      reworkResult,
       reworkRemark: normalize(draft.reworkRemark),
       updatedAt: nowText(),
       updatedBy: user.name
     };
-    if (['通过', '让步'].includes(reworkResult)) {
+    if (rework.reworkCompleteTime) {
       rework.completedAt = nowText();
       rework.completedBy = user.name;
     } else {
@@ -1438,35 +1438,38 @@ function App() {
       const db = readStaticDb();
       db.qualityInspection.feedback[record.id] = {
         ...(db.qualityInspection.feedback[record.id] || record.feedback || {}),
+        remark: feedbackRemark,
         rework
       };
       saveStaticDb(db);
       setSavingId('');
       setRecords(composedStaticRecords(db).filter((item) => canReadClientRecord(user, item)));
-      setMessage('返工记录已保存。');
+      setMessage('复验通知已保存。');
+      setActiveTab('inspectionFeedback');
       return true;
     }
     const res = await authFetch(`${API}/api/quality-inspection/feedback/${encodeURIComponent(record.id)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...(record.feedback || {}), rework })
+      body: JSON.stringify({ ...(record.feedback || {}), remark: feedbackRemark, rework })
     });
     setSavingId('');
     if (!res.ok) {
-      setMessage('返工记录保存失败。');
+      setMessage('复验通知保存失败。');
       return false;
     }
     await refreshRecords();
-    setMessage('返工记录已保存。');
+    setMessage('复验通知已保存。');
+    setActiveTab('inspectionFeedback');
     return true;
   }
 
   async function deleteReworkRecord(record) {
     if (!isPrimaryAdminUser(user)) {
-      setMessage('仅孙立柱管理员可以删除返工记录。');
+      setMessage('仅孙立柱管理员可以删除复验通知。');
       return false;
     }
-    if (!record || !window.confirm('确认删除当前返工记录？')) return false;
+    if (!record || !window.confirm('确认删除当前复验通知？')) return false;
     setSavingId(record.id);
     if (STATIC_MODE) {
       const db = readStaticDb();
@@ -1477,7 +1480,7 @@ function App() {
       saveStaticDb(db);
       setSavingId('');
       setRecords(composedStaticRecords(db).filter((item) => canReadClientRecord(user, item)));
-      setMessage('返工记录已删除。');
+      setMessage('复验通知已删除。');
       return true;
     }
     const res = await authFetch(`${API}/api/quality-inspection/feedback/${encodeURIComponent(record.id)}`, {
@@ -1487,11 +1490,11 @@ function App() {
     });
     setSavingId('');
     if (!res.ok) {
-      setMessage('返工记录删除失败。');
+      setMessage('复验通知删除失败。');
       return false;
     }
     await refreshRecords();
-    setMessage('返工记录已删除。');
+    setMessage('复验通知已删除。');
     return true;
   }
 

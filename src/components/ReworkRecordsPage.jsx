@@ -35,10 +35,7 @@ function ReworkRecordsPage({
 
   function reworkDraft(record) {
     return {
-      reworkReason: record.rework?.reworkReason || '',
-      reworkPlan: record.rework?.reworkPlan || '',
       reworkCompleteTime: formatDate(record.rework?.reworkCompleteTime),
-      reworkResult: record.rework?.reworkResult || '',
       reworkRemark: record.rework?.reworkRemark || '',
       ...(reworkDrafts[record.id] || {})
     };
@@ -57,8 +54,8 @@ function ReworkRecordsPage({
   return (
     <>
       <div className="section-heading-row">
-        <h2>返工记录</h2>
-        <span className="section-count">共 {filteredRecords.length} 条待返工</span>
+        <h2>复验通知</h2>
+        <span className="section-count">共 {filteredRecords.length} 条待复验</span>
       </div>
       <div className="toolbar">
         <input
@@ -77,7 +74,7 @@ function ReworkRecordsPage({
         rows={filteredRecords}
         columns={[
           '供应商简称', '产品线', '系列', '数量', '事业部', '验货员', '实际验货时间',
-          '验货结果', '返工原因', '返工处理方案', '返工完成时间', '返工结果', '备注', '操作'
+          '验货结果', '问题等级', '问题分类', '问题反馈', '返工完成时间', '复验备注', '操作'
         ]}
         render={(record) => {
           const draft = reworkDraft(record);
@@ -90,32 +87,15 @@ function ReworkRecordsPage({
             record.schedule?.inspector || '',
             formatDate(record.feedback?.actualInspectionTime),
             record.feedback?.result || '',
-            <input
-              className="table-input wide-input"
-              value={draft.reworkReason || ''}
-              onChange={(event) => updateReworkDraft(record.id, 'reworkReason', event.target.value)}
-            />,
-            <input
-              className="table-input wide-input"
-              value={draft.reworkPlan || ''}
-              onChange={(event) => updateReworkDraft(record.id, 'reworkPlan', event.target.value)}
-            />,
+            record.feedback?.issueLevel || '',
+            record.feedback?.issueCategoryPrimary || '',
+            record.feedback?.feedbackText || '',
             <input
               className="table-input"
               type="date"
               value={draft.reworkCompleteTime || ''}
               onChange={(event) => updateReworkDraft(record.id, 'reworkCompleteTime', event.target.value)}
             />,
-            <select
-              className="table-input"
-              value={draft.reworkResult || ''}
-              onChange={(event) => updateReworkDraft(record.id, 'reworkResult', event.target.value)}
-            >
-              <option value="">选择</option>
-              <option value="通过">通过</option>
-              <option value="让步">让步</option>
-              <option value="再次返工">再次返工</option>
-            </select>,
             <textarea
               className="table-textarea"
               value={draft.reworkRemark || ''}
@@ -127,8 +107,8 @@ function ReworkRecordsPage({
                 className="compact-button"
                 disabled={savingId === record.id}
                 onClick={async () => {
-                  if (!window.confirm('确认提交返工记录？')) return;
-                  const saved = await onSave(record, reworkDrafts[record.id] || {});
+                  if (!window.confirm('确认提交复验通知？')) return;
+                  const saved = await onSave(record, draft);
                   if (saved) {
                     setReworkDrafts((current) => {
                       const next = { ...current };
