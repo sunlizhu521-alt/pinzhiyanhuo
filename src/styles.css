@@ -1275,3 +1275,107 @@ th {
     grid-template-columns: repeat(2, minmax(260px, 1fr));
   }
 }
+
+button {
+  font-weight: 600;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+button:not(.ghost):not(.sidebar-nav button):not(.submenu-list button) {
+  background: #FF6B35;
+  color: #fff;
+  padding: 8px 16px;
+}
+
+button:not(.ghost):not(.sidebar-nav button):not(.submenu-list button):hover {
+  background: #E8551E;
+  box-shadow: 0 2px 8px rgba(255, 107, 53, 0.3);
+}
+
+button.ghost {
+  background: rgba(255, 107, 53, 0.08);
+  color: #D45113;
+  padding: 8px 16px;
+}
+
+button.ghost:hover {
+  background: rgba(255, 107, 53, 0.16);
+  color: #C2450F;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.compact-button {
+  background: #FF6B35 !important;
+  color: #fff !important;
+  padding: 6px 14px !important;
+  font-size: 14px !important;
+}
+
+.compact-button:hover {
+  background: #E8551E !important;
+}
+
+.ghost.compact-button {
+  background: rgba(255, 107, 53, 0.08) !important;
+  color: #D45113 !important;
+}
+
+.ghost.compact-button:hover {
+  background: rgba(255, 107, 53, 0.16) !important;
+}
+
+.upload-button {
+  background: #FF8C5A;
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+.upload-button:hover {
+  background: #FF6B35;
+}
+
+.table-btn,
+.row-btn {
+  background: rgba(255, 107, 53, 0.1);
+  color: #D45113;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.table-btn:hover,
+.row-btn:hover {
+  background: rgba(255, 107, 53, 0.2);
+}
+
+button.danger,
+button.delete-btn {
+  background: #E03A3A;
+  color: #fff;
+}
+
+button.danger:hover,
+button.delete-btn:hover {
+  background: #C62828;
+}
+
+button.cancel,
+button.clear-btn {
+  background: #9E9E9E;
+  color: #fff;
+}
+
+button.cancel:hover,
+button.clear-btn:hover {
+  background: #757575;
+}
