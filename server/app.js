@@ -990,7 +990,30 @@ app.post('/api/auth/login', async (req, res) => {
   const token = randomUUID();
   db.sessions[token] = { userId: user.id, createdAt: nowText() };
   await saveDb(db);
-  res.json({ id: user.id, name: user.name, role: user.role, pageAccess: user.pageAccess || [], token });
+  res.json({
+    id: user.id,
+    name: user.name,
+    role: user.role,
+    pageAccess: user.pageAccess || [],
+    token,
+    mustResetPassword: !!user.mustResetPassword
+  });
+});
+
+app.post('/api/auth/change-password', requireAuth, async (req, res) => {
+  const db = await readDb();
+  const oldPassword = String(req.body.oldPassword || '');
+  const newPassword = String(req.body.newPassword || '');
+  if (!newPassword || newPassword.length < 4) return res.status(400).json({ error: '新密码至少4位' });
+  const user = db.users.find((item) => item.id === req.authUser.id);
+  if (!user) return res.status(404).json({ error: '用户不存在' });
+  if (!user.mustResetPassword && !(await verifyPassword(oldPassword, user.password))) {
+    return res.status(401).json({ error: '旧密码不正确' });
+  }
+  user.password = await hashPassword(newPassword);
+  user.mustResetPassword = false;
+  await saveDb(db);
+  res.json({ success: true });
 });
 
 app.post('/api/auth/register', requireAuth, requirePrimaryAdmin, async (req, res) => {
@@ -1000,10 +1023,10 @@ app.post('/api/auth/register', requireAuth, requirePrimaryAdmin, async (req, res
   if (!name || !password) return res.status(400).json({ error: '请输入姓名和密码' });
   if (db.users.some((user) => user.name === name)) return res.status(409).json({ error: '该姓名已存在' });
   const hashedPassword = await hashPassword(password);
-  const user = { id: randomUUID(), name, password: hashedPassword, role: ROLE_USER, pageAccess: [] };
+  const user = { id: randomUUID(), name, password: hashedPassword, role: ROLE_USER, pageAccess: [], mustResetPassword: true };
   db.users.push(user);
   await saveDb(db);
-  res.json({ id: user.id, name: user.name, role: user.role, pageAccess: user.pageAccess || [] });
+  res.json({ id: user.id, name: user.name, role: user.role, pageAccess: user.pageAccess || [], mustResetPassword: true });
 });
 
 app.get('/api/auth/users', requireAuth, requirePages('permissionManagement'), requireRoles(ROLE_ADMIN), async (req, res) => {
@@ -1032,6 +1055,10 @@ app.patch('/api/auth/users/:id/access', requireAuth, requirePages('permissionMan
   target.pageAccess = target.name === DEFAULT_ADMIN_USER.name
     ? PAGE_KEYS
     : requestedPageAccess;
+  Object.entries(db.sessions || {}).forEach(([token, session]) => {
+    if (session.userId === target.id) delete db.sessions[token];
+  });
+  deleteSessionsByUserId(target.id);
   await saveDb(db);
   res.json({
     id: target.id,
@@ -1039,6 +1066,22 @@ app.patch('/api/auth/users/:id/access', requireAuth, requirePages('permissionMan
     role: target.role,
     pageAccess: target.pageAccess
   });
+});
+
+app.post('/api/auth/users/:id/reset-password', requireAuth, requirePages('permissionManagement'), requirePrimaryAdmin, async (req, res) => {
+  const db = await readDb();
+  const target = db.users.find((user) => user.id === req.params.id);
+  if (!target) return res.status(404).json({ error: '用户不存在' });
+  if (isPrimaryAdminUser(target)) return res.status(400).json({ error: '不能重置孙立柱管理员密码' });
+  const newPassword = String(req.body.newPassword || '123456').trim();
+  target.password = await hashPassword(newPassword);
+  target.mustResetPassword = true;
+  Object.entries(db.sessions || {}).forEach(([token, session]) => {
+    if (session.userId === target.id) delete db.sessions[token];
+  });
+  deleteSessionsByUserId(target.id);
+  await saveDb(db);
+  res.json({ success: true, message: `密码已重置，新密码: ${newPassword}` });
 });
 
 app.delete('/api/auth/users/:id', requireAuth, requirePages('permissionManagement'), requirePrimaryAdmin, async (req, res) => {
@@ -1085,7 +1128,7 @@ app.post('/api/quality-inspection/initial-data/import', requireAuth, requirePage
   }
 });
 
-app.get('/api/quality-inspection/dimension-library', requireAuth, requirePages('dimensionLibrary', 'inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'inspectionReportLibrary', 'inspectionReportQuery', 'inspectionSummary', 'inspectionLedger'), async (req, res) => {
+app.get('/api/quality-inspection/dimension-library', requireAuth, requirePages('dimensionLibrary', 'inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'reworkRecords', 'inspectionReportLibrary', 'inspectionReportQuery', 'inspectionSummary', 'inspectionLedger'), async (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   const db = await readDb();
   const recovered = await recoverDimensionLibraryRecordsFromUploadedFiles(db);

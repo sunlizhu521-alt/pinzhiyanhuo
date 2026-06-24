@@ -31,6 +31,11 @@ export async function initDatabase() {
     role TEXT NOT NULL DEFAULT '普通用户',
     page_access TEXT NOT NULL DEFAULT '[]'
   )`);
+  try {
+    db.run('ALTER TABLE users ADD COLUMN must_reset_password INTEGER NOT NULL DEFAULT 0');
+  } catch {
+    // Column already exists on upgraded databases.
+  }
   db.run(`CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -85,8 +90,12 @@ function parsePageAccess(value) {
 
 function mapUser(row) {
   if (!row) return null;
-  const { page_access: pageAccessRaw, ...user } = row;
-  return { ...user, pageAccess: parsePageAccess(pageAccessRaw) };
+  const { page_access: pageAccessRaw, must_reset_password: mustResetPasswordRaw, ...user } = row;
+  return {
+    ...user,
+    pageAccess: parsePageAccess(pageAccessRaw),
+    mustResetPassword: Boolean(mustResetPasswordRaw)
+  };
 }
 
 export function getUsers() {
@@ -102,12 +111,13 @@ export function getUserById(id) {
 }
 
 export function upsertUser(user) {
-  db.run('INSERT OR REPLACE INTO users (id, name, password, role, page_access) VALUES (?, ?, ?, ?, ?)', [
+  db.run('INSERT OR REPLACE INTO users (id, name, password, role, page_access, must_reset_password) VALUES (?, ?, ?, ?, ?, ?)', [
     user.id,
     user.name,
     user.password,
     user.role || '普通用户',
-    JSON.stringify(user.pageAccess || [])
+    JSON.stringify(user.pageAccess || []),
+    user.mustResetPassword ? 1 : 0
   ]);
   saveDb();
 }

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { DEFAULT_ADMIN_USER, PAGE_OPTIONS } from '../constants.js';
 import DataTable from './DataTable.jsx';
 
-function PermissionManagementPage({ users, savingId, canDeleteUsers = false, onSave, onDelete, onCreateUser }) {
+function PermissionManagementPage({ users, savingId, canDeleteUsers = false, onSave, onDelete, onCreateUser, onResetPassword }) {
   const [drafts, setDrafts] = useState({});
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newUserName, setNewUserName] = useState('');
@@ -94,14 +94,24 @@ function PermissionManagementPage({ users, savingId, canDeleteUsers = false, onS
                 保存授权
               </button>
               {canDeleteUsers && !isBuiltInAdmin && (
-                <button
-                  type="button"
-                  className="danger-button compact-button"
-                  disabled={savingId === targetUser.id}
-                  onClick={() => onDelete(targetUser)}
-                >
-                  删除账号
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className="danger-button compact-button"
+                    disabled={savingId === targetUser.id}
+                    onClick={() => onDelete(targetUser)}
+                  >
+                    删除账号
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost compact-button"
+                    disabled={savingId === targetUser.id}
+                    onClick={() => onResetPassword(targetUser)}
+                  >
+                    重置密码
+                  </button>
+                </>
               )}
             </div>
           ];

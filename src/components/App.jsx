@@ -65,6 +65,11 @@ function App() {
   const [registerName, setRegisterName] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
   const [user, setUser] = useState(readStoredUser);
+  const [pendingPasswordChange, setPendingPasswordChange] = useState(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
   const [message, setMessage] = useState('');
   const [appVersionTime, setAppVersionTime] = useState('读取中...');
   const [noticeRows, setNoticeRows] = useState(() => [createNoticeRow()]);
@@ -126,6 +131,23 @@ function App() {
   const schedulePageRecords = clearedScheduleSignature && clearedScheduleSignature === currentRecordSignature
     ? []
     : pendingScheduleRecords;
+
+  function completeLogin(payload) {
+    const nextUser = {
+      id: payload.id,
+      name: payload.name,
+      role: payload.role,
+      pageAccess: payload.pageAccess || [],
+      token: payload.token
+    };
+    saveStoredUser(nextUser);
+    setUser(nextUser);
+    setPendingPasswordChange(null);
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordError('');
+    setActiveTab(homeTabForUser(nextUser));
+  }
 
   function authFetch(url, options = {}) {
     const headers = {
@@ -252,16 +274,19 @@ function App() {
           return;
         }
         const payload = { id: matchedUser.id, name: matchedUser.name, role: matchedUser.role, pageAccess: matchedUser.pageAccess || [] };
-        saveStoredUser(payload);
-        setUser(payload);
-        setActiveTab(homeTabForUser(payload));
+        if (matchedUser.mustResetPassword) {
+          setPendingPasswordChange(payload);
+          setPasswordError('');
+          return;
+        }
+        completeLogin(payload);
         return;
       }
       if (db.users.some((item) => item.name === name)) {
         setMessage('该姓名已存在。');
         return;
       }
-      const newUser = { id: createId(), name, password: inputPassword, role: ROLE_USER, pageAccess: [] };
+      const newUser = { id: createId(), name, password: inputPassword, role: ROLE_USER, pageAccess: [], mustResetPassword: true };
       db.users.push(newUser);
       saveStaticDb(db);
       setRegisterName('');
@@ -290,14 +315,66 @@ function App() {
       setMessage('注册成功，请等待管理员孙立柱授权页面后再登录。');
       return;
     }
-    saveStoredUser(payload);
-    setUser(payload);
-    setActiveTab(homeTabForUser(payload));
+    if (payload.mustResetPassword) {
+      setPendingPasswordChange(payload);
+      setPasswordError('');
+      setNewPassword('');
+      setConfirmPassword('');
+      return;
+    }
+    completeLogin(payload);
   }
 
   function logout() {
     clearStoredUser();
     setUser(null);
+    setPendingPasswordChange(null);
+  }
+
+  async function handleChangePassword() {
+    if (!pendingPasswordChange) return;
+    setPasswordError('');
+    const nextPassword = normalize(newPassword);
+    const confirmedPassword = normalize(confirmPassword);
+    if (!nextPassword || nextPassword.length < 4) {
+      setPasswordError('新密码至少4位');
+      return;
+    }
+    if (nextPassword !== confirmedPassword) {
+      setPasswordError('两次输入的新密码不一致');
+      return;
+    }
+    setChangingPassword(true);
+    if (STATIC_MODE) {
+      const db = readStaticDb();
+      const target = (db.users || []).find((item) => item.id === pendingPasswordChange.id);
+      if (!target) {
+        setPasswordError('用户不存在');
+        setChangingPassword(false);
+        return;
+      }
+      target.password = nextPassword;
+      target.mustResetPassword = false;
+      saveStaticDb(db);
+      setChangingPassword(false);
+      completeLogin(pendingPasswordChange);
+      return;
+    }
+    const res = await fetch(`${API}/api/auth/change-password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${pendingPasswordChange.token}`
+      },
+      body: JSON.stringify({ newPassword: nextPassword })
+    });
+    setChangingPassword(false);
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      setPasswordError(payload.error || '密码修改失败');
+      return;
+    }
+    completeLogin(pendingPasswordChange);
   }
 
   function updateNoticeRow(id, key, value) {
@@ -865,6 +942,41 @@ function App() {
     ]);
     setMessage(`用户 ${name} 已创建。`);
     return true;
+  }
+
+  async function resetUserPassword(targetUser) {
+    if (!targetUser?.id) return;
+    if (!isPrimaryAdminUser(user)) {
+      setMessage('仅孙立柱管理员可以重置密码。');
+      return;
+    }
+    if (!window.confirm(`确认重置 ${targetUser.name} 的密码？重置后密码为 123456，用户需在首次登录时修改。`)) return;
+    setSavingId(targetUser.id);
+    if (STATIC_MODE) {
+      const db = readStaticDb();
+      const target = (db.users || []).find((item) => item.id === targetUser.id);
+      if (target) {
+        target.password = '123456';
+        target.mustResetPassword = true;
+        saveStaticDb(db);
+      }
+      setSavingId('');
+      setMessage(`${targetUser.name} 的密码已重置为 123456。`);
+      return;
+    }
+    const res = await authFetch(`${API}/api/auth/users/${encodeURIComponent(targetUser.id)}/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ newPassword: '123456' })
+    });
+    setSavingId('');
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      setMessage(payload.error || '重置失败。');
+      return;
+    }
+    const payload = await res.json();
+    setMessage(payload.message || `${targetUser.name} 的密码已重置。`);
   }
 
   async function uploadInitialData(files) {
@@ -1890,12 +2002,47 @@ function App() {
   }, [summaryRecords]);
   const canDeleteInspectionInfo = isPrimaryAdminUser(user);
 
+  if (pendingPasswordChange) {
+    return (
+      <main className="login-shell">
+        <section className="login-panel">
+          <h1>品质验货</h1>
+          <h2>首次登录，请设置新密码</h2>
+          <p className="auth-note">当前用户：{pendingPasswordChange.name}</p>
+          <label>
+            新密码
+            <input
+              type="password"
+              placeholder="新密码（至少4位）"
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
+            />
+          </label>
+          <label>
+            确认新密码
+            <input
+              type="password"
+              placeholder="确认新密码"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+            />
+          </label>
+          {passwordError && <p className="message error-message">{passwordError}</p>}
+          <button type="button" onClick={handleChangePassword} disabled={changingPassword}>
+            {changingPassword ? '处理中' : '设置密码并登录'}
+          </button>
+          <button type="button" className="ghost auth-switch-button" onClick={logout}>返回登录</button>
+        </section>
+      </main>
+    );
+  }
+
   if (!user) {
     return (
       <main className="login-shell">
         <form className="login-panel" onSubmit={submitAuth} autoComplete="off">
           <h1>品质验货</h1>
-          <p className="auth-note">首次使用请先注册账号，注册后需要管理员孙立柱授权页面后才能进入系统。</p>
+          <p className="auth-note">账号由管理员孙立柱创建并授权页面后才能进入系统。</p>
           {message && <p className="message">{message}</p>}
           {authMode === 'login' ? (
             <>
@@ -1923,7 +2070,6 @@ function App() {
                 />
               </label>
               <button type="submit">登录</button>
-              <button type="button" className="ghost auth-switch-button" onClick={() => setAuthMode('register')}>注册新账号</button>
             </>
           ) : (
             <>
@@ -2131,6 +2277,7 @@ function App() {
             onSave={saveUserPageAccess}
             onDelete={deleteUserAccount}
             onCreateUser={createUserAccount}
+            onResetPassword={resetUserPassword}
           />
         )}
       </section>

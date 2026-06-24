@@ -88,7 +88,7 @@ const MENU_PAGES = [
   { tab: 'reworkRecords', label: '返工记录' },
   { tab: 'inspectionStamp', label: '加盖检验章' },
   { tab: 'inspectionReportQuery', label: '查询检验单' },
-  { tab: 'inspectionSummary', label: '验货反馈表' },
+  { tab: 'inspectionSummary', label: '验货状态' },
   { tab: 'inspectionLedger', label: '验货台账' },
   { tab: 'dimensionLibrary', label: '维度表文件库' },
   { tab: 'inspectionReportLibrary', label: '报告单文件库' },
