@@ -27,9 +27,21 @@ function readFileAsDataUrl(file) {
 }
 
 async function dataUrlToFile(dataUrl, fileName) {
-  const response = await fetch(dataUrl);
-  const blob = await response.blob();
-  return new File([blob], fileName, { type: blob.type || 'image/png' });
+  const text = String(dataUrl || '');
+  const match = text.match(/^data:([^;,]+)?(;base64)?,(.*)$/);
+  if (!match) {
+    const response = await fetch(text);
+    const blob = await response.blob();
+    return new File([blob], fileName, { type: blob.type || 'image/png' });
+  }
+  const mimeType = match[1] || 'image/png';
+  const body = match[3] || '';
+  const binary = match[2] ? atob(body) : decodeURIComponent(body);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return new File([bytes], fileName, { type: mimeType });
 }
 
 function reportHref(record) {
