@@ -56,21 +56,37 @@ function InspectionStampPage({ records, savingId, onStamp }) {
     }
   }
 
-  async function confirmSave() {
+  async function saveStampResult(dataUrl, skipStamp) {
     if (!canStamp) return;
     setPreviewing(true);
     setPreviewError('');
     try {
-      const dataUrl = activePreview
-        ? activePreview.dataUrl
-        : await createRotatedReportImageDataUrl(current, rotation);
-      const saved = await onStamp(current, rotation, dataUrl, !activePreview);
+      const saved = await onStamp(current, rotation, dataUrl, skipStamp);
       if (saved) {
         setStampPreview(null);
         if (current?.isStampUpload) {
           setUploadedRecords((items) => items.filter((item) => item.id !== current.id));
         }
       }
+    } catch {
+      setPreviewError('保存失败，请确认报告单图片可以正常打开。');
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  async function confirmStamp() {
+    if (!activePreview) return;
+    await saveStampResult(activePreview.dataUrl, false);
+  }
+
+  async function saveWithoutStamp() {
+    if (!canStamp) return;
+    setPreviewing(true);
+    setPreviewError('');
+    try {
+      const dataUrl = await createRotatedReportImageDataUrl(current, rotation);
+      await saveStampResult(dataUrl, true);
     } catch {
       setPreviewError('保存失败，请确认报告单图片可以正常打开。');
     } finally {
@@ -154,7 +170,13 @@ function InspectionStampPage({ records, savingId, onStamp }) {
           type="button"
           className="compact-button"
           disabled={!canStamp || savingId === current?.id}
-          onClick={confirmSave}
+          onClick={() => {
+            if (activePreview) {
+              confirmStamp();
+            } else {
+              saveWithoutStamp();
+            }
+          }}
         >
           {savingId === current?.id ? '保存中' : '确认保存'}
         </button>
