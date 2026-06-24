@@ -1806,23 +1806,19 @@ function App() {
     <main className="app-shell" onClick={() => setMessage('')}>
       <SecurityWatermark user={user} />
       <aside className="sidebar" onClick={(event) => event.stopPropagation()}>
-        <h1>品质验货</h1>
         <span className="app-version-time">更新时间：{appVersionTime}</span>
-        <div className="menu-group">
-          <button type="button" className="menu-group-title">品质验货 <span>▼</span></button>
-          <div className="submenu-list">
-            {accessibleMenuPages.map((page) => (
-              <button
-                key={page.tab}
-                type="button"
-                className={activeTab === page.tab ? 'active' : ''}
-                onClick={() => setActiveTab(page.tab)}
-              >
-                {page.label}
-              </button>
-            ))}
-          </div>
-        </div>
+        <nav className="sidebar-nav">
+          {accessibleMenuPages.map((page) => (
+            <button
+              key={page.tab}
+              type="button"
+              className={activeTab === page.tab ? 'active' : ''}
+              onClick={() => setActiveTab(page.tab)}
+            >
+              {page.label}
+            </button>
+          ))}
+        </nav>
         <div className="user-box">
           <strong>{user.name}</strong>
           <span>{user.role}</span>
