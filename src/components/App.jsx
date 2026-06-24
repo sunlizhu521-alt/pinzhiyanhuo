@@ -30,6 +30,13 @@ async function exportRowsToWorkbook(rows, sheetName, fileName) {
   return true;
 }
 
+function createBlankNoticeRow(values = {}) {
+  return createNoticeRow({
+    inspectionFillTime: formatDate(new Date()),
+    ...values
+  });
+}
+
 async function detectReportTextRotation(record) {
   const { recognize } = await import('tesseract.js');
   const candidates = [0, 90, 180, 270];
@@ -72,7 +79,7 @@ function App() {
   const [changingPassword, setChangingPassword] = useState(false);
   const [message, setMessage] = useState('');
   const [appVersionTime, setAppVersionTime] = useState('读取中...');
-  const [noticeRows, setNoticeRows] = useState(() => [createNoticeRow()]);
+  const [noticeRows, setNoticeRows] = useState(() => [createBlankNoticeRow()]);
   const [noticeSubmission, setNoticeSubmission] = useState({ rows: [], submittedAt: '', submittedBy: '' });
   const [noticeImportPreview, setNoticeImportPreview] = useState(null);
   const [summaryImportPreview, setSummaryImportPreview] = useState(null);
@@ -225,7 +232,7 @@ function App() {
       setInitialData(inspection.initialData);
       setDimensionLibrary(readDimensionLibrary());
       setNoticeSubmission({ ...inspection.notices, rows: visibleNotices });
-      setNoticeRows([createNoticeRow({ inspectionApplicant: user.name })]);
+      setNoticeRows([createBlankNoticeRow({ inspectionApplicant: user.name })]);
       setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
       return;
     }
@@ -246,7 +253,7 @@ function App() {
     if (noticeRes.ok) {
       const payload = await noticeRes.json();
       setNoticeSubmission(payload);
-      setNoticeRows([createNoticeRow({ inspectionApplicant: user.name })]);
+      setNoticeRows([createBlankNoticeRow({ inspectionApplicant: user.name })]);
     }
     if (recordsRes.ok) setRecords((await recordsRes.json()).rows || []);
   }
@@ -390,7 +397,7 @@ function App() {
   }
 
   function addNoticeRow() {
-    setNoticeRows((rows) => [...rows, createNoticeRow({ inspectionApplicant: user.name })]);
+    setNoticeRows((rows) => [...rows, createBlankNoticeRow({ inspectionApplicant: user.name })]);
   }
 
   async function previewNoticeRows(files) {
@@ -644,11 +651,11 @@ function App() {
   }
 
   function deleteNoticeRow(id) {
-    setNoticeRows((rows) => rows.length > 1 ? rows.filter((row) => row.id !== id) : [createNoticeRow({ inspectionApplicant: user.name })]);
+    setNoticeRows((rows) => rows.length > 1 ? rows.filter((row) => row.id !== id) : [createBlankNoticeRow({ inspectionApplicant: user.name })]);
   }
 
   function clearNoticeRows() {
-    setNoticeRows([createNoticeRow({ inspectionApplicant: user.name })]);
+    setNoticeRows([createBlankNoticeRow({ inspectionApplicant: user.name })]);
     setNoticeImportPreview(null);
     setMessage('已清除当前验货通知填写内容。');
   }
@@ -697,7 +704,7 @@ function App() {
         ? payload.rows
         : payload.rows.filter((row) => row.inspectionApplicant === user.name);
       setNoticeSubmission({ ...payload, rows: visibleRows });
-      if (clearRows) setNoticeRows([createNoticeRow({ inspectionApplicant: user.name })]);
+      if (clearRows) setNoticeRows([createBlankNoticeRow({ inspectionApplicant: user.name })]);
       setNoticeImportPreview(null);
       setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
       setMessage(successText || `验货通知已提交：共 ${payload.rows.length} 条。`);
@@ -717,7 +724,7 @@ function App() {
     }
     const payload = await res.json();
     setNoticeSubmission(payload);
-    if (clearRows) setNoticeRows([createNoticeRow({ inspectionApplicant: user.name })]);
+    if (clearRows) setNoticeRows([createBlankNoticeRow({ inspectionApplicant: user.name })]);
     setNoticeImportPreview(null);
     setMessage(successText || `验货通知已提交：共 ${payload.rows.length} 条。`);
     await refreshRecords();
@@ -737,7 +744,7 @@ function App() {
     if (!saved) return;
     setNoticeRows((rows) => {
       const nextRows = rows.filter((item) => item.id !== row.id);
-      return nextRows.length ? nextRows : [createNoticeRow({ inspectionApplicant: user.name })];
+      return nextRows.length ? nextRows : [createBlankNoticeRow({ inspectionApplicant: user.name })];
     });
   }
 
@@ -1209,7 +1216,7 @@ function App() {
       db.qualityInspection.feedback = {};
       saveStaticDb(db);
       setNoticeSubmission(db.qualityInspection.notices);
-      setNoticeRows([createNoticeRow({ inspectionApplicant: user.name })]);
+      setNoticeRows([createBlankNoticeRow({ inspectionApplicant: user.name })]);
       setRecords([]);
       setSavingId('');
       setMessage('验货安排内容已全部清除，请重新提交验货通知。');
@@ -1224,7 +1231,7 @@ function App() {
     }
     const payload = await res.json();
     setNoticeSubmission(payload.notices || { rows: [], submittedAt: '', submittedBy: '' });
-    setNoticeRows([createNoticeRow({ inspectionApplicant: user.name })]);
+    setNoticeRows([createBlankNoticeRow({ inspectionApplicant: user.name })]);
     setRecords([]);
     setMessage('验货安排内容已全部清除，请重新提交验货通知。');
   }
@@ -1427,6 +1434,17 @@ function App() {
       updatedAt: nowText(),
       updatedBy: user.name
     };
+    const reworkSchedule = rework.reworkCompleteTime
+      ? {
+          ...(record.schedule || {}),
+          scheduledDate: '',
+          inspector: '',
+          status: '未安排',
+          remark: normalize(record.schedule?.remark) || '返工后验货',
+          reworkRequestedAt: nowText(),
+          updatedAt: nowText()
+        }
+      : null;
     if (rework.reworkCompleteTime) {
       rework.completedAt = nowText();
       rework.completedBy = user.name;
@@ -1436,6 +1454,12 @@ function App() {
     }
     if (STATIC_MODE) {
       const db = readStaticDb();
+      if (rework.reworkCompleteTime) {
+        db.qualityInspection.notices.rows = (db.qualityInspection.notices.rows || []).map((row) => (
+          row.id === record.id ? { ...row, shipmentTime: rework.reworkCompleteTime } : row
+        ));
+        db.qualityInspection.schedules[record.id] = reworkSchedule;
+      }
       db.qualityInspection.feedback[record.id] = {
         ...(db.qualityInspection.feedback[record.id] || record.feedback || {}),
         remark: feedbackRemark,
@@ -1451,7 +1475,7 @@ function App() {
     const res = await authFetch(`${API}/api/quality-inspection/feedback/${encodeURIComponent(record.id)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...(record.feedback || {}), remark: feedbackRemark, rework })
+      body: JSON.stringify({ ...(record.feedback || {}), remark: feedbackRemark, rework, reworkSchedule })
     });
     setSavingId('');
     if (!res.ok) {

@@ -227,6 +227,13 @@ function feedbackReportNo(record, actualInspectionTime, inspectionQuantity) {
   ].filter(Boolean).join('-');
 }
 
+function latestFeedback(feedback) {
+  if (Array.isArray(feedback)) {
+    return feedback.filter((item) => hasObjectValue(item)).slice(-1)[0] || {};
+  }
+  return feedback || {};
+}
+
 function mergeScheduleRecords(records = []) {
   const groups = new Map();
   records.forEach((record) => {
@@ -298,7 +305,10 @@ function mergeFeedbackRecords(records = [], reportHrefFn = () => false) {
     const originalRemark = remarks.join('+');
     if (originalRemark) mergedRemarkParts.push(originalRemark);
     if (group.length > 1 && quantityDetail) mergedRemarkParts.push(`合并：${quantityDetail}`);
-    const feedbackSource = group.find((record) => hasObjectValue(record.feedback)) || first;
+    const feedbackSource = group
+      .filter((record) => hasObjectValue(latestFeedback(record.feedback)))
+      .sort((left, right) => normalize(latestFeedback(right.feedback).updatedAt || latestFeedback(right.feedback).actualInspectionTime)
+        .localeCompare(normalize(latestFeedback(left.feedback).updatedAt || latestFeedback(left.feedback).actualInspectionTime)))[0] || first;
     const reportSource = group.find((record) => reportHrefFn(record)) || first;
     return {
       ...first,
@@ -315,7 +325,7 @@ function mergeFeedbackRecords(records = [], reportHrefFn = () => false) {
         inspector: inspectors.join('/')
       },
       report: { ...(reportSource.report || {}) },
-      feedback: { ...(feedbackSource.feedback || {}) }
+      feedback: { ...latestFeedback(feedbackSource.feedback) }
     };
   });
 }
@@ -399,6 +409,7 @@ export {
   canReadClientRecord,
   createNoticeRow,
   feedbackReportNo,
+  latestFeedback,
   mergeScheduleRecords,
   mergeFeedbackRecords,
   noticeImportMergeKey,

@@ -30,14 +30,15 @@ function ReportQueryPage({
     ? ['供应商', '实际验货时间', '实际验货员', '报告单号', '报告文件', '验货结果', '操作']
     : ['供应商', '实际验货时间', '实际验货员', '报告单号', '报告文件', '验货结果'];
 
-  const recordReportFiles = useMemo(() => {
+  const recordReportFile = useMemo(() => {
     const map = {};
     for (const record of records) {
-      const files = [];
+      const candidates = [];
       if (reportHref(record)) {
-        files.push({
+        candidates.push({
           key: 'record-report',
-          label: record.report?.stampedAt ? '已盖章' : '直接保存',
+          priority: record.report?.stampedAt ? 1 : (record.report?.stampSkippedAt ? 2 : 4),
+          label: record.report?.stampedAt ? '已盖章' : (record.report?.stampSkippedAt ? '直接保存' : '报告'),
           url: reportHref(record),
           name: record.report?.originalName || '查看文件'
         });
@@ -48,15 +49,16 @@ function ReportQueryPage({
       );
       for (const file of matched) {
         if (file.fileUrl) {
-          files.push({
+          candidates.push({
             key: file.id || file.fileName,
-            label: file.stampedAt ? '已盖章' : (file.source || '历史'),
+            priority: file.stampedAt ? 1 : (file.stampSkippedAt ? 2 : 3),
+            label: file.stampedAt ? '已盖章' : (file.stampSkippedAt ? '直接保存' : (file.source || '历史')),
             url: file.fileUrl,
             name: file.fileName || '查看文件'
           });
         }
       }
-      map[record.id] = files;
+      map[record.id] = candidates.sort((a, b) => a.priority - b.priority)[0] || null;
     }
     return map;
   }, [records, reportLibraryItems]);
@@ -122,30 +124,25 @@ function ReportQueryPage({
             record.feedback?.actualInspector || record.schedule?.inspector || '',
             record.report?.reportNo || '',
             (() => {
-              const files = recordReportFiles[record.id] || [];
-              if (!files.length) return '';
+              const file = recordReportFile[record.id];
+              if (!file) return '';
               return (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  {files.map((file) => (
-                    <button
-                      key={file.key}
-                      type="button"
-                      className="link-button"
-                      onClick={() => setPreviewRecord({
-                        ...record,
-                        report: {
-                          ...record.report,
-                          originalName: file.name,
-                          reportNo: record.report?.reportNo
-                        },
-                        _overrideUrl: file.url,
-                        _overrideExt: filePreviewExt(file)
-                      })}
-                    >
-                      [{file.label}] {file.name}
-                    </button>
-                  ))}
-                </div>
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => setPreviewRecord({
+                    ...record,
+                    report: {
+                      ...record.report,
+                      originalName: file.name,
+                      reportNo: record.report?.reportNo
+                    },
+                    _overrideUrl: file.url,
+                    _overrideExt: filePreviewExt(file)
+                  })}
+                >
+                  [{file.label}] {file.name}
+                </button>
               );
             })(),
             record.feedback?.result || ''

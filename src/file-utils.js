@@ -223,7 +223,7 @@ function shouldShowFeedbackRecord(record) {
 }
 
 function shouldShowScheduleRecord(record) {
-  return !hasObjectValue(record.schedule);
+  return !hasObjectValue(record.schedule) || normalize(record.schedule?.status) === '未安排';
 }
 
 function shouldShowSummaryRecord(record) {

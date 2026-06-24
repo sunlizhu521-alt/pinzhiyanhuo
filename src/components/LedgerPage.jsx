@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import DataTable from './DataTable.jsx';
-import { normalize, formatDate } from '../utils.js';
-import { reportHref } from '../file-utils.js';
+import ReportPreviewModal from './ReportPreviewModal.jsx';
+import { normalize, formatDate, latestFeedback } from '../utils.js';
+import { reportHref, reportFileExt, isImageReport } from '../file-utils.js';
 
 function LedgerPage({ records, onExport }) {
   const [filters, setFilters] = useState({
@@ -10,25 +11,31 @@ function LedgerPage({ records, onExport }) {
     result: '',
     keyword: ''
   });
+  const [previewRecord, setPreviewRecord] = useState(null);
+  const previewUrl = previewRecord ? reportHref(previewRecord) : '';
+  const previewExt = previewRecord ? reportFileExt(previewRecord) : '';
 
   const filteredRecords = useMemo(() => {
     const normalizedFilters = Object.fromEntries(
       Object.entries(filters).map(([key, value]) => [key, normalize(value).toLowerCase()])
     );
-    return records.filter((record) => (
-      (!normalizedFilters.supplierShortName || normalize(record.supplierShortName).toLowerCase().includes(normalizedFilters.supplierShortName))
-      && (!normalizedFilters.status || normalize(record.schedule?.status).toLowerCase() === normalizedFilters.status)
-      && (!normalizedFilters.result || normalize(record.feedback?.result).toLowerCase() === normalizedFilters.result)
-      && (!normalizedFilters.keyword
-        || normalize(`${record.supplierShortName}${record.salesProductLine}${record.series}${record.schedule?.inspector || ''}`).toLowerCase().includes(normalizedFilters.keyword))
-    ));
+    return records.filter((record) => {
+      const feedback = latestFeedback(record.feedback);
+      return (
+        (!normalizedFilters.supplierShortName || normalize(record.supplierShortName).toLowerCase().includes(normalizedFilters.supplierShortName))
+        && (!normalizedFilters.status || normalize(record.schedule?.status).toLowerCase() === normalizedFilters.status)
+        && (!normalizedFilters.result || normalize(feedback.result).toLowerCase() === normalizedFilters.result)
+        && (!normalizedFilters.keyword
+          || normalize(`${record.supplierShortName}${record.salesProductLine}${record.series}${record.schedule?.inspector || ''}`).toLowerCase().includes(normalizedFilters.keyword))
+      );
+    });
   }, [records, filters]);
 
   const stats = useMemo(() => ({
     total: records.length,
-    passed: records.filter((record) => record.feedback?.result === '通过').length,
-    failed: records.filter((record) => record.feedback?.result === '返工').length,
-    pending: records.filter((record) => !record.feedback?.result).length
+    passed: records.filter((record) => latestFeedback(record.feedback).result === '通过').length,
+    failed: records.filter((record) => latestFeedback(record.feedback).result === '返工').length,
+    pending: records.filter((record) => !latestFeedback(record.feedback).result).length
   }), [records]);
 
   function updateFilter(key, value) {
@@ -37,6 +44,40 @@ function LedgerPage({ records, onExport }) {
 
   function clearFilters() {
     setFilters({ supplierShortName: '', status: '', result: '', keyword: '' });
+  }
+
+  function reportPreviewCell(record) {
+    const href = reportHref(record);
+    if (!href) return '';
+    const ext = reportFileExt(record);
+    const title = record.report?.originalName || record.report?.reportNo || '报告文件预览';
+    if (isImageReport(record)) {
+      return (
+        <button type="button" className="link-button" onClick={() => setPreviewRecord(record)} title={title}>
+          <img
+            src={href}
+            alt={title}
+            style={{ width: 96, height: 72, objectFit: 'cover', border: '1px solid #d8e0ee', borderRadius: 4 }}
+          />
+        </button>
+      );
+    }
+    if (ext === '.pdf') {
+      return (
+        <button type="button" className="link-button" onClick={() => setPreviewRecord(record)} title={title}>
+          <iframe
+            title={title}
+            src={href}
+            style={{ width: 120, height: 80, border: '1px solid #d8e0ee', borderRadius: 4, pointerEvents: 'none' }}
+          />
+        </button>
+      );
+    }
+    return (
+      <button type="button" className="link-button" onClick={() => setPreviewRecord(record)}>
+        {title}
+      </button>
+    );
   }
 
   return (
@@ -70,22 +111,33 @@ function LedgerPage({ records, onExport }) {
       <DataTable
         rows={filteredRecords}
         columns={['供应商', '产品线', '系列', '数量', '事业部', '验货员', '计划日期', '状态', '实际验货时间', '验货结果', '报告结论', '报告文件', '是否返工']}
-        render={(record) => [
-          record.supplierShortName,
-          record.salesProductLine,
-          record.series,
-          record.totalQuantity,
-          record.businessDepartments,
-          record.schedule?.inspector || '',
-          formatDate(record.schedule?.scheduledDate),
-          record.schedule?.status || '未安排',
-          formatDate(record.feedback?.actualInspectionTime),
-          record.feedback?.result || '',
-          record.report?.conclusion || '',
-          reportHref(record) ? <a href={reportHref(record)} target="_blank" rel="noreferrer">查看</a> : '',
-          record.rework?.completedAt ? '是' : '否'
-        ]}
+        render={(record) => {
+          const feedback = latestFeedback(record.feedback);
+          return [
+            record.supplierShortName,
+            record.salesProductLine,
+            record.series,
+            record.totalQuantity,
+            record.businessDepartments,
+            record.schedule?.inspector || '',
+            formatDate(record.schedule?.scheduledDate),
+            record.schedule?.status || '未安排',
+            formatDate(feedback.actualInspectionTime),
+            feedback.result || '',
+            record.report?.conclusion || '',
+            reportPreviewCell(record),
+            record.rework?.completedAt ? '是' : '否'
+          ];
+        }}
       />
+      {previewRecord && (
+        <ReportPreviewModal
+          title={previewRecord.report?.originalName || previewRecord.report?.reportNo || '报告文件预览'}
+          url={previewUrl}
+          ext={previewExt}
+          onClose={() => setPreviewRecord(null)}
+        />
+      )}
     </>
   );
 }

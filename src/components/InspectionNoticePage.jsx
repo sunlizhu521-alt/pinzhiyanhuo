@@ -86,6 +86,19 @@ function InspectionNoticePage({
     onChange(row.id, 'businessDepartments', joinBusinessDepartments(Array.from(current)));
   }
 
+  function provinceCityText(value) {
+    const text = normalize(value);
+    if (!text) return '';
+    const province = text.match(/([\u4e00-\u9fa5]{2,}(?:省|自治区|特别行政区)|北京|天津|上海|重庆)/)?.[1] || '';
+    const afterProvince = province ? text.slice(text.indexOf(province) + province.length) : text;
+    const city = afterProvince.match(/([\u4e00-\u9fa5]{2,}(?:市|州|盟|地区))/)?.[1] || '';
+    if (province && city) return `${province}${city}`;
+    if (province) return province;
+    const compactParts = text.split(/[,\s，、/]+/).filter(Boolean);
+    if (compactParts.length >= 2) return compactParts.slice(0, 2).join('');
+    return text;
+  }
+
   return (
     <>
       <div className="section-heading-row">
@@ -140,7 +153,11 @@ function InspectionNoticePage({
             className="inspection-notice-preview-table"
             rows={previewLimitedRows}
             columns={previewColumns}
-            render={(row) => NOTICE_FIELDS.map((field) => field.readonly ? user.name : row[field.key] || '')}
+            render={(row) => NOTICE_FIELDS.map((field) => {
+              if (field.readonly) return user.name;
+              if (field.key === 'supplierAddress') return provinceCityText(row[field.key]);
+              return row[field.key] || '';
+            })}
           />
           {previewRows.length > previewLimitedRows.length && (
             <p className="preview-note">当前仅预览前 {previewLimitedRows.length} 条，确认导入会导入全部 {previewRows.length} 条。</p>
@@ -155,7 +172,7 @@ function InspectionNoticePage({
           ...NOTICE_FIELDS.map((field) => {
             if (field.readonly) return <span className="readonly-cell">{user.name}</span>;
             if (field.key === 'supplierAddress') {
-              return <span className="readonly-cell">{row[field.key] || '自动带出'}</span>;
+              return <span className="readonly-cell">{provinceCityText(row[field.key]) || '自动带出'}</span>;
             }
             if (field.key === 'supplierShortName') {
               const value = row[field.key] || '';

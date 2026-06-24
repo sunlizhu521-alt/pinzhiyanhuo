@@ -20,7 +20,7 @@ const NOTICE_FIELDS = [
   { key: 'supplierFinishTime', label: '供应商完工时间', type: 'date', required: true },
   { key: 'shipmentTime', label: '可验货时间', type: 'date', required: true },
   { key: 'supplierShortName', label: '供应商简称', required: true },
-  { key: 'supplierAddress', label: '省市', required: true },
+  { key: 'supplierAddress', label: '地址', required: true },
   { key: 'businessDepartments', label: '事业部', options: BUSINESS_DEPARTMENT_OPTIONS, required: true },
   { key: 'operation', label: '运营', required: true },
   { key: 'firstInspection', label: '是否首批验货', options: ['是', '否'], required: true },

@@ -1590,11 +1590,34 @@ app.patch('/api/quality-inspection/feedback/:id', requireAuth, requirePages('ins
   const db = await readDb();
   const record = composedRecords(db).find((item) => item.id === req.params.id);
   if (!canWriteFeedback(req.authUser, record)) return res.status(403).json({ error: '无权保存该验货反馈' });
-  db.qualityInspection.feedback[req.params.id] = {
+  const nextFeedback = {
     ...(db.qualityInspection.feedback[req.params.id] || {}),
     ...req.body,
     updatedAt: nowText()
   };
+  const reworkCompleteTime = String(nextFeedback.rework?.reworkCompleteTime || '').trim();
+  if (reworkCompleteTime) {
+    db.qualityInspection.notices = {
+      ...(db.qualityInspection.notices || {}),
+      rows: (db.qualityInspection.notices.rows || []).map((row) => (
+        row.id === req.params.id ? { ...row, shipmentTime: reworkCompleteTime } : row
+      )),
+      submittedAt: db.qualityInspection.notices?.submittedAt || nowText(),
+      submittedBy: db.qualityInspection.notices?.submittedBy || req.authUser.name
+    };
+    const incomingSchedule = req.body?.reworkSchedule || {};
+    db.qualityInspection.schedules[req.params.id] = {
+      ...(db.qualityInspection.schedules[req.params.id] || {}),
+      ...incomingSchedule,
+      scheduledDate: '',
+      inspector: '',
+      status: '未安排',
+      reworkRequestedAt: incomingSchedule.reworkRequestedAt || nowText(),
+      updatedAt: nowText()
+    };
+  }
+  delete nextFeedback.reworkSchedule;
+  db.qualityInspection.feedback[req.params.id] = nextFeedback;
   await saveDb(db);
   res.json(db.qualityInspection.feedback[req.params.id]);
 });

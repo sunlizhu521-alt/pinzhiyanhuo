@@ -1,6 +1,6 @@
 import DataTable from './DataTable.jsx';
 import MetricCard from './MetricCard.jsx';
-import { formatDate } from '../utils.js';
+import { formatDate, latestFeedback } from '../utils.js';
 function SummaryPage({
   title = '验货反馈表',
   summary,
@@ -86,6 +86,7 @@ function SummaryPage({
         rows={records}
         columns={columns}
         render={(record) => {
+          const feedback = latestFeedback(record.feedback);
           const cells = [
             record.supplierShortName,
             record.businessDepartments,
@@ -95,19 +96,19 @@ function SummaryPage({
             record.inspectionNotifier || record.inspectionApplicant,
             record.schedule?.scheduledDate || '',
             record.schedule?.status || '未安排',
-            formatDate(record.feedback?.actualInspectionTime),
-            record.feedback?.inspectionQuantity || '',
-            record.feedback?.checkQuantity || '',
-            record.feedback?.qualifiedQuantity || '',
+            formatDate(feedback.actualInspectionTime),
+            feedback.inspectionQuantity || '',
+            feedback.checkQuantity || '',
+            feedback.qualifiedQuantity || '',
             (() => {
-              const qualified = Number(record.feedback?.qualifiedQuantity);
-              const checked = Number(record.feedback?.checkQuantity);
+              const qualified = Number(feedback.qualifiedQuantity);
+              const checked = Number(feedback.checkQuantity);
               if (!checked || Number.isNaN(qualified)) return '';
               return `${Math.round((qualified / checked) * 100)}%`;
             })(),
             record.rework?.completedAt ? '是' : '否',
             record.report?.conclusion || '',
-            record.feedback?.result || ''
+            feedback.result || ''
           ];
           if (canDelete) {
             cells.push(
