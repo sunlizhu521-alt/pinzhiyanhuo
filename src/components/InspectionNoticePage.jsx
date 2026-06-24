@@ -40,7 +40,7 @@ function InspectionNoticePage({
   const [focusedSeriesRowId, setFocusedSeriesRowId] = useState('');
   const [seriesSuggestionPosition, setSeriesSuggestionPosition] = useState(null);
   const previewRows = importPreview?.rows || [];
-  const previewColumns = NOTICE_FIELDS.map((field) => field.label);
+  const previewColumns = ['行号', ...NOTICE_FIELDS.map((field) => field.label)];
   const previewLimitedRows = previewRows;
 
   useEffect(() => {
@@ -153,11 +153,14 @@ function InspectionNoticePage({
             className="inspection-notice-preview-table"
             rows={previewLimitedRows}
             columns={previewColumns}
-            render={(row) => NOTICE_FIELDS.map((field) => {
-              if (field.readonly) return user.name;
-              if (field.key === 'supplierAddress') return provinceCityText(row[field.key]);
-              return row[field.key] || '';
-            })}
+            render={(row, index) => [
+              index + 1,
+              ...NOTICE_FIELDS.map((field) => {
+                if (field.readonly) return user.name;
+                if (field.key === 'supplierAddress') return provinceCityText(row[field.key]);
+                return row[field.key] || '';
+              })
+            ]}
           />
         </section>
       )}
