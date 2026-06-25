@@ -36,6 +36,12 @@ function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete
     }));
   }
 
+  function provinceCityText(address) {
+    const addr = address || '';
+    const match = addr.match(/^([^省]+省)?([^市]+市)?/);
+    return match ? ((match[1] || '') + (match[2] || '') || addr) : addr;
+  }
+
   return (
     <>
       <div className="section-heading-row">
@@ -74,7 +80,7 @@ function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete
         columns={['供应商简称', '地址', '产品线', '系列', '数量', '事业部', '运营', '验货通知人', '备注', '可验货时间', '验货员', '计划验货时间', '安排备注', '操作']}
         render={(record) => [
           record.supplierShortName,
-          record.supplierAddress,
+          provinceCityText(record.supplierAddress),
           record.salesProductLine,
           record.series,
           record.totalQuantity,
