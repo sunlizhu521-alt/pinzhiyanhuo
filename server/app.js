@@ -1736,7 +1736,8 @@ app.patch('/api/quality-inspection/feedback/:id', requireAuth, requirePages('ins
   };
   const result = normalizeText(nextFeedback.result);
   const hasCompletedRework = normalizeText(nextFeedback.rework?.reworkCompleteTime) || normalizeText(nextFeedback.rework?.completedAt);
-  if (result === '返工' && !hasCompletedRework) {
+  const reworkDeleted = normalizeText(nextFeedback.rework?.status) === '已删除' || normalizeText(nextFeedback.rework?.deletedAt);
+  if (result === '返工' && !hasCompletedRework && !reworkDeleted) {
     nextFeedback.rework = pendingReworkForFeedback(nextFeedback, req.authUser, updatedAt);
   } else if (result !== '返工' && normalizeText(nextFeedback.rework?.status) === '待验货') {
     nextFeedback.rework = {

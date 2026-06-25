@@ -126,7 +126,12 @@ function App() {
     [records, supplierOptions, productLineOptions, seriesOptions, dimensionLibrary]
   );
   const reworkRecords = useMemo(
-    () => displayRecords.filter((record) => record.feedback?.result === '返工' && !record.rework?.completedAt),
+    () => displayRecords.filter((record) => (
+      record.feedback?.result === '返工'
+      && !record.rework?.completedAt
+      && normalize(record.rework?.status) !== '已删除'
+      && !normalize(record.rework?.deletedAt)
+    )),
     [displayRecords]
   );
   const pendingScheduleRecords = useMemo(
@@ -1767,12 +1772,33 @@ function App() {
       return false;
     }
     if (!record || !window.confirm('确认删除当前复验通知？')) return false;
+    const deletedAt = nowText();
+    const deletedRework = {
+      ...(record.rework || {}),
+      status: '已删除',
+      deletedAt,
+      deletedBy: user.name,
+      updatedAt: deletedAt,
+      updatedBy: user.name
+    };
+    [
+      'completedAt',
+      'completedBy',
+      'reworkCompleteTime',
+      'reworkRemark',
+      'scheduledAt',
+      'scheduledBy',
+      'reinspectedAt',
+      'reinspectedBy'
+    ].forEach((key) => {
+      delete deletedRework[key];
+    });
     setSavingId(record.id);
     if (STATIC_MODE) {
       const db = readStaticDb();
       db.qualityInspection.feedback[record.id] = {
         ...(db.qualityInspection.feedback[record.id] || record.feedback || {}),
-        rework: {}
+        rework: deletedRework
       };
       saveStaticDb(db);
       setSavingId('');
@@ -1783,7 +1809,7 @@ function App() {
     const res = await authFetch(`${API}/api/quality-inspection/feedback/${encodeURIComponent(record.id)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...(record.feedback || {}), rework: {} })
+      body: JSON.stringify({ ...(record.feedback || {}), rework: deletedRework })
     });
     setSavingId('');
     if (!res.ok) {
