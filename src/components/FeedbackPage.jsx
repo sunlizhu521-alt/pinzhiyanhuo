@@ -91,7 +91,7 @@ function FeedbackPage({
   return (
     <>
       <div className="section-heading-row">
-        <h2>验货反馈</h2>
+        <h2>验货状态</h2>
         <span className="section-count">筛选 {filteredRecords.length} 条 / 合并后 {mergedRecords.length} 条 / 待反馈 {records.length} 条</span>
         {canImport && (
           <label className="upload-button">
@@ -199,6 +199,7 @@ function FeedbackPage({
           '供应商简称',
           '产品线',
           '系列',
+          '状态',
           'SKU及数量',
           '数量',
           '是否首批验货',
@@ -230,6 +231,17 @@ function FeedbackPage({
             record.supplierShortName,
             record.salesProductLine,
             record.series,
+            (() => {
+              const hasInspector = !!normalize(record.schedule?.inspector);
+              const hasResult = !!normalize(record.feedback?.result);
+              const resultText = normalize(record.feedback?.result);
+              let statusText = '待安排验货员';
+              let color = '#c2410c';
+              if (hasInspector && !hasResult) { statusText = '待验货'; color = '#1d4ed8'; }
+              else if (resultText === '返工') { statusText = '需返工'; color = '#dc2626'; }
+              else if (hasResult && resultText !== '返工') { statusText = '已验货'; color = '#047857'; }
+              return <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '4px', background: color, color: '#fff', fontSize: '12px', fontWeight: 600 }}>{statusText}</span>;
+            })(),
             <span className="readonly-cell">{record.skuQuantity || ''}</span>,
             record.totalQuantity,
             record.firstInspection,

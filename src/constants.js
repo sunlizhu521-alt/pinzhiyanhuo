@@ -84,7 +84,7 @@ const FEEDBACK_IMPORT_ALIASES = {
 const MENU_PAGES = [
   { tab: 'inspectionNotice', label: '验货通知' },
   { tab: 'inspectionSchedule', label: '验货安排' },
-  { tab: 'inspectionFeedback', label: '验货反馈' },
+  { tab: 'inspectionFeedback', label: '验货状态' },
   { tab: 'reworkRecords', label: '复验通知' },
   { tab: 'inspectionStamp', label: '盖检验章' },
   { tab: 'inspectionReportQuery', label: '查检验单' },
