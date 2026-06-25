@@ -1425,6 +1425,7 @@ function App() {
       setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
       formElement.reset();
       setMessage('验货反馈已保存。');
+      if (isRework && canAccessPage(user, 'reworkRecords')) setActiveTab('reworkRecords');
       return true;
     }
     const feedbackResponses = await Promise.all(sourceIds.map((sourceId) => {
@@ -1469,6 +1470,7 @@ function App() {
     formElement.reset();
     await refreshRecords();
     setMessage('验货反馈已保存。');
+    if (isRework && canAccessPage(user, 'reworkRecords')) setActiveTab('reworkRecords');
     return true;
   }
 
@@ -1549,6 +1551,7 @@ function App() {
       actualInspector: user.name,
       updatedAt: createdAt
     };
+    const isRework = feedback.result === '返工';
     if (STATIC_MODE) {
       const db = readStaticDb();
       const existingRows = db.qualityInspection.notices.rows || [];
@@ -1580,6 +1583,7 @@ function App() {
       setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
       setSavingId('');
       setMessage('验货反馈已新增。');
+      if (isRework && canAccessPage(user, 'reworkRecords')) setActiveTab('reworkRecords');
       return true;
     }
     const res = await authFetch(`${API}/api/quality-inspection/direct-feedback`, {
@@ -1612,6 +1616,7 @@ function App() {
     setSavingId('');
     await refreshRecords();
     setMessage('验货反馈已新增。');
+    if (isRework && canAccessPage(user, 'reworkRecords')) setActiveTab('reworkRecords');
     return true;
   }
 
