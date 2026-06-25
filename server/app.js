@@ -1384,7 +1384,11 @@ app.post('/api/quality-inspection/direct-feedback', requireAuth, requirePages('i
     actualInspectionTime,
     inspectionMethod: normalizeText(inputFeedback.inspectionMethod || req.body?.inspectionMethod),
     inspectionQuantity: normalizeText(inputFeedback.inspectionQuantity || req.body?.inspectionQuantity) || totalQuantity,
+    checkQuantity: normalizeText(inputFeedback.checkQuantity || req.body?.checkQuantity),
+    qualifiedQuantity: normalizeText(inputFeedback.qualifiedQuantity || req.body?.qualifiedQuantity),
     result: normalizeText(inputFeedback.result || req.body?.result),
+    issueLevel: normalizeText(inputFeedback.issueLevel || req.body?.issueLevel),
+    issueCategoryPrimary: normalizeText(inputFeedback.issueCategoryPrimary || req.body?.issueCategoryPrimary),
     feedbackText: normalizeText(inputFeedback.feedbackText || req.body?.feedbackText),
     actualInspector: user.name,
     updatedAt: now

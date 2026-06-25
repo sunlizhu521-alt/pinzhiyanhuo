@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import DataTable from './DataTable.jsx';
-import { canReadClientRecord, hasObjectValue, normalize, formatDate, feedbackReportNo, mergeFeedbackRecords } from '../utils.js';
+import { canReadClientRecord, hasObjectValue, normalize, formatDate, feedbackReportNo, supplierInitials, formatCompactDate, mergeFeedbackRecords } from '../utils.js';
 import { reportHref, isImageReport, shouldShowFeedbackRecord, feedbackMatchKey } from '../file-utils.js';
 import { NOTICE_FIELDS } from '../constants.js';
 
@@ -30,6 +30,7 @@ function FeedbackPage({
   });
   const [feedbackDrafts, setFeedbackDrafts] = useState({});
   const [showAddForm, setShowAddForm] = useState(false);
+  const [addReportNo, setAddReportNo] = useState('');
   const previewRows = importPreview?.items || [];
   const previewLimitedRows = previewRows.slice(0, 10);
   const matchedCount = previewRows.filter((item) => item.recordId).length;
@@ -198,84 +199,143 @@ function FeedbackPage({
       )}
       {showAddForm && createPortal(
         <div style={{ position: 'fixed', inset: 0, zIndex: 90, display: 'grid', placeItems: 'center', padding: 24 }}>
-          <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,.5)' }} onClick={() => setShowAddForm(false)} />
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,.5)' }} onClick={() => { setShowAddForm(false); setAddReportNo(''); }} />
           <form
-            style={{ position: 'relative', zIndex: 1, width: 'min(500px,96vw)', maxHeight: '90vh', overflow: 'auto', background: '#fff', borderRadius: 8, padding: 24, boxShadow: '0 20px 60px rgba(15,23,42,.3)' }}
+            data-add-feedback-form
+            style={{ position: 'relative', zIndex: 1, width: 'min(600px,96vw)', maxHeight: '90vh', overflow: 'auto', background: '#fff', borderRadius: 8, padding: 24, boxShadow: '0 20px 60px rgba(15,23,42,.3)' }}
             onSubmit={async (event) => {
               event.preventDefault();
-              const form = event.currentTarget;
-              const data = {
-                supplierShortName: form.supplierShortName.value,
-                salesProductLine: form.salesProductLine.value,
-                series: form.series.value,
-                totalQuantity: form.totalQuantity.value,
-                actualInspectionTime: form.actualInspectionTime.value,
-                inspectionMethod: form.inspectionMethod.value,
-                result: form.result.value,
-                feedbackText: form.feedbackText.value
-              };
-              const saved = await onAddFeedback(data);
+              const saved = await onAddFeedback(event.currentTarget);
               if (saved) {
-                form.reset();
+                event.currentTarget.reset();
+                setAddReportNo('');
                 setShowAddForm(false);
               }
             }}
           >
             <h3 style={{ margin: '0 0 16px' }}>新增验货反馈</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+              <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+                供应商简称 *
+                <select name="supplierShortName" required onChange={(event) => {
+                  const form = event.target.form;
+                  if (!form) return;
+                  const temp = { supplierShortName: event.target.value, series: form.series?.value || '' };
+                  setAddReportNo(feedbackReportNo(temp, form.actualInspectionTime?.value || '', form.inspectionQuantity?.value || ''));
+                }}>
+                  <option value="">选择</option>
+                  {supplierOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </label>
+              <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+                产品线 *
+                <select name="salesProductLine" required>
+                  <option value="">选择</option>
+                  {productLineOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </label>
+              <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+                系列 *
+                <select name="series" required onChange={() => {
+                  const form = document.querySelector('[data-add-feedback-form]');
+                  if (!form) return;
+                  const temp = { supplierShortName: form.supplierShortName?.value || '', series: form.series?.value || '' };
+                  setAddReportNo(feedbackReportNo(temp, form.actualInspectionTime?.value || '', form.inspectionQuantity?.value || ''));
+                }}>
+                  <option value="">选择</option>
+                  {seriesOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </label>
+              <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+                数量 *
+                <input name="totalQuantity" required />
+              </label>
+              <label style={{ display: 'grid', gap: 6, marginBottom: 12, gridColumn: '1/-1' }}>
+                SKU及数量
+                <textarea name="skuQuantity" rows={2} />
+              </label>
+              <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+                实际验货时间 *
+                <input name="actualInspectionTime" type="date" required onChange={(event) => {
+                  const form = event.target.form;
+                  if (!form) return;
+                  const temp = { supplierShortName: form.supplierShortName?.value || '', series: form.series?.value || '' };
+                  setAddReportNo(feedbackReportNo(temp, event.target.value, form.inspectionQuantity?.value || ''));
+                }} />
+              </label>
+              <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+                验货方式
+                <select name="inspectionMethod">
+                  <option value="">选择</option>
+                  <option value="抽检">抽检</option>
+                  <option value="全检">全检</option>
+                  <option value="视频检验">视频检验</option>
+                  <option value="随线检验">随线检验</option>
+                </select>
+              </label>
+              <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+                实际验货数量
+                <input name="inspectionQuantity" onChange={(event) => {
+                  const form = event.target.form;
+                  if (!form) return;
+                  const temp = { supplierShortName: form.supplierShortName?.value || '', series: form.series?.value || '' };
+                  setAddReportNo(feedbackReportNo(temp, form.actualInspectionTime?.value || '', event.target.value));
+                }} />
+              </label>
+              <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+                检验数量
+                <input name="checkQuantity" />
+              </label>
+              <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+                合格数量
+                <input name="qualifiedQuantity" />
+              </label>
+              <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+                验货结果
+                <select name="result">
+                  <option value="">选择</option>
+                  <option value="通过">通过</option>
+                  <option value="让步">让步</option>
+                  <option value="返工">返工</option>
+                </select>
+              </label>
+              <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+                问题等级
+                <select name="issueLevel">
+                  <option value="">选择</option>
+                  <option value="严重">严重</option>
+                  <option value="中等">中等</option>
+                  <option value="不严重">不严重</option>
+                </select>
+              </label>
+            </div>
             <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
-              供应商简称
-              <select name="supplierShortName" required>
-                <option value="">选择</option>
-                {supplierOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-              </select>
+              问题分类（可多选）
+              <div style={{ display: 'flex', gap: 12 }}>
+                {['包装', '性能', '外观'].map((category) => (
+                  <label key={category} style={{ display: 'flex', alignItems: 'center', gap: 4, margin: 0, color: '#334155' }}>
+                    <input type="checkbox" name="issueCategoryPrimary" value={category} style={{ width: 'auto' }} />
+                    {category}
+                  </label>
+                ))}
+              </div>
             </label>
             <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
-              产品线
-              <select name="salesProductLine" required>
-                <option value="">选择</option>
-                {productLineOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-              </select>
-            </label>
-            <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
-              系列
-              <select name="series" required>
-                <option value="">选择</option>
-                {seriesOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-              </select>
-            </label>
-            <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
-              数量
-              <input name="totalQuantity" required />
-            </label>
-            <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
-              实际验货时间
-              <input name="actualInspectionTime" type="date" required />
-            </label>
-            <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
-              验货方式
-              <select name="inspectionMethod">
-                <option value="">选择</option>
-                <option value="抽检">抽检</option>
-                <option value="全检">全检</option>
-                <option value="视频检验">视频检验</option>
-                <option value="随线检验">随线检验</option>
-              </select>
-            </label>
-            <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
-              验货结果
-              <select name="result">
-                <option value="">选择</option>
-                <option value="通过">通过</option>
-                <option value="让步">让步</option>
-                <option value="返工">返工</option>
-              </select>
-            </label>
-            <label style={{ display: 'grid', gap: 6, marginBottom: 16 }}>
-              问题描述
+              问题反馈
               <textarea name="feedbackText" rows={3} />
             </label>
+            <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+              检验报告单编码
+              <span style={{ padding: '9px 11px', border: '1px solid #d6dde8', borderRadius: 6, background: '#f8fafc', color: addReportNo ? '#1d4ed8' : '#94a3b8' }}>
+                {addReportNo || '填写实际验货时间和实际验货数量后自动生成'}
+              </span>
+            </label>
+            <label style={{ display: 'grid', gap: 6, marginBottom: 16 }}>
+              检验报告单上传
+              <input type="file" name="reportFile" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx" />
+            </label>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button type="button" className="ghost compact-button" onClick={() => setShowAddForm(false)}>取消</button>
+              <button type="button" className="ghost compact-button" onClick={() => { setShowAddForm(false); setAddReportNo(''); }}>取消</button>
               <button type="submit" className="compact-button">提交</button>
             </div>
           </form>

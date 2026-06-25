@@ -1421,35 +1421,54 @@ function App() {
     return true;
   }
 
-  async function addDirectFeedback(data) {
+  async function addDirectFeedback(formElement) {
     setSavingId('directFeedback');
+    const form = new FormData(formElement);
     const id = createId();
     const createdAt = nowText();
+    const actualInspectionTime = normalize(form.get('actualInspectionTime'));
+    const inspectionQuantity = normalize(form.get('inspectionQuantity'));
+    const tempRecord = {
+      supplierShortName: normalize(form.get('supplierShortName')),
+      series: normalize(form.get('series'))
+    };
+    const reportNo = feedbackReportNo(tempRecord, actualInspectionTime, inspectionQuantity);
+    const issueCategoryValues = form.getAll('issueCategoryPrimary').filter(Boolean);
+    const file = form.get('reportFile');
+    if (file instanceof File && file.size > 0 && !reportNo) {
+      setSavingId('');
+      setMessage('请先填写实际验货时间和实际验货数量，系统生成检验报告单编码后再上传检验报告单。');
+      return false;
+    }
     const newRow = {
       id,
       inspectionApplicant: user.name,
       inspectionNotifier: user.name,
       inspectionFillTime: createdAt,
       supplierFinishTime: '',
-      shipmentTime: data.actualInspectionTime,
-      supplierShortName: data.supplierShortName,
+      shipmentTime: actualInspectionTime,
+      supplierShortName: normalize(form.get('supplierShortName')),
       supplierAddress: '',
       businessDepartments: '',
       operation: '',
       firstInspection: '否',
-      salesProductLine: data.salesProductLine,
-      series: data.series,
-      totalQuantity: data.totalQuantity,
-      skuQuantity: '',
+      salesProductLine: normalize(form.get('salesProductLine')),
+      series: normalize(form.get('series')),
+      totalQuantity: normalize(form.get('totalQuantity')),
+      skuQuantity: normalize(form.get('skuQuantity')),
       remark: '验货员手动新增',
       importSource: 'directFeedback'
     };
     const feedback = {
-      actualInspectionTime: data.actualInspectionTime,
-      inspectionMethod: data.inspectionMethod || '',
-      inspectionQuantity: data.totalQuantity,
-      result: data.result || '',
-      feedbackText: data.feedbackText || '',
+      actualInspectionTime,
+      inspectionMethod: normalize(form.get('inspectionMethod')),
+      inspectionQuantity,
+      checkQuantity: normalize(form.get('checkQuantity')),
+      qualifiedQuantity: normalize(form.get('qualifiedQuantity')),
+      result: normalize(form.get('result')),
+      issueLevel: normalize(form.get('issueLevel')),
+      issueCategoryPrimary: issueCategoryValues.join('、'),
+      feedbackText: normalize(form.get('feedbackText')),
       actualInspector: user.name,
       updatedAt: createdAt
     };
@@ -1464,11 +1483,22 @@ function App() {
       db.qualityInspection.schedules[id] = {
         status: '已安排',
         inspector: user.name,
-        scheduledDate: data.actualInspectionTime,
+        scheduledDate: actualInspectionTime,
         remark: '未通知验货',
         updatedAt: createdAt
       };
       db.qualityInspection.feedback[id] = feedback;
+      if (file instanceof File && file.size > 0 && reportNo) {
+        db.qualityInspection.reports[id] = {
+          reportNo,
+          originalName: reportFileNameFromCode(reportNo, file.name),
+          fileDataUrl: await readFileAsDataUrl(file),
+          uploadedAt: createdAt,
+          updatedAt: createdAt
+        };
+      } else if (reportNo) {
+        db.qualityInspection.reports[id] = { reportNo, updatedAt: createdAt };
+      }
       saveStaticDb(db);
       setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
       setSavingId('');
@@ -1478,14 +1508,31 @@ function App() {
     const res = await authFetch(`${API}/api/quality-inspection/direct-feedback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ notice: newRow, feedback })
+      body: JSON.stringify({ notice: newRow, feedback, report: reportNo ? { reportNo } : undefined })
     });
-    setSavingId('');
     if (!res.ok) {
+      setSavingId('');
       const payload = await res.json().catch(() => ({}));
       setMessage(payload.error || '验货反馈新增失败。');
       return false;
     }
+    const payload = await res.json().catch(() => ({}));
+    if (reportNo) {
+      const reportForm = new FormData();
+      reportForm.append('reportNo', reportNo);
+      if (file instanceof File && file.size > 0) reportForm.append('file', file);
+      const reportRes = await authFetch(`${API}/api/quality-inspection/reports/${encodeURIComponent(payload.record?.id || id)}`, {
+        method: 'POST',
+        body: reportForm
+      });
+      if (!reportRes.ok) {
+        setSavingId('');
+        await refreshRecords();
+        setMessage('验货反馈已新增，但检验报告单保存失败。');
+        return false;
+      }
+    }
+    setSavingId('');
     await refreshRecords();
     setMessage('验货反馈已新增。');
     return true;
