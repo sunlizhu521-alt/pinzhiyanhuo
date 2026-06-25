@@ -94,7 +94,7 @@ function FeedbackPage({
   return (
     <>
       <div className="section-heading-row">
-        <h2>验货状态</h2>
+        <h2>验货反馈</h2>
         <span className="section-count">筛选 {filteredRecords.length} 条 / 合并后 {mergedRecords.length} 条 / 待反馈 {records.length} 条</span>
         <button type="button" className="compact-button" onClick={() => setShowAddForm(true)}>新增反馈</button>
         {canImport && (
@@ -442,7 +442,12 @@ function FeedbackPage({
                   const form = event.currentTarget;
                   const saved = await onSave(record, form);
                   if (saved) {
-                    form.reset();
+                    Array.from(form.elements).forEach((element) => {
+                      if (element.type === 'hidden' || element.type === 'submit') return;
+                      if (element.tagName === 'SELECT') element.selectedIndex = 0;
+                      else if (element.type === 'checkbox') element.checked = false;
+                      else element.value = '';
+                    });
                     setFeedbackDrafts((current) => {
                       const next = { ...current };
                       delete next[record.id];
