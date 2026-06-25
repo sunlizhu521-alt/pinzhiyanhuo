@@ -441,7 +441,16 @@ function App() {
         NOTICE_FIELDS.some((field) => !field.readonly && normalize(row[field.key])) ||
         normalize(row.inspectionApplicant)
       );
-      return [...activeRows, ...mergedRows];
+      const combined = [...activeRows, ...mergedRows];
+      const userFillableKeys = [
+        'inspectionNotifier', 'supplierFinishTime', 'shipmentTime',
+        'supplierShortName', 'supplierAddress', 'businessDepartments',
+        'operation', 'firstInspection', 'salesProductLine', 'series',
+        'totalQuantity', 'skuQuantity', 'remark'
+      ];
+      const hasContent = (row) => userFillableKeys.some((key) => normalize(row[key]));
+      const nonBlank = combined.filter(hasContent);
+      return nonBlank.length > 0 ? nonBlank : [createBlankNoticeRow({ inspectionApplicant: user.name })];
     });
     const mergeText = mergedRows.length === previewRows.length ? '' : `，由 ${previewRows.length} 条合并为 ${mergedRows.length} 条`;
     setMessage(`批量导入成功：已加入 ${mergedRows.length} 条验货通知${mergeText}。`);
