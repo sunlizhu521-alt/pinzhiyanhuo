@@ -526,7 +526,13 @@ function App() {
       });
       saveStaticDb(db);
       setNoticeSubmission(inspection.notices);
-      setNoticeRows(rows.map((row) => createNoticeRow(row)));
+      setNoticeRows((currentRows) => {
+        const currentIds = new Set(currentRows.map((row) => row.id));
+        const newRows = rows
+          .filter((row) => !currentIds.has(row.id))
+          .map((row) => createNoticeRow(row));
+        return [...currentRows, ...newRows];
+      });
       setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
       setSummaryImportPreview(null);
       setMessage(`验货反馈表已追加：新增 ${items.length} 条，原有信息已保留。`);
@@ -654,10 +660,18 @@ function App() {
   }
 
   function deleteNoticeRow(id) {
+    if (!isPrimaryAdminUser(user)) {
+      setMessage('仅孙立柱管理员可以删除验货通知行。');
+      return;
+    }
     setNoticeRows((rows) => rows.length > 1 ? rows.filter((row) => row.id !== id) : [createBlankNoticeRow({ inspectionApplicant: user.name })]);
   }
 
   function clearNoticeRows() {
+    if (!isPrimaryAdminUser(user)) {
+      setMessage('仅孙立柱管理员可以清除验货通知内容。');
+      return;
+    }
     setNoticeRows([createBlankNoticeRow({ inspectionApplicant: user.name })]);
     setNoticeImportPreview(null);
     setMessage('已清除当前验货通知填写内容。');
@@ -1126,6 +1140,10 @@ function App() {
   }
 
   async function deleteDimensionSlot(slotId) {
+    if (!isPrimaryAdminUser(user)) {
+      setMessage('仅孙立柱管理员可以删除维度表槽位。');
+      return;
+    }
     const next = { ...dimensionLibrary, [slotId]: null };
     if (STATIC_MODE) {
       const saved = saveDimensionLibrary(next);
@@ -1206,6 +1224,10 @@ function App() {
   }
 
   async function clearScheduleContent() {
+    if (!isPrimaryAdminUser(user)) {
+      setMessage('仅孙立柱管理员可以清除验货安排内容。');
+      return;
+    }
     setSavingId('inspectionScheduleClear');
     if (STATIC_MODE) {
       const db = readStaticDb();
@@ -1240,6 +1262,10 @@ function App() {
   }
 
   async function deleteScheduleNotice(recordIds) {
+    if (!isPrimaryAdminUser(user)) {
+      setMessage('仅孙立柱管理员可以删除验货安排记录。');
+      return;
+    }
     const targetIds = Array.isArray(recordIds) ? recordIds.filter(Boolean) : [recordIds].filter(Boolean);
     if (!targetIds.length) return;
     setSavingId(targetIds[0]);
@@ -1426,6 +1452,10 @@ function App() {
   }
 
   async function deleteReport(record) {
+    if (!isPrimaryAdminUser(user)) {
+      setMessage('仅孙立柱管理员可以删除检验报告单。');
+      return;
+    }
     if (!window.confirm('确认删除该检验报告单？删除后可重新上传。')) return;
     setSavingId(record.id);
     if (STATIC_MODE) {
@@ -1929,6 +1959,10 @@ function App() {
   }
 
   async function deleteReportLibraryFile(file) {
+    if (!isPrimaryAdminUser(user)) {
+      setMessage('仅孙立柱管理员可以删除报告单文件。');
+      return;
+    }
     if (!window.confirm(`确认删除文件：${file.fileName}？`)) return;
     setSavingId(file.id || file.fileName);
     if (STATIC_MODE) {
@@ -1971,6 +2005,10 @@ function App() {
   }
 
   async function deleteReportLibraryFiles(files) {
+    if (!isPrimaryAdminUser(user)) {
+      setMessage('仅孙立柱管理员可以批量删除报告单文件。');
+      return false;
+    }
     const targetFiles = Array.from(files || []).filter((file) => file?.fileName);
     if (!targetFiles.length) {
       setMessage('请选择要删除的文件。');
