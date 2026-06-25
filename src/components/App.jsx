@@ -16,7 +16,6 @@ import ReportFileLibraryPage from './ReportFileLibraryPage.jsx';
 import ReportQueryPage from './ReportQueryPage.jsx';
 import ReworkRecordsPage from './ReworkRecordsPage.jsx';
 import InspectionNoticePage from './InspectionNoticePage.jsx';
-import SummaryPage from './SummaryPage.jsx';
 import LedgerPage from './LedgerPage.jsx';
 import PermissionManagementPage from './PermissionManagementPage.jsx';
 
@@ -247,7 +246,7 @@ function App() {
       return;
     }
     if (initialRes.ok) setInitialData(await initialRes.json());
-    if (['dimensionLibrary', 'inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'reworkRecords', 'inspectionReportLibrary', 'inspectionReportQuery', 'inspectionSummary', 'inspectionLedger'].some((page) => canAccessPage(user, page))) {
+    if (['dimensionLibrary', 'inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'reworkRecords', 'inspectionReportLibrary', 'inspectionReportQuery', 'inspectionLedger'].some((page) => canAccessPage(user, page))) {
       await refreshDimensionLibrary();
     }
     if (noticeRes.ok) {
@@ -2463,17 +2462,6 @@ function App() {
             canDelete={canDeleteInspectionInfo}
             onDelete={deleteInspectionRecord}
             onExport={exportReportQueryData}
-          />
-        )}
-        {canAccessPage(user, 'inspectionSummary') && activeTab === 'inspectionSummary' && (
-          <SummaryPage
-            title="验货状态"
-            summary={summary}
-            records={summaryRecords}
-            savingId={savingId}
-            canDelete={canDeleteInspectionInfo}
-            onDelete={deleteInspectionRecord}
-            onExport={() => exportSummaryData('验货状态')}
           />
         )}
         {canAccessPage(user, 'inspectionLedger') && activeTab === 'inspectionLedger' && (

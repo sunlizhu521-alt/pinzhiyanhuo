@@ -155,9 +155,6 @@ function normalizePageAccessList(pageAccess = []) {
   const allowedPages = new Set(PAGE_OPTIONS.map((page) => page.tab));
   const normalized = [...new Set((Array.isArray(pageAccess) ? pageAccess : [])
     .filter((page) => allowedPages.has(page)))];
-  if (normalized.includes('inspectionSummary') && !normalized.includes('inspectionLedger')) {
-    normalized.push('inspectionLedger');
-  }
   return normalized;
 }
 
@@ -189,7 +186,6 @@ function canReadClientRecord(user, record) {
   if (
     user.role === ROLE_ADMIN
     || canAccessPage(user, 'inspectionReportQuery')
-    || canAccessPage(user, 'inspectionSummary')
     || canAccessPage(user, 'inspectionLedger')
     || canAccessPage(user, 'inspectionSchedule')
     || canAccessPage(user, 'inspectionStamp')

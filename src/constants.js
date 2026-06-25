@@ -88,7 +88,6 @@ const MENU_PAGES = [
   { tab: 'reworkRecords', label: '复验通知' },
   { tab: 'inspectionStamp', label: '盖检验章' },
   { tab: 'inspectionReportQuery', label: '查检验单' },
-  { tab: 'inspectionSummary', label: '验货状态' },
   { tab: 'inspectionLedger', label: '验货台账' },
   { tab: 'dimensionLibrary', label: '维度表库' },
   { tab: 'inspectionReportLibrary', label: '报告单库' },
@@ -123,8 +122,8 @@ const NOTICE_IMPORT_MERGE_KEYS = ['inspectionApplicant', 'inspectionNotifier', '
 const NOTICE_OPTIONAL_KEYS = new Set(['skuQuantity', 'remark']);
 const REPORT_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp']);
 const REPORT_LIBRARY_EXTENSIONS = new Set(['.pdf', ...REPORT_IMAGE_EXTENSIONS, '.xlsx', '.xls', '.doc', '.docx']);
-const RECORD_REFRESH_PAGES = ['inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'inspectionSummary', 'inspectionLedger', 'inspectionReportQuery', 'inspectionStamp', 'inspectionReportLibrary'];
-const DIMENSION_REFRESH_PAGES = ['dimensionLibrary', 'inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'inspectionSummary', 'inspectionLedger', 'inspectionReportQuery'];
+const RECORD_REFRESH_PAGES = ['inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'inspectionLedger', 'inspectionReportQuery', 'inspectionStamp', 'inspectionReportLibrary'];
+const DIMENSION_REFRESH_PAGES = ['dimensionLibrary', 'inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'inspectionLedger', 'inspectionReportQuery'];
 const REPORT_FILE_REFRESH_PAGES = ['inspectionReportLibrary', 'inspectionReportQuery', 'inspectionStamp'];
 
 export {
