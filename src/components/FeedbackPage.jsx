@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import DataTable from './DataTable.jsx';
 import { canReadClientRecord, hasObjectValue, normalize, formatDate, feedbackReportNo, mergeFeedbackRecords } from '../utils.js';
 import { reportHref, isImageReport, shouldShowFeedbackRecord, feedbackMatchKey } from '../file-utils.js';
@@ -16,6 +17,7 @@ function FeedbackPage({
   onConfirmImport,
   onClearImportPreview,
   onSave,
+  onAddFeedback,
   canDelete = false,
   onDelete
 }) {
@@ -27,6 +29,7 @@ function FeedbackPage({
     status: ''
   });
   const [feedbackDrafts, setFeedbackDrafts] = useState({});
+  const [showAddForm, setShowAddForm] = useState(false);
   const previewRows = importPreview?.items || [];
   const previewLimitedRows = previewRows.slice(0, 10);
   const matchedCount = previewRows.filter((item) => item.recordId).length;
@@ -93,6 +96,7 @@ function FeedbackPage({
       <div className="section-heading-row">
         <h2>验货状态</h2>
         <span className="section-count">筛选 {filteredRecords.length} 条 / 合并后 {mergedRecords.length} 条 / 待反馈 {records.length} 条</span>
+        <button type="button" className="compact-button" onClick={() => setShowAddForm(true)}>新增反馈</button>
         {canImport && (
           <label className="upload-button">
             批量上传
@@ -191,6 +195,92 @@ function FeedbackPage({
             <p className="preview-note">仅展示前 {previewLimitedRows.length} 条，确认后会导入全部已匹配数据。</p>
           )}
         </section>
+      )}
+      {showAddForm && createPortal(
+        <div style={{ position: 'fixed', inset: 0, zIndex: 90, display: 'grid', placeItems: 'center', padding: 24 }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,.5)' }} onClick={() => setShowAddForm(false)} />
+          <form
+            style={{ position: 'relative', zIndex: 1, width: 'min(500px,96vw)', maxHeight: '90vh', overflow: 'auto', background: '#fff', borderRadius: 8, padding: 24, boxShadow: '0 20px 60px rgba(15,23,42,.3)' }}
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const form = event.currentTarget;
+              const data = {
+                supplierShortName: form.supplierShortName.value,
+                salesProductLine: form.salesProductLine.value,
+                series: form.series.value,
+                totalQuantity: form.totalQuantity.value,
+                actualInspectionTime: form.actualInspectionTime.value,
+                inspectionMethod: form.inspectionMethod.value,
+                result: form.result.value,
+                feedbackText: form.feedbackText.value
+              };
+              const saved = await onAddFeedback(data);
+              if (saved) {
+                form.reset();
+                setShowAddForm(false);
+              }
+            }}
+          >
+            <h3 style={{ margin: '0 0 16px' }}>新增验货反馈</h3>
+            <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+              供应商简称
+              <select name="supplierShortName" required>
+                <option value="">选择</option>
+                {supplierOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>
+            </label>
+            <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+              产品线
+              <select name="salesProductLine" required>
+                <option value="">选择</option>
+                {productLineOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>
+            </label>
+            <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+              系列
+              <select name="series" required>
+                <option value="">选择</option>
+                {seriesOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>
+            </label>
+            <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+              数量
+              <input name="totalQuantity" required />
+            </label>
+            <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+              实际验货时间
+              <input name="actualInspectionTime" type="date" required />
+            </label>
+            <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+              验货方式
+              <select name="inspectionMethod">
+                <option value="">选择</option>
+                <option value="抽检">抽检</option>
+                <option value="全检">全检</option>
+                <option value="视频检验">视频检验</option>
+                <option value="随线检验">随线检验</option>
+              </select>
+            </label>
+            <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+              验货结果
+              <select name="result">
+                <option value="">选择</option>
+                <option value="通过">通过</option>
+                <option value="让步">让步</option>
+                <option value="返工">返工</option>
+              </select>
+            </label>
+            <label style={{ display: 'grid', gap: 6, marginBottom: 16 }}>
+              问题描述
+              <textarea name="feedbackText" rows={3} />
+            </label>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button type="button" className="ghost compact-button" onClick={() => setShowAddForm(false)}>取消</button>
+              <button type="submit" className="compact-button">提交</button>
+            </div>
+          </form>
+        </div>,
+        document.body
       )}
       <DataTable
         className="inspection-feedback-table"

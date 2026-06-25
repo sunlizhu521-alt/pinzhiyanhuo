@@ -1327,6 +1327,76 @@ app.get('/api/quality-inspection/records', requireAuth, requirePages('inspection
   res.json({ rows: composedRecords(db).filter((record) => canReadRecord(req.authUser, record)) });
 });
 
+app.post('/api/quality-inspection/direct-feedback', requireAuth, requirePages('inspectionFeedback'), async (req, res) => {
+  const db = await readDb();
+  const user = req.authUser;
+  const now = nowText();
+  const inputNotice = req.body?.notice || {};
+  const inputFeedback = req.body?.feedback || {};
+  const supplierShortName = normalizeText(inputNotice.supplierShortName || req.body?.supplierShortName);
+  const salesProductLine = normalizeText(inputNotice.salesProductLine || req.body?.salesProductLine);
+  const series = normalizeText(inputNotice.series || req.body?.series);
+  const totalQuantity = normalizeText(inputNotice.totalQuantity || req.body?.totalQuantity);
+  const actualInspectionTime = normalizeText(inputFeedback.actualInspectionTime || req.body?.actualInspectionTime);
+  if (!supplierShortName || !salesProductLine || !series || !totalQuantity || !actualInspectionTime) {
+    return res.status(400).json({ error: '供应商简称、产品线、系列、数量、实际验货时间不能为空' });
+  }
+  const id = inputNotice.id || randomUUID();
+  const inspection = db.qualityInspection;
+  const currentRows = inspection.notices.rows || [];
+  const notice = {
+    id,
+    inspectionApplicant: user.name,
+    inspectionNotifier: user.name,
+    inspectionFillTime: inputNotice.inspectionFillTime || now,
+    supplierFinishTime: normalizeText(inputNotice.supplierFinishTime),
+    shipmentTime: normalizeText(inputNotice.shipmentTime) || actualInspectionTime,
+    supplierShortName,
+    supplierAddress: normalizeText(inputNotice.supplierAddress),
+    businessDepartments: normalizeText(inputNotice.businessDepartments),
+    operation: normalizeText(inputNotice.operation),
+    firstInspection: normalizeText(inputNotice.firstInspection) || '否',
+    salesProductLine,
+    series,
+    totalQuantity,
+    skuQuantity: normalizeText(inputNotice.skuQuantity),
+    remark: normalizeText(inputNotice.remark) || '验货员手动新增',
+    importSource: 'directFeedback'
+  };
+  inspection.notices = {
+    rows: [
+      ...currentRows.filter((row) => row.id !== id),
+      notice
+    ].map((row, index) => ({ rowNumber: index + 1, ...row })),
+    submittedAt: now,
+    submittedBy: user.name
+  };
+  inspection.schedules[id] = {
+    ...(inspection.schedules[id] || {}),
+    status: '已安排',
+    inspector: user.name,
+    scheduledDate: actualInspectionTime,
+    remark: '未通知验货',
+    updatedAt: now
+  };
+  inspection.feedback[id] = {
+    ...(inspection.feedback[id] || {}),
+    actualInspectionTime,
+    inspectionMethod: normalizeText(inputFeedback.inspectionMethod || req.body?.inspectionMethod),
+    inspectionQuantity: normalizeText(inputFeedback.inspectionQuantity || req.body?.inspectionQuantity) || totalQuantity,
+    result: normalizeText(inputFeedback.result || req.body?.result),
+    feedbackText: normalizeText(inputFeedback.feedbackText || req.body?.feedbackText),
+    actualInspector: user.name,
+    updatedAt: now
+  };
+  await saveDb(db);
+  const rows = composedRecords(db);
+  res.json({
+    record: rows.find((record) => record.id === id),
+    rows: rows.filter((record) => canReadRecord(user, record))
+  });
+});
+
 app.post('/api/quality-inspection/summary-import', requireAuth, requirePages('inspectionSummary'), requireRoles(ROLE_ADMIN), async (req, res) => {
   const db = await readDb();
   const user = req.authUser || requestUser(db, req);

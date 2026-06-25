@@ -1421,6 +1421,76 @@ function App() {
     return true;
   }
 
+  async function addDirectFeedback(data) {
+    setSavingId('directFeedback');
+    const id = createId();
+    const createdAt = nowText();
+    const newRow = {
+      id,
+      inspectionApplicant: user.name,
+      inspectionNotifier: user.name,
+      inspectionFillTime: createdAt,
+      supplierFinishTime: '',
+      shipmentTime: data.actualInspectionTime,
+      supplierShortName: data.supplierShortName,
+      supplierAddress: '',
+      businessDepartments: '',
+      operation: '',
+      firstInspection: '否',
+      salesProductLine: data.salesProductLine,
+      series: data.series,
+      totalQuantity: data.totalQuantity,
+      skuQuantity: '',
+      remark: '验货员手动新增',
+      importSource: 'directFeedback'
+    };
+    const feedback = {
+      actualInspectionTime: data.actualInspectionTime,
+      inspectionMethod: data.inspectionMethod || '',
+      inspectionQuantity: data.totalQuantity,
+      result: data.result || '',
+      feedbackText: data.feedbackText || '',
+      actualInspector: user.name,
+      updatedAt: createdAt
+    };
+    if (STATIC_MODE) {
+      const db = readStaticDb();
+      const existingRows = db.qualityInspection.notices.rows || [];
+      db.qualityInspection.notices = {
+        rows: [...existingRows, newRow].map((row, index) => ({ ...row, rowNumber: index + 1 })),
+        submittedAt: createdAt,
+        submittedBy: user.name
+      };
+      db.qualityInspection.schedules[id] = {
+        status: '已安排',
+        inspector: user.name,
+        scheduledDate: data.actualInspectionTime,
+        remark: '未通知验货',
+        updatedAt: createdAt
+      };
+      db.qualityInspection.feedback[id] = feedback;
+      saveStaticDb(db);
+      setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
+      setSavingId('');
+      setMessage('验货反馈已新增。');
+      return true;
+    }
+    const res = await authFetch(`${API}/api/quality-inspection/direct-feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notice: newRow, feedback })
+    });
+    setSavingId('');
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      setMessage(payload.error || '验货反馈新增失败。');
+      return false;
+    }
+    await refreshRecords();
+    setMessage('验货反馈已新增。');
+    return true;
+  }
+
   async function saveReworkRecord(record, draft = {}) {
     setSavingId(record.id);
     const baseRemark = normalize(record.feedback?.remark);
@@ -2207,6 +2277,7 @@ function App() {
             onConfirmImport={confirmFeedbackImport}
             onClearImportPreview={clearFeedbackImportPreview}
             onSave={saveFeedback}
+            onAddFeedback={addDirectFeedback}
             canDelete={canDeleteInspectionInfo}
             onDelete={deleteInspectionRecord}
           />
