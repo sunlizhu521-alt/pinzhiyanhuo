@@ -91,7 +91,7 @@ function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete
           record.salesProductLine,
           record.series,
           record.skuQuantity || '',
-          record.totalQuantity,
+          record.totalQuantity || '',
           record.businessDepartments,
           record.operation,
           record.inspectionNotifier || record.inspectionApplicant,
