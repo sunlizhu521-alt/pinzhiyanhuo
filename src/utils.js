@@ -271,7 +271,7 @@ function mergeScheduleRecords(records = []) {
       report: { ...(first.report || {}) }
     };
     return merged;
-  });
+  }).sort((a, b) => (a.supplierAddress || '').localeCompare(b.supplierAddress || '', 'zh-Hans-CN'));
 }
 
 function mergeFeedbackRecords(records = [], reportHrefFn = () => false) {
