@@ -21,8 +21,8 @@ jobs:
             --exclude='data' \
             --exclude='backups' \
             --exclude='dist' \
-            --exclude='pinzhiyanhuo-release.tgz' \
-            -czf pinzhiyanhuo-release.tgz .
+            -czf /tmp/pinzhiyanhuo-release.tgz .
+          cp /tmp/pinzhiyanhuo-release.tgz pinzhiyanhuo-release.tgz
 
       - name: Upload source package
         uses: appleboy/scp-action@v0.1.7
