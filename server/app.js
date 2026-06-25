@@ -685,6 +685,25 @@ function normalizeText(value) {
   return String(value ?? '').trim();
 }
 
+function pendingReworkForFeedback(feedback = {}, user, timestamp = nowText()) {
+  const existing = feedback.rework || {};
+  return {
+    ...existing,
+    requestedAt: existing.requestedAt || timestamp,
+    requestedBy: existing.requestedBy || user?.name || '',
+    status: '待复验',
+    sourceFeedback: {
+      actualInspectionTime: normalizeText(feedback.actualInspectionTime),
+      result: normalizeText(feedback.result),
+      issueLevel: normalizeText(feedback.issueLevel),
+      issueCategoryPrimary: normalizeText(feedback.issueCategoryPrimary),
+      feedbackText: normalizeText(feedback.feedbackText)
+    },
+    updatedAt: timestamp,
+    updatedBy: user?.name || ''
+  };
+}
+
 function normalizeHeader(value) {
   return normalizeText(value).replace(/\s+/g, '').toLowerCase();
 }
@@ -1378,7 +1397,7 @@ app.post('/api/quality-inspection/direct-feedback', requireAuth, requirePages('i
     remark: '未通知验货',
     updatedAt: now
   };
-  inspection.feedback[id] = {
+  const feedback = {
     ...(inspection.feedback[id] || {}),
     actualInspectionTime,
     inspectionMethod: normalizeText(inputFeedback.inspectionMethod || req.body?.inspectionMethod),
@@ -1392,6 +1411,10 @@ app.post('/api/quality-inspection/direct-feedback', requireAuth, requirePages('i
     actualInspector: user.name,
     updatedAt: now
   };
+  if (normalizeText(feedback.result) === '返工') {
+    feedback.rework = pendingReworkForFeedback(feedback, user, now);
+  }
+  inspection.feedback[id] = feedback;
   await saveDb(db);
   const rows = composedRecords(db);
   res.json({
@@ -1679,11 +1702,17 @@ app.patch('/api/quality-inspection/feedback/:id', requireAuth, requirePages('ins
   const db = await readDb();
   const record = composedRecords(db).find((item) => item.id === req.params.id);
   if (!canWriteFeedback(req.authUser, record)) return res.status(403).json({ error: '无权保存该验货反馈' });
+  const updatedAt = nowText();
   const nextFeedback = {
     ...(db.qualityInspection.feedback[req.params.id] || {}),
     ...req.body,
-    updatedAt: nowText()
+    updatedAt
   };
+  const result = normalizeText(nextFeedback.result);
+  const hasCompletedRework = normalizeText(nextFeedback.rework?.reworkCompleteTime) || normalizeText(nextFeedback.rework?.completedAt);
+  if (result === '返工' && !hasCompletedRework) {
+    nextFeedback.rework = pendingReworkForFeedback(nextFeedback, req.authUser, updatedAt);
+  }
   const reworkCompleteTime = String(nextFeedback.rework?.reworkCompleteTime || '').trim();
   if (reworkCompleteTime) {
     db.qualityInspection.notices = {

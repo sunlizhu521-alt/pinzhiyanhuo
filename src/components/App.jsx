@@ -1374,6 +1374,7 @@ function App() {
     const form = new FormData(formElement);
     const file = form.get('reportFile');
     const sourceIds = Array.isArray(record.sourceIds) && record.sourceIds.length ? record.sourceIds : [record.id];
+    const savedAt = nowText();
     const feedbackPatch = {
       actualInspectionTime: normalize(form.get('actualInspectionTime')),
       inspectionMethod: normalize(form.get('inspectionMethod')),
@@ -1388,6 +1389,28 @@ function App() {
       feedbackText: normalize(form.get('feedbackText'))
     };
     const isRework = feedbackPatch.result === '返工';
+    const feedbackPatchForRecord = (sourceRecord = record) => {
+      if (!isRework) return feedbackPatch;
+      const existingRework = sourceRecord.rework || sourceRecord.feedback?.rework || {};
+      return {
+        ...feedbackPatch,
+        rework: {
+          ...existingRework,
+          requestedAt: existingRework.requestedAt || savedAt,
+          requestedBy: existingRework.requestedBy || user.name,
+          status: '待复验',
+          sourceFeedback: {
+            actualInspectionTime: feedbackPatch.actualInspectionTime,
+            result: feedbackPatch.result,
+            issueLevel: feedbackPatch.issueLevel,
+            issueCategoryPrimary: feedbackPatch.issueCategoryPrimary,
+            feedbackText: feedbackPatch.feedbackText
+          },
+          updatedAt: savedAt,
+          updatedBy: user.name
+        }
+      };
+    };
     const reportNo = isRework ? '' : feedbackReportNo(record, feedbackPatch.actualInspectionTime, feedbackPatch.inspectionQuantity);
     if (!isRework && file instanceof File && file.size > 0 && !reportNo) {
       setSavingId('');
@@ -1397,10 +1420,12 @@ function App() {
     if (STATIC_MODE) {
       const db = readStaticDb();
       sourceIds.forEach((sourceId) => {
+        const sourceRecord = records.find((item) => item.id === sourceId) || record;
+        const patch = feedbackPatchForRecord(sourceRecord);
         db.qualityInspection.feedback[sourceId] = {
           ...(db.qualityInspection.feedback[sourceId] || {}),
-          ...feedbackPatch,
-          updatedAt: nowText()
+          ...patch,
+          updatedAt: savedAt
         };
       });
       if (!isRework && file instanceof File && file.size > 0) {
@@ -1433,7 +1458,7 @@ function App() {
       return authFetch(`${API}/api/quality-inspection/feedback/${encodeURIComponent(sourceId)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...(sourceRecord.feedback || {}), ...feedbackPatch })
+        body: JSON.stringify({ ...(sourceRecord.feedback || {}), ...feedbackPatchForRecord(sourceRecord) })
       });
     }));
     setSavingId('');
@@ -1552,6 +1577,22 @@ function App() {
       updatedAt: createdAt
     };
     const isRework = feedback.result === '返工';
+    if (isRework) {
+      feedback.rework = {
+        requestedAt: createdAt,
+        requestedBy: user.name,
+        status: '待复验',
+        sourceFeedback: {
+          actualInspectionTime: feedback.actualInspectionTime,
+          result: feedback.result,
+          issueLevel: feedback.issueLevel,
+          issueCategoryPrimary: feedback.issueCategoryPrimary,
+          feedbackText: feedback.feedbackText
+        },
+        updatedAt: createdAt,
+        updatedBy: user.name
+      };
+    }
     if (STATIC_MODE) {
       const db = readStaticDb();
       const existingRows = db.qualityInspection.notices.rows || [];
