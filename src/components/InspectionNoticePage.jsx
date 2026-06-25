@@ -35,6 +35,14 @@ function InspectionNoticePage({
   onSubmit,
   onSubmitRow
 }) {
+  const productLineBySeries = Object.fromEntries(
+    Object.entries(seriesByProductLine).flatMap(([productLine, seriesList]) =>
+      (seriesList || []).map((series) => [
+        series,
+        findDimensionOption(productLine, productLineOptions) || productLine
+      ])
+    )
+  );
   const [focusedSupplierRowId, setFocusedSupplierRowId] = useState('');
   const [supplierSuggestionPosition, setSupplierSuggestionPosition] = useState(null);
   const [focusedSeriesRowId, setFocusedSeriesRowId] = useState('');
@@ -281,7 +289,11 @@ function InspectionNoticePage({
                           className="supplier-suggestion"
                           onMouseDown={(event) => {
                             event.preventDefault();
-                            onChange(row.id, field.key, option);
+                            onChange(row.id, 'series', option);
+                            const matchedProductLine = productLineBySeries[option];
+                            if (matchedProductLine) {
+                              onChange(row.id, 'salesProductLine', matchedProductLine);
+                            }
                             setFocusedSeriesRowId('');
                             setSeriesSuggestionPosition(null);
                           }}
