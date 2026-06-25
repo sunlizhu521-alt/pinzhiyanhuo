@@ -310,9 +310,10 @@ function importedRowsToNoticeRows(importedRows, currentUserName, dimensionLibrar
         values[field.key] = field.type === 'date' ? formatDate(value) : normalize(value);
       });
       values.inspectionApplicant = currentUserName;
+      if (!values.inspectionNotifier) values.inspectionNotifier = currentUserName;
       const supplierKey = normalizeSupplierKey(values.supplierShortName) || normalizeHeader(values.supplierShortName);
       values.supplierAddress = supplierProvinceCityLookup.get(supplierKey) || supplierProvinceCityLookup.get(normalizeHeader(values.supplierShortName)) || '';
-      return createNoticeRow(values);
+      return createNoticeRow({ ...values, importSource: 'noticeImport' });
     })
     .filter((row) => NOTICE_FIELDS.some((field) => !field.readonly && normalize(row[field.key])));
 }
@@ -327,6 +328,7 @@ function importedRowsToSummaryItems(importedRows, currentUserName) {
         noticeValues[field.key] = readImportedValue(normalizedSource, aliases);
       });
       if (!noticeValues.inspectionApplicant) noticeValues.inspectionApplicant = currentUserName;
+      if (!noticeValues.inspectionNotifier) noticeValues.inspectionNotifier = currentUserName;
       const notice = createNoticeRow({ ...noticeValues, importSource: 'summaryImport' });
       const schedule = {
         scheduledDate: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.scheduledDate),

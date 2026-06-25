@@ -211,6 +211,7 @@ function createNoticeRow(values = {}) {
     id: values.id || createId(),
     inspectionApplicant: values.inspectionApplicant || ''
   });
+  if (!row.inspectionNotifier && row.inspectionApplicant) row.inspectionNotifier = row.inspectionApplicant;
   if (values.importSource) row.importSource = values.importSource;
   return row;
 }

@@ -443,7 +443,7 @@ function App() {
       );
       const combined = [...activeRows, ...mergedRows];
       const userFillableKeys = [
-        'inspectionNotifier', 'supplierFinishTime', 'shipmentTime',
+        'supplierFinishTime', 'shipmentTime',
         'supplierShortName', 'supplierAddress', 'businessDepartments',
         'operation', 'firstInspection', 'salesProductLine', 'series',
         'totalQuantity', 'skuQuantity', 'remark'
@@ -687,14 +687,21 @@ function App() {
   }
 
   async function submitNoticesRows(sourceRows, { append = false, clearRows = true, successText = '' } = {}) {
+    const userFillableKeys = [
+      'supplierFinishTime', 'shipmentTime',
+      'supplierShortName', 'supplierAddress', 'businessDepartments',
+      'operation', 'firstInspection', 'salesProductLine', 'series',
+      'totalQuantity', 'skuQuantity', 'remark'
+    ];
     const rows = mergeNoticeRowsForImport(sourceRows
       .map((row) => ({
         ...row,
         businessDepartments: joinBusinessDepartments(splitMultiValue(row.businessDepartments)),
-        inspectionApplicant: user.name
+        inspectionApplicant: user.name,
+        inspectionNotifier: normalize(row.inspectionNotifier) || user.name
       }))
       .map((row) => normalizeNoticeDimensions(row, supplierOptions, productLineOptions, seriesOptions, dimensionLibrary, seriesByProductLine))
-      .filter((row) => NOTICE_FIELDS.some((field) => !field.readonly && normalize(row[field.key]))));
+      .filter((row) => userFillableKeys.some((key) => normalize(row[key]))));
     if (!rows.length) {
       setMessage('请至少填写一条验货通知后再提交。');
       return;
@@ -704,11 +711,12 @@ function App() {
       setMessage(validationMessage);
       return;
     }
+    const effectiveAppend = append || rows.some((row) => normalize(row.importSource) === 'noticeImport');
     if (STATIC_MODE) {
       const db = readStaticDb();
       const existingRows = db.qualityInspection.notices.rows || [];
       const rowIds = new Set(rows.map((row) => row.id).filter(Boolean));
-      const nextRows = append
+      const nextRows = effectiveAppend
         ? [
             ...existingRows.filter((row) => !rowIds.has(row.id)),
             ...rows
@@ -735,11 +743,11 @@ function App() {
       return true;
     }
     const params = new URLSearchParams({ user: user.name });
-    if (append) params.set('append', '1');
+    if (effectiveAppend) params.set('append', '1');
     const res = await authFetch(`${API}/api/quality-inspection/notices?${params.toString()}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rows, user: user.name, append })
+      body: JSON.stringify({ rows, user: user.name, append: effectiveAppend })
     });
     if (!res.ok) {
       const payload = await res.json().catch(() => ({}));

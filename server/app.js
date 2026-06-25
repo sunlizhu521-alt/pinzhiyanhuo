@@ -914,6 +914,7 @@ function prepareNoticeRows(rows, user, supplierMap, categoryMaps) {
       id: row.id || randomUUID(),
       ...row,
       inspectionApplicant: normalizeText(row.inspectionApplicant) || user.name,
+      inspectionNotifier: normalizeText(row.inspectionNotifier) || user.name,
       supplierShortName: supplierRecord?.supplierShortName || normalizeText(row.supplierShortName),
       supplierAddress: supplierRecord?.address || normalizeText(row.supplierAddress),
       businessDepartments: joinBusinessDepartments(splitMultiValue(row.businessDepartments)),
@@ -1264,12 +1265,10 @@ app.post('/api/quality-inspection/notices', requireAuth, requirePages('inspectio
         ...existingRows.filter((row) => !preparedIds.has(row.id)),
         ...preparedRows
       ]
-    : user.role === ROLE_ADMIN
-      ? preparedRows
-      : [
-          ...existingRows.filter((row) => row.inspectionApplicant !== user.name),
-          ...preparedRows
-        ];
+    : [
+        ...existingRows.filter((row) => row.inspectionApplicant !== user.name),
+        ...preparedRows
+      ];
   db.qualityInspection.notices = {
     rows: nextRows.map((row, index) => ({
       rowNumber: index + 1,
