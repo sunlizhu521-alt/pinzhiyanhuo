@@ -199,6 +199,7 @@ function FeedbackPage({
           '供应商简称',
           '产品线',
           '系列',
+          'SKU及数量',
           '数量',
           '是否首批验货',
           '事业部',
@@ -229,6 +230,7 @@ function FeedbackPage({
             record.supplierShortName,
             record.salesProductLine,
             record.series,
+            <span className="readonly-cell">{record.skuQuantity || ''}</span>,
             record.totalQuantity,
             record.firstInspection,
             record.businessDepartments,
@@ -275,12 +277,42 @@ function FeedbackPage({
               <option value="中等">中等</option>
               <option value="不严重">不严重</option>
             </select>,
-            <select name="issueCategoryPrimary" form={`feedback-form-${record.id}`} className="table-input" defaultValue={record.feedback?.issueCategoryPrimary || ''}>
-              <option value="">选择</option>
-              <option value="包装">包装</option>
-              <option value="性能">性能</option>
-              <option value="外观">外观</option>
-            </select>,
+            (() => {
+              const categories = ['包装', '性能', '外观'];
+              const defaultValues = (record.feedback?.issueCategoryPrimary || '').split(/[,，、]/).map((item) => item.trim()).filter(Boolean);
+              const hiddenId = `issueCategoryPrimary-hidden-${record.id}`;
+              const recordKey = String(record.id);
+              return (
+                <div className="business-department-checks" style={{ minWidth: '180px' }}>
+                  {categories.map((category) => (
+                    <label key={category} className="business-department-option" style={{ margin: 0 }}>
+                      <input
+                        type="checkbox"
+                        defaultChecked={defaultValues.includes(category)}
+                        data-record-id={recordKey}
+                        data-category={category}
+                        onChange={() => {
+                          const checked = categories.filter((item) => {
+                            const checkbox = document.querySelector(`input[data-record-id="${recordKey}"][data-category="${item}"]`);
+                            return checkbox && checkbox.checked;
+                          });
+                          const hidden = document.getElementById(hiddenId);
+                          if (hidden) hidden.value = checked.join('、');
+                        }}
+                      />
+                      {category}
+                    </label>
+                  ))}
+                  <input
+                    type="hidden"
+                    name="issueCategoryPrimary"
+                    id={hiddenId}
+                    form={`feedback-form-${record.id}`}
+                    defaultValue={defaultValues.join('、')}
+                  />
+                </div>
+              );
+            })(),
             <textarea name="feedbackText" form={`feedback-form-${record.id}`} className="table-textarea wide-textarea" defaultValue={record.feedback?.feedbackText || ''} />,
             (() => {
               const href = reportHref(record);
@@ -305,8 +337,10 @@ function FeedbackPage({
                 onSubmit={async (event) => {
                   event.preventDefault();
                   if (!window.confirm('确认提交当前验货反馈？')) return;
-                  const saved = await onSave(record, event.currentTarget);
+                  const form = event.currentTarget;
+                  const saved = await onSave(record, form);
                   if (saved) {
+                    form.reset();
                     setFeedbackDrafts((current) => {
                       const next = { ...current };
                       delete next[record.id];
