@@ -15,15 +15,22 @@ function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete
   }, [scheduleRows, filterProvince]);
 
   useEffect(() => {
-    setDrafts(Object.fromEntries(scheduleRows.map((record) => [
-      record.id,
-      {
-        scheduledDate: formatDate(record.schedule?.scheduledDate),
-        inspector: record.schedule?.inspector || '',
-        remark: record.schedule?.remark || '',
-        sourceIds: record.sourceIds || [record.id]
-      }
-    ])));
+    setDrafts((current) => {
+      const next = {};
+      scheduleRows.forEach((record) => {
+        if (current[record.id]) {
+          next[record.id] = current[record.id];
+        } else {
+          next[record.id] = {
+            scheduledDate: formatDate(record.schedule?.scheduledDate),
+            inspector: record.schedule?.inspector || '',
+            remark: record.schedule?.remark || '',
+            sourceIds: record.sourceIds || [record.id]
+          };
+        }
+      });
+      return next;
+    });
   }, [scheduleRows]);
 
   function updateDraft(recordId, key, value) {
