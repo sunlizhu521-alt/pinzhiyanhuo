@@ -237,9 +237,15 @@ function buildSeriesByProductLineOptions(dimensionLibrary = {}) {
 
 function seriesOptionsForProductLine(productLine, allSeriesOptions = [], seriesByProductLine = {}) {
   const key = normalizeHeader(productLine);
-  if (!key) return allSeriesOptions;
+  if (!key) {
+    const withOther = [...allSeriesOptions];
+    if (!withOther.includes('其他')) withOther.push('其他');
+    return withOther;
+  }
   const scoped = Array.isArray(seriesByProductLine[key]) ? seriesByProductLine[key] : [];
-  return scoped.length ? scoped : allSeriesOptions;
+  const result = scoped.length ? scoped : allSeriesOptions;
+  if (!result.includes('其他')) result.push('其他');
+  return result;
 }
 
 function buildCategoryDimensionOptions(sheets = []) {
