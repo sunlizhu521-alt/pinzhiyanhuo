@@ -704,12 +704,10 @@ function App() {
             ...existingRows.filter((row) => !rowIds.has(row.id)),
             ...rows
           ]
-        : isAdminUser(user)
-          ? rows
-          : [
-              ...existingRows.filter((row) => row.inspectionApplicant !== user.name),
-              ...rows
-            ];
+        : [
+            ...existingRows.filter((row) => row.inspectionApplicant !== user.name),
+            ...rows
+          ];
       const payload = {
         rows: nextRows.map((row, index) => ({ ...row, id: row.id || createId(), rowNumber: index + 1 })),
         submittedAt: nowText(),
