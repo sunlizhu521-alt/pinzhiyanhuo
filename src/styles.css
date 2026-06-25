@@ -822,6 +822,12 @@ th {
   min-width: 1980px;
 }
 
+.inspection-feedback-table {
+  max-height: calc(100vh - 280px);
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
 .inspection-feedback-table table {
   width: max-content;
   min-width: 2860px;

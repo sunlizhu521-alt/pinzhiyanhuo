@@ -15,12 +15,16 @@ import { feedbackMatchKey } from './import-utils.js';
 
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
-    if (!file || file.size === 0) {
-      resolve('');
+    if (!file) {
+      reject(new Error('无效文件'));
+      return;
+    }
+    if (file.size === 0) {
+      reject(new Error('文件大小为0：' + (file.name || '未知')));
       return;
     }
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error('read failed'));
+    reader.onerror = () => reject(new Error(`文件读取失败：${file.name || '未知'}`));
     reader.onload = () => resolve(String(reader.result || ''));
     reader.readAsDataURL(file);
   });
@@ -154,7 +158,13 @@ async function reportLibraryFilesFromDrop(dataTransfer) {
   const files = entries.length
     ? (await Promise.all(entries.map(readEntryFiles))).flat()
     : Array.from(dataTransfer?.files || []);
-  return files.filter(isReportLibraryFile);
+  return files.filter(isReportLibraryFile).map((file) => {
+    const cleanName = String(file.name || '').replace(/^.*[\\/]/, '');
+    if (cleanName && cleanName !== file.name) {
+      return new File([file], cleanName, { type: file.type, lastModified: file.lastModified });
+    }
+    return file;
+  });
 }
 
 async function renderRotatedReportCanvas(record, rotation, maxSide = 0) {
@@ -228,6 +238,7 @@ function shouldShowScheduleRecord(record) {
 }
 
 function shouldShowSummaryRecord(record) {
+  if (normalize(record.feedback?.result) === '返工') return false;
   return hasObjectValue(record.feedback) || normalize(record.importSource) === 'summaryImport';
 }
 

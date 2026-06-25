@@ -1337,8 +1337,9 @@ function App() {
       actualInspector: normalize(form.get('actualInspector')),
       feedbackText: normalize(form.get('feedbackText'))
     };
-    const reportNo = feedbackReportNo(record, feedbackPatch.actualInspectionTime, feedbackPatch.inspectionQuantity);
-    if (file instanceof File && file.size > 0 && !reportNo) {
+    const isRework = feedbackPatch.result === '返工';
+    const reportNo = isRework ? '' : feedbackReportNo(record, feedbackPatch.actualInspectionTime, feedbackPatch.inspectionQuantity);
+    if (!isRework && file instanceof File && file.size > 0 && !reportNo) {
       setSavingId('');
       setMessage('请先填写实际验货时间和实际验货数量，系统会自动生成检验报告单编码后再上传检验报告单。');
       return false;
@@ -1352,7 +1353,7 @@ function App() {
           updatedAt: nowText()
         };
       });
-      if (file instanceof File && file.size > 0) {
+      if (!isRework && file instanceof File && file.size > 0) {
         const reportFileName = reportFileNameFromCode(reportNo, file.name);
         db.qualityInspection.reports[record.id] = {
           ...(db.qualityInspection.reports[record.id] || {}),
@@ -1362,7 +1363,7 @@ function App() {
           uploadedAt: nowText(),
           updatedAt: nowText()
         };
-      } else if (reportNo) {
+      } else if (!isRework && reportNo) {
         db.qualityInspection.reports[record.id] = {
           ...(db.qualityInspection.reports[record.id] || {}),
           reportNo,
@@ -1389,7 +1390,7 @@ function App() {
       setMessage('验货反馈保存失败。');
       return false;
     }
-    if (file instanceof File && file.size > 0) {
+    if (!isRework && file instanceof File && file.size > 0) {
       const reportForm = new FormData();
       reportForm.append('file', file);
       reportForm.append('reportNo', reportNo);
@@ -1402,7 +1403,7 @@ function App() {
         await refreshRecords();
         return false;
       }
-    } else if (reportNo && reportNo !== normalize(record.report?.reportNo)) {
+    } else if (!isRework && reportNo && reportNo !== normalize(record.report?.reportNo)) {
       const reportForm = new FormData();
       reportForm.append('reportNo', reportNo);
       const reportRes = await authFetch(`${API}/api/quality-inspection/reports/${encodeURIComponent(record.id)}`, {
@@ -1419,6 +1420,28 @@ function App() {
     await refreshRecords();
     setMessage('验货反馈已保存。');
     return true;
+  }
+
+  async function deleteReport(record) {
+    if (!window.confirm('确认删除该检验报告单？删除后可重新上传。')) return;
+    setSavingId(record.id);
+    if (STATIC_MODE) {
+      const db = readStaticDb();
+      delete db.qualityInspection.reports[record.id];
+      saveStaticDb(db);
+      setSavingId('');
+      setRecords(composedStaticRecords(db).filter((item) => canReadClientRecord(user, item)));
+      setMessage('检验报告单已删除，可以重新上传。');
+      return;
+    }
+    const res = await authFetch(`${API}/api/quality-inspection/reports/${encodeURIComponent(record.id)}`, { method: 'DELETE' });
+    setSavingId('');
+    if (res.ok) {
+      await refreshRecords();
+      setMessage('检验报告单已删除，可以重新上传。');
+    } else {
+      setMessage('检验报告单删除失败。');
+    }
   }
 
   async function addDirectFeedback(formElement) {
@@ -1821,14 +1844,17 @@ function App() {
     setSavingId('inspectionReportLibrary');
     if (STATIC_MODE) {
       try {
-        const uploaded = await Promise.all(selectedFiles.map(async (file) => ({
-          id: createId(),
-          fileName: file.name,
-          fileUrl: await readFileAsDataUrl(file),
-          size: file.size,
-          source: '历史上传',
-          modifiedAt: nowText()
-        })));
+        const uploaded = await Promise.all(selectedFiles.map(async (file) => {
+          const cleanName = String(file.name || '').replace(/^.*[\\/]/, '');
+          return {
+            id: createId(),
+            fileName: cleanName,
+            fileUrl: await readFileAsDataUrl(file),
+            size: file.size,
+            source: '历史上传',
+            modifiedAt: nowText()
+          };
+        }));
         const nextFiles = [...readReportFileLibrary(), ...uploaded];
         saveReportFileLibrary(nextFiles);
         setReportFiles(nextFiles);
@@ -2327,6 +2353,7 @@ function App() {
             onAddFeedback={addDirectFeedback}
             canDelete={canDeleteInspectionInfo}
             onDelete={deleteInspectionRecord}
+            onDeleteReport={deleteReport}
           />
         )}
         {canAccessPage(user, 'reworkRecords') && activeTab === 'reworkRecords' && (

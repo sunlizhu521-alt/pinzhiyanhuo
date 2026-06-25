@@ -1496,6 +1496,22 @@ app.post('/api/quality-inspection/reports/:id', requireAuth, requirePages('inspe
   res.json(next);
 });
 
+app.delete('/api/quality-inspection/reports/:id', requireAuth, requirePages('inspectionFeedback'), async (req, res) => {
+  const db = await readDb();
+  const record = composedRecords(db).find((item) => item.id === req.params.id);
+  if (!canWriteFeedback(req.authUser, record)) {
+    return res.status(403).json({ error: '无权删除该检验报告单' });
+  }
+  const report = db.qualityInspection.reports[req.params.id] || {};
+  if (report.fileName) {
+    await unlink(reportFilePath(report.fileName)).catch(() => {});
+  }
+  delete db.qualityInspection.reports[req.params.id];
+  deleteReport(req.params.id);
+  await saveDb(db);
+  res.json({ ok: true });
+});
+
 app.delete('/api/quality-inspection/records/:id', requireAuth, requirePages('inspectionFeedback', 'inspectionReportQuery', 'inspectionSummary', 'inspectionLedger'), requirePrimaryAdmin, async (req, res) => {
   const db = await readDb();
   const recordId = String(req.params.id || '').trim();

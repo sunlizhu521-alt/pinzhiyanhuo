@@ -86,9 +86,20 @@ function ReportFileLibraryPage({ files, supplierOptions = [], productLineOptions
     }
   }, [files, previewFile]);
 
-  const previewExt = String(previewFile?.fileName || previewFile?.fileUrl || '')
-    .split('?')[0]
-    .match(/\.[^.]+$/)?.[0]?.toLowerCase() || '';
+  const previewExt = (() => {
+    const name = String(previewFile?.fileName || '');
+    const nameExt = name.split('?')[0].match(/\.[^.]+$/)?.[0]?.toLowerCase();
+    if (nameExt) return nameExt;
+    const url = String(previewFile?.fileUrl || '');
+    const mimeMatch = url.match(/^data:(image\/[^;,]+)/i);
+    if (mimeMatch) {
+      const mime = mimeMatch[1].split('/')[1];
+      const mimeMap = { jpeg: '.jpg', png: '.png', webp: '.webp', gif: '.gif', bmp: '.bmp' };
+      return mimeMap[mime.toLowerCase()] || (`.${mime.toLowerCase()}`);
+    }
+    const urlExt = url.split('?')[0].match(/\.[^.]+$/)?.[0]?.toLowerCase();
+    return urlExt || '';
+  })();
   const selectedFiles = files.filter((file) => selectedFileKeys.has(fileKey(file)));
   const allFilteredSelected = filteredFiles.length > 0 && filteredFiles.every((file) => selectedFileKeys.has(fileKey(file)));
 

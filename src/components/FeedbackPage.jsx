@@ -19,7 +19,8 @@ function FeedbackPage({
   onSave,
   onAddFeedback,
   canDelete = false,
-  onDelete
+  onDelete,
+  onDeleteReport
 }) {
   const [filters, setFilters] = useState({
     supplierShortName: '',
@@ -30,6 +31,7 @@ function FeedbackPage({
   });
   const [feedbackDrafts, setFeedbackDrafts] = useState({});
   const [freshlySubmitted, setFreshlySubmitted] = useState(new Set());
+  const [reworkRowIds, setReworkRowIds] = useState(new Set());
   const [showAddForm, setShowAddForm] = useState(false);
   const [addReportNo, setAddReportNo] = useState('');
   const previewRows = importPreview?.items || [];
@@ -85,6 +87,7 @@ function FeedbackPage({
     return {
       actualInspectionTime: record.feedback?.actualInspectionTime || '',
       inspectionQuantity: record.feedback?.inspectionQuantity || '',
+      result: record.feedback?.result || '',
       ...(feedbackDrafts[record.id] || {})
     };
   }
@@ -383,6 +386,7 @@ function FeedbackPage({
           const justSubmitted = freshlySubmitted.has(record.id);
           const draft = feedbackDraft(record);
           const reportNo = feedbackReportNo(record, draft.actualInspectionTime, draft.inspectionQuantity);
+          const isReworkRow = !justSubmitted && normalize(draft.result) === '返工';
           return [
             record.supplierShortName,
             record.salesProductLine,
@@ -432,7 +436,21 @@ function FeedbackPage({
             />,
             <input name="checkQuantity" form={`feedback-form-${record.id}`} className="table-input narrow-input" defaultValue={justSubmitted ? '' : (record.feedback?.checkQuantity || '')} />,
             <input name="qualifiedQuantity" form={`feedback-form-${record.id}`} className="table-input narrow-input" defaultValue={justSubmitted ? '' : (record.feedback?.qualifiedQuantity || '')} />,
-            <select name="result" form={`feedback-form-${record.id}`} className="table-input" defaultValue={justSubmitted ? '' : (record.feedback?.result || '')}>
+            <select
+              name="result"
+              form={`feedback-form-${record.id}`}
+              className="table-input"
+              defaultValue={justSubmitted ? '' : (record.feedback?.result || '')}
+              onChange={(event) => {
+                updateFeedbackDraft(record.id, 'result', event.target.value);
+                setReworkRowIds((current) => {
+                  const next = new Set(current);
+                  if (event.target.value === '返工') next.add(record.id);
+                  else next.delete(record.id);
+                  return next;
+                });
+              }}
+            >
               <option value="">选择</option>
               <option value="通过">通过</option>
               <option value="让步">让步</option>
@@ -496,8 +514,26 @@ function FeedbackPage({
               );
             })(),
             <div className="feedback-report-cell">
-              {reportHref(record) && <a href={reportHref(record)} target="_blank" rel="noreferrer">{record.report?.originalName || '查看报告'}</a>}
-              <input name="reportFile" form={`feedback-form-${record.id}`} type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx" />
+              {(reworkRowIds.has(record.id) || isReworkRow) ? (
+                <span style={{ color: '#94a3b8', fontSize: '13px' }}>返工无需上传报告</span>
+              ) : reportHref(record) ? (
+                <>
+                  <a href={reportHref(record)} target="_blank" rel="noreferrer">{record.report?.originalName || '查看报告'}</a>
+                  <button
+                    type="button"
+                    className="danger-button compact-button"
+                    disabled={savingId === record.id}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      if (onDeleteReport) onDeleteReport(record);
+                    }}
+                  >
+                    删除报告
+                  </button>
+                </>
+              ) : (
+                <input name="reportFile" form={`feedback-form-${record.id}`} type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx" />
+              )}
             </div>,
             <div className="table-action-row">
               <form
@@ -509,6 +545,11 @@ function FeedbackPage({
                   const saved = await onSave(record, form);
                   if (saved) {
                     setFreshlySubmitted((prev) => new Set([...prev, record.id]));
+                    setReworkRowIds((prev) => {
+                      const next = new Set(prev);
+                      next.delete(record.id);
+                      return next;
+                    });
                     Array.from(form.elements).forEach((element) => {
                       if (element.type === 'hidden' || element.type === 'submit') return;
                       if (element.tagName === 'SELECT') element.selectedIndex = 0;
