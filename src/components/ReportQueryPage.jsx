@@ -34,7 +34,7 @@ function ReportQueryPage({
     const map = {};
     for (const record of records) {
       const candidates = [];
-      if (reportHref(record)) {
+      if (reportHref(record) && (record.report?.stampedAt || record.report?.stampSkippedAt)) {
         candidates.push({
           key: 'record-report',
           priority: record.report?.stampedAt ? 1 : (record.report?.stampSkippedAt ? 2 : 4),
@@ -48,7 +48,8 @@ function ReportQueryPage({
           || normalize(file.reportNo || '') === normalize(record.report?.reportNo || '')
       );
       for (const file of matched) {
-        if (file.fileUrl) {
+        const isHistoricalFile = !normalize(file.recordId) || normalize(file.source).includes('历史');
+        if (file.fileUrl && (file.stampedAt || file.stampSkippedAt || isHistoricalFile)) {
           candidates.push({
             key: file.id || file.fileName,
             priority: file.stampedAt ? 1 : (file.stampSkippedAt ? 2 : 3),

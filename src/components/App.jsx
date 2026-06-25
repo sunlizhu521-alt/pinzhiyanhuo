@@ -1935,16 +1935,24 @@ function App() {
       }));
     return [...reportFiles, ...linkedFiles];
   }, [reportFiles, displayRecords]);
-  const reportLibraryRecordIds = useMemo(() => (
-    new Set(reportLibraryItems.map((file) => normalize(file.recordId)).filter(Boolean))
+  const queryableReportLibraryItems = useMemo(() => (
+    reportLibraryItems.filter((file) => (
+      file.stampedAt
+      || file.stampSkippedAt
+      || !normalize(file.recordId)
+      || normalize(file.source).includes('历史')
+    ))
   ), [reportLibraryItems]);
+  const reportLibraryRecordIds = useMemo(() => (
+    new Set(queryableReportLibraryItems.map((file) => normalize(file.recordId)).filter(Boolean))
+  ), [queryableReportLibraryItems]);
   const reportLibraryQueryRecords = useMemo(() => {
     const keyword = normalize(query).toLowerCase();
     const normalizedFilters = Object.fromEntries(
       Object.entries(recordFilters).map(([key, value]) => [key, normalize(value).toLowerCase()])
     );
     if (statusFilter) return [];
-    return reportLibraryItems
+    return queryableReportLibraryItems
       .filter((file) => !normalize(file.recordId))
       .map((file) => {
         const reportNo = normalize(file.reportNo) || normalize(file.fileName).replace(/\.[^.]+$/, '');
@@ -1992,7 +2000,7 @@ function App() {
           || normalize(record.series).toLowerCase() === normalizedFilters.series;
         return matchesKeyword && matchesSupplier && matchesBusinessDepartment && matchesProductLine && matchesSeries;
       });
-  }, [reportLibraryItems, query, statusFilter, recordFilters]);
+  }, [queryableReportLibraryItems, query, statusFilter, recordFilters]);
 
   async function uploadReportLibraryFiles(files) {
     const selectedFiles = Array.from(files || []).filter(isReportLibraryFile);
@@ -2561,7 +2569,7 @@ function App() {
             supplierOptions={supplierOptions}
             productLineOptions={productLineOptions}
             seriesOptions={seriesOptions}
-            reportLibraryItems={reportLibraryItems}
+            reportLibraryItems={queryableReportLibraryItems}
             onQuery={setQuery}
             onStatusFilter={setStatusFilter}
             onFilterChange={(key, value) => setRecordFilters((current) => ({ ...current, [key]: value }))}
