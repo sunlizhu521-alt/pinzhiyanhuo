@@ -103,7 +103,7 @@ function SummaryPage({
               let color = '#c2410c';
               if (hasInspector && !hasResult) { text = '待验货'; color = '#1d4ed8'; }
               else if (resultText === '返工') { text = '需返工'; color = '#dc2626'; }
-              else if (hasResult && resultText !== '返工') { text = '已验货'; color = '#047857'; }
+              else if (hasInspector && hasResult && resultText !== '返工') { text = '已验货'; color = '#047857'; }
               return <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '4px', background: color, color: '#fff', fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap' }}>{text}</span>;
             })(),
             formatDate(feedback.actualInspectionTime),
