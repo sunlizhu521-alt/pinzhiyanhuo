@@ -437,7 +437,10 @@ function App() {
     }
     const mergedRows = mergeNoticeRowsForImport(normalizedRows);
     setNoticeRows((rows) => {
-      const activeRows = rows.filter((row) => NOTICE_FIELDS.some((field) => !field.readonly && normalize(row[field.key])));
+      const activeRows = rows.filter((row) =>
+        NOTICE_FIELDS.some((field) => !field.readonly && normalize(row[field.key])) ||
+        normalize(row.inspectionApplicant)
+      );
       return [...activeRows, ...mergedRows];
     });
     const mergeText = mergedRows.length === previewRows.length ? '' : `，由 ${previewRows.length} 条合并为 ${mergedRows.length} 条`;
