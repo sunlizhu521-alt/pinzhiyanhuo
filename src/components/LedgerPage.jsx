@@ -4,7 +4,7 @@ import ReportPreviewModal from './ReportPreviewModal.jsx';
 import { normalize, formatDate, latestFeedback } from '../utils.js';
 import { reportHref, reportFileExt, isImageReport } from '../file-utils.js';
 
-function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImport, onClearImportPreview, onExport }) {
+function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImport, onClearImportPreview, canDelete, onDelete, onExport }) {
   const [filters, setFilters] = useState({
     supplierShortName: '',
     status: '',
@@ -158,7 +158,7 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
       </div>
       <DataTable
         rows={filteredRecords}
-        columns={['供应商', '产品线', '系列', '数量', 'SKU', '事业部', '验货通知人', '是否首批验货', '验货员', '状态', '实际验货时间', '实际验货数量', '检验数量', '验货合格数量', '验货合格率', '验货方式', '验货结果', '问题等级', '问题分类', '问题反馈', '报告文件', '是否返工', '备注']}
+        columns={canDelete ? ['供应商', '产品线', '系列', '数量', 'SKU', '事业部', '验货通知人', '是否首批验货', '验货员', '状态', '实际验货时间', '实际验货数量', '检验数量', '验货合格数量', '验货合格率', '验货方式', '验货结果', '问题等级', '问题分类', '问题反馈', '报告文件', '是否返工', '备注', '操作'] : ['供应商', '产品线', '系列', '数量', 'SKU', '事业部', '验货通知人', '是否首批验货', '验货员', '状态', '实际验货时间', '实际验货数量', '检验数量', '验货合格数量', '验货合格率', '验货方式', '验货结果', '问题等级', '问题分类', '问题反馈', '报告文件', '是否返工', '备注']}
         render={(record) => {
           const feedback = latestFeedback(record.feedback);
           const allRemarks = [
@@ -192,7 +192,16 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
             feedback.feedbackText || '',
             reportPreviewCell(record),
             record.rework?.completedAt ? '是' : '否',
-            allRemarks
+            allRemarks,
+            ...(canDelete ? [
+              <button
+                type="button"
+                className="danger-button compact-button"
+                onClick={() => onDelete(record)}
+              >
+                删除
+              </button>
+            ] : [])
           ];
         }}
       />

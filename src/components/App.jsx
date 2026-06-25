@@ -2472,6 +2472,8 @@ function App() {
             onUpload={previewLedgerRows}
             onConfirmImport={confirmLedgerImport}
             onClearImportPreview={clearLedgerImportPreview}
+            canDelete={canDeleteInspectionInfo}
+            onDelete={deleteInspectionRecord}
             onExport={() => exportSummaryData('验货台账', displayRecords)}
           />
         )}
