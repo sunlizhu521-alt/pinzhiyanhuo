@@ -1187,6 +1187,11 @@ function App() {
     }
     const singleSubmit = options.single === true;
     const savingKey = options.savingId || 'inspectionSchedule';
+    const missingRequired = entries.find(([, draft]) => !normalize(draft.inspector) || !normalize(draft.scheduledDate));
+    if (missingRequired) {
+      setMessage('验货安排提交失败：验货员和计划验货时间为必填项。');
+      return;
+    }
     setSavingId(savingKey);
     if (STATIC_MODE) {
       const db = readStaticDb();

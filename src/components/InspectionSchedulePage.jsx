@@ -84,7 +84,7 @@ function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete
       <DataTable
         className="inspection-schedule-table"
         rows={filteredRows}
-        columns={['供应商简称', '地址', '产品线', '系列', 'SKU及数量', '数量', '事业部', '运营', '验货通知人', '备注', '可验货时间', '验货员', '计划验货时间', '安排备注', '操作']}
+        columns={['供应商简称', '地址', '产品线', '系列', 'SKU及数量', '数量', '事业部', '运营', '验货通知人', '备注', '可验货时间', '验货员 *', '计划验货时间 *', '安排备注', '操作']}
         render={(record) => [
           record.supplierShortName,
           provinceCityText(record.supplierAddress),
@@ -99,12 +99,14 @@ function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete
           formatDate(record.shipmentTime),
           <input
             className="table-input"
+            required
             value={drafts[record.id]?.inspector || ''}
             onChange={(event) => updateDraft(record.id, 'inspector', event.target.value)}
           />,
           <input
             className="table-input"
             type="date"
+            required
             value={drafts[record.id]?.scheduledDate || ''}
             onChange={(event) => updateDraft(record.id, 'scheduledDate', event.target.value)}
           />,
