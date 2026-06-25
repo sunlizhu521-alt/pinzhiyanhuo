@@ -24,7 +24,7 @@ function FeedbackPage({
     salesProductLine: '',
     series: '',
     inspector: '',
-    result: ''
+    status: ''
   });
   const [feedbackDrafts, setFeedbackDrafts] = useState({});
   const previewRows = importPreview?.items || [];
@@ -41,13 +41,23 @@ function FeedbackPage({
         salesProductLine: record.salesProductLine,
         series: record.series,
         inspector: record.schedule?.inspector,
-        result: record.feedback?.result
+        result: record.feedback?.result,
+        status: ''
       };
-      return Object.entries(normalizedFilters).every(([key, value]) => (
-        !value || (key === 'result'
-          ? normalize(values[key]).toLowerCase() === value
-          : normalize(values[key]).toLowerCase().includes(value))
-      ));
+      return Object.entries(normalizedFilters).every(([key, value]) => {
+        if (!value) return true;
+        if (key === 'status') {
+          const hasInspector = !!normalize(values.inspector);
+          const hasFeedbackResult = !!normalize(values.result);
+          if (value === '待安排验货员') return !hasInspector;
+          if (value === '待验货') return hasInspector && !hasFeedbackResult;
+          if (value === '需返工') return normalize(values.result) === '返工';
+          if (value === '已验货') return hasFeedbackResult && normalize(values.result) !== '返工';
+          return true;
+        }
+        if (key === 'result') return normalize(values[key]).toLowerCase() === value;
+        return normalize(values[key]).toLowerCase().includes(value);
+      });
     });
   }, [mergedRecords, filters]);
   function updateFilter(key, value) {
@@ -59,7 +69,7 @@ function FeedbackPage({
       salesProductLine: '',
       series: '',
       inspector: '',
-      result: ''
+      status: ''
     });
   }
   function feedbackDraft(record) {
@@ -136,11 +146,12 @@ function FeedbackPage({
           value={filters.inspector}
           onChange={(event) => updateFilter('inspector', event.target.value)}
         />
-        <select value={filters.result} onChange={(event) => updateFilter('result', event.target.value)}>
-          <option value="">全部验货结果</option>
-          <option value="通过">通过</option>
-          <option value="让步">让步</option>
-          <option value="返工">返工</option>
+        <select value={filters.status} onChange={(event) => updateFilter('status', event.target.value)}>
+          <option value="">全部状态</option>
+          <option value="待安排验货员">待安排验货员</option>
+          <option value="待验货">待验货</option>
+          <option value="需返工">需返工</option>
+          <option value="已验货">已验货</option>
         </select>
         <button type="button" className="ghost compact-button" onClick={clearFilters}>清除筛选</button>
       </div>
