@@ -226,9 +226,9 @@ function scoreOcrResult(data = {}) {
 
 function shouldShowFeedbackRecord(record) {
   if (normalize(record.importSource) === 'directFeedback') return true;
-  if (normalize(record.schedule?.status) !== '已安排') return false;
   const result = normalize(record.feedback?.result);
-  if (result === '返工' && normalize(record.rework?.completedAt)) return false;
+  if (result === '返工' && normalize(record.rework?.completedAt)) return true;
+  if (normalize(record.schedule?.status) !== '已安排') return false;
   if (['通过', '让步', '合格', '让步接收'].includes(result)) return false;
   return !normalize(record.feedback?.actualInspectionTime) || result === '返工';
 }
