@@ -2337,7 +2337,7 @@ function App() {
         )}
         {canAccessPage(user, 'inspectionSummary') && activeTab === 'inspectionSummary' && (
           <SummaryPage
-            title="验货反馈表"
+            title="验货状态"
             summary={summary}
             records={summaryRecords}
             canImport={isAdminUser(user)}
@@ -2348,7 +2348,7 @@ function App() {
             savingId={savingId}
             canDelete={canDeleteInspectionInfo}
             onDelete={deleteInspectionRecord}
-            onExport={() => exportSummaryData('验货反馈表')}
+            onExport={() => exportSummaryData('验货状态')}
           />
         )}
         {canAccessPage(user, 'inspectionLedger') && activeTab === 'inspectionLedger' && (

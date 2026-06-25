@@ -1,8 +1,8 @@
 import DataTable from './DataTable.jsx';
 import MetricCard from './MetricCard.jsx';
-import { formatDate, latestFeedback } from '../utils.js';
+import { normalize, formatDate, latestFeedback } from '../utils.js';
 function SummaryPage({
-  title = '验货反馈表',
+  title = '验货状态',
   summary,
   records,
   canImport,
@@ -95,7 +95,17 @@ function SummaryPage({
             record.totalQuantity,
             record.inspectionNotifier || record.inspectionApplicant,
             record.schedule?.scheduledDate || '',
-            record.schedule?.status || '未安排',
+            (() => {
+              const hasInspector = !!normalize(record.schedule?.inspector);
+              const hasResult = !!normalize(feedback.result);
+              const resultText = normalize(feedback.result);
+              let text = '待安排验货员';
+              let color = '#c2410c';
+              if (hasInspector && !hasResult) { text = '待验货'; color = '#1d4ed8'; }
+              else if (resultText === '返工') { text = '需返工'; color = '#dc2626'; }
+              else if (hasResult && resultText !== '返工') { text = '已验货'; color = '#047857'; }
+              return <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '4px', background: color, color: '#fff', fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap' }}>{text}</span>;
+            })(),
             formatDate(feedback.actualInspectionTime),
             feedback.inspectionQuantity || '',
             feedback.checkQuantity || '',
