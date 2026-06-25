@@ -225,12 +225,13 @@ function scoreOcrResult(data = {}) {
 }
 
 function shouldShowFeedbackRecord(record) {
-  if (normalize(record.importSource) === 'directFeedback') return true;
   const result = normalize(record.feedback?.result);
-  if (result === '返工' && normalize(record.rework?.completedAt)) return true;
+  if (normalize(record.importSource) === 'directFeedback' && !result) return true;
   if (normalize(record.schedule?.status) !== '已安排') return false;
+  if (result === '返工' && normalize(record.rework?.completedAt)) return true;
   if (['通过', '让步', '合格', '让步接收'].includes(result)) return false;
-  return !normalize(record.feedback?.actualInspectionTime) || result === '返工';
+  if (result === '返工') return false;
+  return !normalize(record.feedback?.actualInspectionTime);
 }
 
 function shouldShowScheduleRecord(record) {
@@ -238,8 +239,7 @@ function shouldShowScheduleRecord(record) {
 }
 
 function shouldShowSummaryRecord(record) {
-  if (normalize(record.feedback?.result) === '返工') return false;
-  return hasObjectValue(record.feedback) || normalize(record.importSource) === 'summaryImport';
+  return ['通过', '让步', '合格', '让步接收'].includes(normalize(record.feedback?.result));
 }
 
 function recordIdSignature(rows = []) {

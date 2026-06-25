@@ -1210,6 +1210,7 @@ function App() {
       setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
       if (!singleSubmit) setClearedScheduleSignature(currentRecordSignature);
       setMessage(singleSubmit ? '验货安排已提交：1 条。' : `验货安排已一键提交：共 ${entries.length} 条。`);
+      setActiveTab('inspectionFeedback');
       return;
     }
     const responses = await Promise.all(entries.flatMap(([recordId, draft]) => {
@@ -1235,6 +1236,7 @@ function App() {
     await refreshRecords();
     if (!singleSubmit) setClearedScheduleSignature(currentRecordSignature);
     setMessage(singleSubmit ? '验货安排已提交：1 条。' : `验货安排已一键提交：共 ${entries.length} 条。`);
+    setActiveTab('inspectionFeedback');
   }
 
   async function clearScheduleContent() {
@@ -1656,7 +1658,7 @@ function App() {
       setSavingId('');
       setRecords(composedStaticRecords(db).filter((item) => canReadClientRecord(user, item)));
       setMessage('复验通知已保存。');
-      setActiveTab('inspectionFeedback');
+      setActiveTab(rework.reworkCompleteTime ? 'inspectionSchedule' : 'inspectionFeedback');
       return true;
     }
     const res = await authFetch(`${API}/api/quality-inspection/feedback/${encodeURIComponent(record.id)}`, {
@@ -1671,7 +1673,7 @@ function App() {
     }
     await refreshRecords();
     setMessage('复验通知已保存。');
-    setActiveTab('inspectionFeedback');
+    setActiveTab(rework.reworkCompleteTime ? 'inspectionSchedule' : 'inspectionFeedback');
     return true;
   }
 
@@ -2466,7 +2468,7 @@ function App() {
         )}
         {canAccessPage(user, 'inspectionLedger') && activeTab === 'inspectionLedger' && (
           <LedgerPage
-            records={displayRecords}
+            records={summaryRecords}
             canImport={isAdminUser(user)}
             importPreview={ledgerImportPreview}
             onUpload={previewLedgerRows}
@@ -2474,7 +2476,7 @@ function App() {
             onClearImportPreview={clearLedgerImportPreview}
             canDelete={canDeleteInspectionInfo}
             onDelete={deleteInspectionRecord}
-            onExport={() => exportSummaryData('验货台账', displayRecords)}
+            onExport={() => exportSummaryData('验货台账', summaryRecords)}
           />
         )}
         {canAccessPage(user, 'inspectionInitialData') && activeTab === 'inspectionInitialData' && (
