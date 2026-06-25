@@ -1215,7 +1215,6 @@ function App() {
       setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
       if (!singleSubmit) setClearedScheduleSignature(currentRecordSignature);
       setMessage(singleSubmit ? '验货安排已提交：1 条。' : `验货安排已一键提交：共 ${entries.length} 条。`);
-      setActiveTab('inspectionFeedback');
       return;
     }
     const responses = await Promise.all(entries.flatMap(([recordId, draft]) => {
@@ -1241,7 +1240,6 @@ function App() {
     await refreshRecords();
     if (!singleSubmit) setClearedScheduleSignature(currentRecordSignature);
     setMessage(singleSubmit ? '验货安排已提交：1 条。' : `验货安排已一键提交：共 ${entries.length} 条。`);
-    setActiveTab('inspectionFeedback');
   }
 
   async function clearScheduleContent() {
@@ -1450,7 +1448,6 @@ function App() {
       setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
       formElement.reset();
       setMessage('验货反馈已保存。');
-      if (isRework && canAccessPage(user, 'reworkRecords')) setActiveTab('reworkRecords');
       return true;
     }
     const feedbackResponses = await Promise.all(sourceIds.map((sourceId) => {
@@ -1495,7 +1492,6 @@ function App() {
     formElement.reset();
     await refreshRecords();
     setMessage('验货反馈已保存。');
-    if (isRework && canAccessPage(user, 'reworkRecords')) setActiveTab('reworkRecords');
     return true;
   }
 
@@ -1624,7 +1620,6 @@ function App() {
       setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
       setSavingId('');
       setMessage('验货反馈已新增。');
-      if (isRework && canAccessPage(user, 'reworkRecords')) setActiveTab('reworkRecords');
       return true;
     }
     const res = await authFetch(`${API}/api/quality-inspection/direct-feedback`, {
@@ -1657,7 +1652,6 @@ function App() {
     setSavingId('');
     await refreshRecords();
     setMessage('验货反馈已新增。');
-    if (isRework && canAccessPage(user, 'reworkRecords')) setActiveTab('reworkRecords');
     return true;
   }
 
@@ -1709,7 +1703,6 @@ function App() {
       setSavingId('');
       setRecords(composedStaticRecords(db).filter((item) => canReadClientRecord(user, item)));
       setMessage('复验通知已保存。');
-      setActiveTab(rework.reworkCompleteTime ? 'inspectionSchedule' : 'inspectionFeedback');
       return true;
     }
     const res = await authFetch(`${API}/api/quality-inspection/feedback/${encodeURIComponent(record.id)}`, {
@@ -1724,7 +1717,6 @@ function App() {
     }
     await refreshRecords();
     setMessage('复验通知已保存。');
-    setActiveTab(rework.reworkCompleteTime ? 'inspectionSchedule' : 'inspectionFeedback');
     return true;
   }
 
