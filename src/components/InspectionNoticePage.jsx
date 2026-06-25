@@ -270,7 +270,7 @@ function InspectionNoticePage({
                       onChange(row.id, field.key, event.target.value);
                     }}
                     onKeyUp={(event) => updateSeriesSuggestionPosition(event.currentTarget)}
-                    placeholder="输入系列搜索"
+                    placeholder="先填有惊喜"
                   />
                   {showSuggestions && seriesSuggestionPosition && createPortal(
                     <div
