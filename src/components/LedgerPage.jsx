@@ -151,23 +151,39 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
       </div>
       <DataTable
         rows={filteredRecords}
-        columns={['供应商', '产品线', '系列', '数量', '事业部', '验货员', '计划日期', '状态', '实际验货时间', '验货结果', '报告结论', '报告文件', '是否返工']}
+        columns={['供应商', '产品线', '系列', '数量', 'SKU', '事业部', '验货通知人', '是否首批验货', '验货员', '计划日期', '状态', '实际验货时间', '实际验货数量', '检验数量', '验货合格数量', '验货方式', '报告结论', '验货结果', '问题等级', '问题分类', '问题反馈', '报告文件', '是否返工', '备注']}
         render={(record) => {
           const feedback = latestFeedback(record.feedback);
+          const allRemarks = [
+            record.remark,
+            record.schedule?.remark,
+            feedback.remark
+          ].filter((remark) => remark && remark.trim()).join('；');
           return [
             record.supplierShortName,
             record.salesProductLine,
             record.series,
             record.totalQuantity,
+            record.skuQuantity || '',
             record.businessDepartments,
+            record.inspectionNotifier || record.inspectionApplicant || '',
+            record.firstInspection || '',
             record.schedule?.inspector || '',
             formatDate(record.schedule?.scheduledDate),
             record.schedule?.status || '未安排',
             formatDate(feedback.actualInspectionTime),
-            feedback.result || '',
+            feedback.inspectionQuantity || '',
+            feedback.checkQuantity || '',
+            feedback.qualifiedQuantity || '',
+            feedback.inspectionMethod || '',
             record.report?.conclusion || '',
+            feedback.result || '',
+            feedback.issueLevel || '',
+            feedback.issueCategoryPrimary || '',
+            feedback.feedbackText || '',
             reportPreviewCell(record),
-            record.rework?.completedAt ? '是' : '否'
+            record.rework?.completedAt ? '是' : '否',
+            allRemarks
           ];
         }}
       />
