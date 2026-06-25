@@ -1241,41 +1241,6 @@ th {
   color: #1d4ed8;
 }
 
-@media (max-width: 920px) {
-  .app-shell {
-    grid-template-columns: 1fr;
-  }
-
-  .sidebar {
-    min-height: auto;
-  }
-
-  .content {
-    padding: 18px;
-  }
-
-  .report-card,
-  .metric-grid,
-  .dimension-library-grid,
-  .stamp-workspace {
-    grid-template-columns: 1fr;
-  }
-
-  .stamp-workspace {
-    min-height: auto;
-  }
-
-  .stamp-list {
-    max-height: 220px;
-  }
-}
-
-@media (min-width: 921px) and (max-width: 1320px) {
-  .dimension-library-grid {
-    grid-template-columns: repeat(2, minmax(260px, 1fr));
-  }
-}
-
 button {
   font-weight: 600;
   border-radius: 8px;
@@ -1378,4 +1343,197 @@ button.clear-btn {
 button.cancel:hover,
 button.clear-btn:hover {
   background: #757575;
+}
+
+/* ===== 手机端自适应 ===== */
+@media (max-width: 768px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    min-height: auto;
+    padding: 14px 12px;
+    gap: 6px;
+  }
+  .sidebar h1 {
+    font-size: 20px;
+  }
+  .sidebar-nav button {
+    padding: 12px 10px;
+    font-size: 16px;
+  }
+  .submenu-list button {
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+  .content {
+    padding: 14px;
+  }
+  h2 {
+    font-size: 20px;
+  }
+  .section-heading-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .toolbar input,
+  .toolbar select {
+    max-width: 100%;
+  }
+  .table-wrap {
+    -webkit-overflow-scrolling: touch;
+  }
+  table {
+    min-width: 100%;
+  }
+  .inspection-schedule-table table,
+  .inspection-feedback-table table,
+  .inspection-notice-table table,
+  .permission-table table,
+  .report-library-table table,
+  .inspection-notice-preview-table table,
+  .feedback-preview-table table,
+  .summary-preview-table table {
+    min-width: 100%;
+  }
+  th, td {
+    padding: 8px 6px;
+    font-size: 13px;
+  }
+  .table-input,
+  .table-textarea,
+  .wide-input,
+  .narrow-input {
+    min-width: 100px;
+    width: 100%;
+  }
+  .wide-readonly-cell {
+    min-width: 140px;
+    max-width: 200px;
+  }
+  .table-action-row {
+    flex-direction: column;
+    gap: 4px;
+  }
+  .metric-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .metric-card strong {
+    font-size: 22px;
+  }
+  .report-card {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .dimension-library-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .stamp-workspace {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+  .stamp-list {
+    max-height: 180px;
+  }
+  .stamp-canvas img {
+    max-height: 60vh;
+  }
+  .stamp-canvas iframe {
+    height: 60vh;
+  }
+  .stamp-file-name-editor input {
+    min-width: 160px;
+  }
+  .report-preview-dialog {
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+  }
+  .report-preview-body img {
+    max-height: calc(100vh - 80px);
+  }
+  .report-preview-body iframe {
+    height: calc(100vh - 80px);
+  }
+  .business-department-checks {
+    grid-template-columns: 1fr;
+    min-width: 140px;
+  }
+  .permission-checkbox-grid {
+    grid-template-columns: 1fr;
+  }
+  .login-panel {
+    width: calc(100vw - 24px);
+    padding: 22px;
+  }
+  .login-panel h1 {
+    font-size: 20px;
+  }
+  button {
+    padding: 10px 16px;
+    font-size: 15px;
+  }
+  .compact-button {
+    padding: 8px 14px;
+    min-height: 38px;
+  }
+  .user-box {
+    gap: 6px;
+    padding-top: 12px;
+  }
+  .supplier-combobox,
+  .supplier-combobox-input {
+    width: 100%;
+    min-width: 100%;
+  }
+  .import-summary {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .stamp-meta {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 480px) {
+  .metric-grid {
+    grid-template-columns: 1fr;
+  }
+  th, td {
+    padding: 6px 4px;
+    font-size: 12px;
+  }
+  .sidebar-nav button {
+    font-size: 15px;
+    padding: 10px 8px;
+  }
+  .submenu-list button {
+    font-size: 13px;
+    padding: 8px 10px;
+  }
+  button {
+    padding: 10px 14px;
+    font-size: 14px;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1320px) {
+  .dimension-library-grid {
+    grid-template-columns: repeat(2, minmax(260px, 1fr));
+  }
+  .metric-grid {
+    grid-template-columns: repeat(3, minmax(140px, 1fr));
+  }
+  .app-shell {
+    grid-template-columns: 200px 1fr;
+  }
 }
