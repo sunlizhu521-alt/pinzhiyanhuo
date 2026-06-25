@@ -83,6 +83,7 @@ function App() {
   const [noticeSubmission, setNoticeSubmission] = useState({ rows: [], submittedAt: '', submittedBy: '' });
   const [noticeImportPreview, setNoticeImportPreview] = useState(null);
   const [feedbackImportPreview, setFeedbackImportPreview] = useState(null);
+  const [ledgerImportPreview, setLedgerImportPreview] = useState(null);
   const [initialData, setInitialData] = useState({ sheetName: '', columns: [], rows: [], updatedAt: '' });
   const [initialImportResult, setInitialImportResult] = useState(null);
   const [dimensionLibrary, setDimensionLibrary] = useState(() => STATIC_MODE ? readDimensionLibrary() : normalizeDimensionLibrary());
@@ -450,6 +451,108 @@ function App() {
   function clearNoticeImportPreview() {
     setNoticeImportPreview(null);
     setMessage('已清空验货通知导入预览。');
+  }
+
+  async function previewLedgerRows(files) {
+    const file = files?.[0];
+    if (!file) return;
+    try {
+      const result = await parseWorkbookInBrowser(file);
+      const items = importedRowsToSummaryItems(result.rows || [], user.name);
+      if (!items.length) {
+        setMessage('未识别到可导入的台账数据，请检查表头是否包含供应商/产品线/系列等列。');
+        return;
+      }
+      setLedgerImportPreview({
+        fileName: file.name,
+        sheetName: result.sheetName || '',
+        items,
+        parsedAt: nowText()
+      });
+      setMessage(`台账文件已解析：共 ${items.length} 条，请检查预览后确认导入。`);
+    } catch {
+      setMessage('台账文件解析失败，请检查文件格式。');
+    }
+  }
+
+  async function confirmLedgerImport() {
+    const items = ledgerImportPreview?.items || [];
+    if (!items.length) {
+      setMessage('暂无可导入的台账预览数据。');
+      return;
+    }
+    if (STATIC_MODE) {
+      const db = readStaticDb();
+      const inspection = db.qualityInspection;
+      const currentRows = inspection.notices.rows || [];
+      const appendedRows = items.map((item) => item.notice);
+      const rows = [...currentRows, ...appendedRows].map((row, index) => ({
+        ...row,
+        id: row.id || createId(),
+        rowNumber: index + 1
+      }));
+      inspection.notices = {
+        rows,
+        submittedAt: nowText(),
+        submittedBy: user.name
+      };
+      items.forEach((item) => {
+        if (hasObjectValue(item.schedule)) {
+          inspection.schedules[item.notice.id] = {
+            ...(inspection.schedules[item.notice.id] || {}),
+            ...item.schedule,
+            updatedAt: nowText()
+          };
+        }
+        if (hasObjectValue(item.report)) {
+          inspection.reports[item.notice.id] = {
+            ...(inspection.reports[item.notice.id] || {}),
+            ...item.report,
+            updatedAt: nowText()
+          };
+        }
+        if (hasObjectValue(item.feedback)) {
+          inspection.feedback[item.notice.id] = {
+            ...(inspection.feedback[item.notice.id] || {}),
+            ...item.feedback,
+            updatedAt: nowText()
+          };
+        }
+      });
+      saveStaticDb(db);
+      setNoticeSubmission(inspection.notices);
+      setNoticeRows((currentNoticeRows) => {
+        const currentIds = new Set(currentNoticeRows.map((row) => row.id));
+        const newRows = rows
+          .filter((row) => !currentIds.has(row.id))
+          .map((row) => createNoticeRow(row));
+        return [...currentNoticeRows, ...newRows];
+      });
+      setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
+      setLedgerImportPreview(null);
+      setMessage(`历史台账数据已导入：新增 ${items.length} 条，原有数据已保留。`);
+      return;
+    }
+    const res = await authFetch(`${API}/api/quality-inspection/summary-import?user=${encodeURIComponent(user.name)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items, user: user.name })
+    });
+    if (!res.ok) {
+      setMessage('台账数据导入失败。');
+      return;
+    }
+    const payload = await res.json();
+    setNoticeSubmission(payload.notices);
+    setNoticeRows(payload.notices.rows.map((row) => createNoticeRow(row)));
+    setRecords(payload.rows || []);
+    setLedgerImportPreview(null);
+    setMessage(`历史台账数据已导入：新增 ${items.length} 条，原有数据已保留。`);
+  }
+
+  function clearLedgerImportPreview() {
+    setLedgerImportPreview(null);
+    setMessage('已清空台账导入预览。');
   }
 
   async function previewFeedbackRows(files) {
@@ -2361,6 +2464,11 @@ function App() {
         {canAccessPage(user, 'inspectionLedger') && activeTab === 'inspectionLedger' && (
           <LedgerPage
             records={displayRecords}
+            canImport={isAdminUser(user)}
+            importPreview={ledgerImportPreview}
+            onUpload={previewLedgerRows}
+            onConfirmImport={confirmLedgerImport}
+            onClearImportPreview={clearLedgerImportPreview}
             onExport={() => exportSummaryData('验货台账', displayRecords)}
           />
         )}

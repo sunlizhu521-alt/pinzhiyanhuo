@@ -4,7 +4,7 @@ import ReportPreviewModal from './ReportPreviewModal.jsx';
 import { normalize, formatDate, latestFeedback } from '../utils.js';
 import { reportHref, reportFileExt, isImageReport } from '../file-utils.js';
 
-function LedgerPage({ records, onExport }) {
+function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImport, onClearImportPreview, onExport }) {
   const [filters, setFilters] = useState({
     supplierShortName: '',
     status: '',
@@ -87,6 +87,47 @@ function LedgerPage({ records, onExport }) {
         <span className="section-count">全部 {records.length} 条 | 通过 {stats.passed} | 返工 {stats.failed} | 待反馈 {stats.pending}</span>
         <button type="button" className="ghost compact-button" disabled={!records.length} onClick={onExport}>导出</button>
       </div>
+      {canImport && (
+        <label
+          className="summary-upload-zone"
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={(event) => { event.preventDefault(); onUpload(event.dataTransfer.files); }}
+        >
+          <input type="file" accept=".xlsx,.xls,.csv" onChange={(event) => onUpload(event.target.files)} />
+          <strong>导入历史验货台账：拖拽文件到这里或点击上传</strong>
+          <span>支持 .xlsx / .xls / .csv，解析后先预览，确认后追加到台账，不影响已有数据</span>
+        </label>
+      )}
+      {canImport && importPreview && (
+        <section className="summary-import-preview">
+          <div className="section-heading-row">
+            <h3>台账导入预览</h3>
+            <span className="section-count">
+              {importPreview.fileName}，工作表 {importPreview.sheetName || '未识别'}，共 {importPreview.items.length} 条
+            </span>
+            <button type="button" className="compact-button" onClick={onConfirmImport}>确认导入</button>
+            <button type="button" className="ghost compact-button" onClick={onClearImportPreview}>清空预览</button>
+          </div>
+          <DataTable
+            className="summary-preview-table"
+            rows={importPreview.items.slice(0, 10)}
+            columns={['供应商', '产品线', '系列', '数量', '事业部', '验货员', '计划日期', '状态', '报告结论', '验货结果']}
+            render={(item) => [
+              item.notice.supplierShortName,
+              item.notice.salesProductLine,
+              item.notice.series,
+              item.notice.totalQuantity,
+              item.notice.businessDepartments,
+              item.schedule.inspector,
+              item.schedule.scheduledDate,
+              item.schedule.status,
+              item.report.conclusion,
+              item.feedback.result
+            ]}
+          />
+          {importPreview.items.length > 10 && <p className="preview-note">仅展示前 10 条，确认后会导入全部 {importPreview.items.length} 条。</p>}
+        </section>
+      )}
       <div className="toolbar">
         <input
           placeholder="搜索供应商/产品线/系列/验货员"
