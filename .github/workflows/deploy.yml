@@ -10,6 +10,30 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      - name: Checkout latest code
+        uses: actions/checkout@v4
+
+      - name: Pack source
+        run: |
+          tar \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='data' \
+            --exclude='backups' \
+            --exclude='dist' \
+            --exclude='pinzhiyanhuo-release.tgz' \
+            -czf pinzhiyanhuo-release.tgz .
+
+      - name: Upload source package
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: 129.211.9.242
+          username: ubuntu
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: 22
+          source: pinzhiyanhuo-release.tgz
+          target: /home/ubuntu/zhuge-ai-lab
+
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.2
         with:
@@ -19,22 +43,29 @@ jobs:
           port: 22
           script: |
             set -e
-            cd /home/ubuntu/zhuge-ai-lab/pinzhiyanhuo
+            APP_DIR=/home/ubuntu/zhuge-ai-lab/pinzhiyanhuo
+            RELEASE=/home/ubuntu/zhuge-ai-lab/pinzhiyanhuo-release.tgz
+            RELEASE_DIR=/home/ubuntu/zhuge-ai-lab/pinzhiyanhuo-release
 
-            echo ">>> Fetch latest code"
-            for attempt in 1 2 3; do
-              if git -c http.version=HTTP/1.1 fetch origin main; then
-                break
-              fi
-              if [ "$attempt" = "3" ]; then
-                echo "git fetch failed after 3 attempts"
-                exit 1
-              fi
-              echo "git fetch failed, retrying in 10 seconds..."
-              sleep 10
-            done
-            git reset --hard origin/main
-            git log -1 --oneline
+            echo ">>> Unpack latest code"
+            rm -rf "$RELEASE_DIR"
+            mkdir -p "$RELEASE_DIR"
+            tar -xzf "$RELEASE" -C "$RELEASE_DIR"
+            if command -v rsync >/dev/null 2>&1; then
+              rsync -a --delete \
+                --exclude='.git' \
+                --exclude='node_modules' \
+                --exclude='data' \
+                --exclude='backups' \
+                --exclude='.env' \
+                "$RELEASE_DIR"/ "$APP_DIR"/
+            else
+              cp -a "$RELEASE_DIR"/. "$APP_DIR"/
+            fi
+            rm -rf "$RELEASE_DIR" "$RELEASE"
+
+            cd "$APP_DIR"
+            echo "Release package unpacked"
 
             echo ">>> Install dependencies"
             rm -rf dist
