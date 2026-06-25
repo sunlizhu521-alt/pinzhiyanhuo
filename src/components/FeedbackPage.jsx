@@ -37,18 +37,27 @@ function FeedbackPage({
   const previewRows = importPreview?.items || [];
   const previewLimitedRows = previewRows.slice(0, 10);
   const matchedCount = previewRows.filter((item) => item.recordId).length;
+  function isReinspectionFeedback(record) {
+    return normalize(record.feedback?.result) === '返工'
+      && !!normalize(record.rework?.completedAt)
+      && normalize(record.schedule?.status) === '已安排';
+  }
+  function activeFeedback(record) {
+    return isReinspectionFeedback(record) ? {} : (record.feedback || {});
+  }
   const mergedRecords = useMemo(() => mergeFeedbackRecords(records, reportHref), [records]);
   const filteredRecords = useMemo(() => {
     const normalizedFilters = Object.fromEntries(
       Object.entries(filters).map(([key, value]) => [key, normalize(value).toLowerCase()])
     );
     return mergedRecords.filter((record) => {
+      const feedback = activeFeedback(record);
       const values = {
         supplierShortName: record.supplierShortName,
         salesProductLine: record.salesProductLine,
         series: record.series,
         inspector: record.schedule?.inspector,
-        result: record.feedback?.result,
+        result: feedback.result,
         status: ''
       };
       return Object.entries(normalizedFilters).every(([key, value]) => {
@@ -84,10 +93,11 @@ function FeedbackPage({
   }, [records]);
 
   function feedbackDraft(record) {
+    const feedback = activeFeedback(record);
     return {
-      actualInspectionTime: record.feedback?.actualInspectionTime || '',
-      inspectionQuantity: record.feedback?.inspectionQuantity || '',
-      result: record.feedback?.result || '',
+      actualInspectionTime: feedback.actualInspectionTime || '',
+      inspectionQuantity: feedback.inspectionQuantity || '',
+      result: feedback.result || '',
       ...(feedbackDrafts[record.id] || {})
     };
   }
@@ -384,6 +394,7 @@ function FeedbackPage({
         ]}
         render={(record) => {
           const justSubmitted = freshlySubmitted.has(record.id);
+          const feedback = justSubmitted ? {} : activeFeedback(record);
           const draft = feedbackDraft(record);
           const reportNo = feedbackReportNo(record, draft.actualInspectionTime, draft.inspectionQuantity);
           const isReworkRow = !justSubmitted && normalize(draft.result) === '返工';
@@ -393,8 +404,8 @@ function FeedbackPage({
             record.series,
             (() => {
               const hasInspector = !!normalize(record.schedule?.inspector);
-              const hasResult = !!normalize(record.feedback?.result);
-              const resultText = normalize(record.feedback?.result);
+              const hasResult = !!normalize(feedback.result);
+              const resultText = normalize(feedback.result);
               let statusText = '待安排验货员';
               let color = '#c2410c';
               if (hasInspector && !hasResult) { statusText = '待验货'; color = '#1d4ed8'; }
@@ -411,16 +422,16 @@ function FeedbackPage({
             <span className="readonly-cell wide-readonly-cell">{record.remark}</span>,
             formatDate(record.schedule?.scheduledDate),
             <span className="readonly-cell">{normalize(record.schedule?.inspector)}</span>,
-            <input name="actualInspector" form={`feedback-form-${record.id}`} className="table-input" defaultValue={justSubmitted ? '' : (record.feedback?.actualInspector || '')} />,
+            <input name="actualInspector" form={`feedback-form-${record.id}`} className="table-input" defaultValue={feedback.actualInspector || ''} />,
             <input
               name="actualInspectionTime"
               form={`feedback-form-${record.id}`}
               className="table-input"
               type="date"
-              defaultValue={justSubmitted ? '' : formatDate(record.feedback?.actualInspectionTime)}
+              defaultValue={formatDate(feedback.actualInspectionTime)}
               onChange={(event) => updateFeedbackDraft(record.id, 'actualInspectionTime', event.target.value)}
             />,
-            <select name="inspectionMethod" form={`feedback-form-${record.id}`} className="table-input" defaultValue={justSubmitted ? '' : (record.feedback?.inspectionMethod || '')}>
+            <select name="inspectionMethod" form={`feedback-form-${record.id}`} className="table-input" defaultValue={feedback.inspectionMethod || ''}>
               <option value="">选择</option>
               <option value="抽检">抽检</option>
               <option value="全检">全检</option>
@@ -431,16 +442,16 @@ function FeedbackPage({
               name="inspectionQuantity"
               form={`feedback-form-${record.id}`}
               className="table-input narrow-input"
-              defaultValue={justSubmitted ? '' : (record.feedback?.inspectionQuantity || '')}
+              defaultValue={feedback.inspectionQuantity || ''}
               onChange={(event) => updateFeedbackDraft(record.id, 'inspectionQuantity', event.target.value)}
             />,
-            <input name="checkQuantity" form={`feedback-form-${record.id}`} className="table-input narrow-input" defaultValue={justSubmitted ? '' : (record.feedback?.checkQuantity || '')} />,
-            <input name="qualifiedQuantity" form={`feedback-form-${record.id}`} className="table-input narrow-input" defaultValue={justSubmitted ? '' : (record.feedback?.qualifiedQuantity || '')} />,
+            <input name="checkQuantity" form={`feedback-form-${record.id}`} className="table-input narrow-input" defaultValue={feedback.checkQuantity || ''} />,
+            <input name="qualifiedQuantity" form={`feedback-form-${record.id}`} className="table-input narrow-input" defaultValue={feedback.qualifiedQuantity || ''} />,
             <select
               name="result"
               form={`feedback-form-${record.id}`}
               className="table-input"
-              defaultValue={justSubmitted ? '' : (record.feedback?.result || '')}
+              defaultValue={feedback.result || ''}
               onChange={(event) => {
                 updateFeedbackDraft(record.id, 'result', event.target.value);
                 setReworkRowIds((current) => {
@@ -457,7 +468,7 @@ function FeedbackPage({
               <option value="返工">返工</option>
             </select>,
             <span className="readonly-cell wide-readonly-cell">{reportNo}</span>,
-            <select name="issueLevel" form={`feedback-form-${record.id}`} className="table-input" defaultValue={justSubmitted ? '' : (record.feedback?.issueLevel || '')}>
+            <select name="issueLevel" form={`feedback-form-${record.id}`} className="table-input" defaultValue={feedback.issueLevel || ''}>
               <option value="">选择</option>
               <option value="严重">严重</option>
               <option value="中等">中等</option>
@@ -465,7 +476,7 @@ function FeedbackPage({
             </select>,
             (() => {
               const categories = ['包装', '性能', '外观'];
-              const defaultValues = justSubmitted ? [] : (record.feedback?.issueCategoryPrimary || '').split(/[,，、]/).map((item) => item.trim()).filter(Boolean);
+              const defaultValues = (feedback.issueCategoryPrimary || '').split(/[,，、]/).map((item) => item.trim()).filter(Boolean);
               const hiddenId = `issueCategoryPrimary-hidden-${record.id}`;
               const recordKey = String(record.id);
               return (
@@ -499,7 +510,7 @@ function FeedbackPage({
                 </div>
               );
             })(),
-            <textarea name="feedbackText" form={`feedback-form-${record.id}`} className="table-textarea wide-textarea" defaultValue={justSubmitted ? '' : (record.feedback?.feedbackText || '')} />,
+            <textarea name="feedbackText" form={`feedback-form-${record.id}`} className="table-textarea wide-textarea" defaultValue={feedback.feedbackText || ''} />,
             (() => {
               const href = reportHref(record);
               if (!href) return '';

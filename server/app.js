@@ -687,10 +687,10 @@ function normalizeText(value) {
 
 function pendingReworkForFeedback(feedback = {}, user, timestamp = nowText()) {
   const existing = feedback.rework || {};
-  return {
+  const next = {
     ...existing,
-    requestedAt: existing.requestedAt || timestamp,
-    requestedBy: existing.requestedBy || user?.name || '',
+    requestedAt: timestamp,
+    requestedBy: user?.name || '',
     status: '待复验',
     sourceFeedback: {
       actualInspectionTime: normalizeText(feedback.actualInspectionTime),
@@ -702,6 +702,13 @@ function pendingReworkForFeedback(feedback = {}, user, timestamp = nowText()) {
     updatedAt: timestamp,
     updatedBy: user?.name || ''
   };
+  delete next.completedAt;
+  delete next.completedBy;
+  delete next.reworkCompleteTime;
+  delete next.reworkRemark;
+  delete next.scheduledAt;
+  delete next.scheduledBy;
+  return next;
 }
 
 function normalizeHeader(value) {
@@ -1474,11 +1481,30 @@ app.post('/api/quality-inspection/summary-import', requireAuth, requirePages('in
 app.patch('/api/quality-inspection/schedules/:id', requireAuth, requirePages('inspectionSchedule'), requireRoles(ROLE_ADMIN), async (req, res) => {
   const db = await readDb();
   const { reportNo: _ignoredReportNo, ...schedulePayload } = req.body || {};
-  db.qualityInspection.schedules[req.params.id] = {
+  const updatedAt = nowText();
+  const nextSchedule = {
     ...(db.qualityInspection.schedules[req.params.id] || {}),
     ...schedulePayload,
-    updatedAt: nowText()
+    updatedAt
   };
+  db.qualityInspection.schedules[req.params.id] = nextSchedule;
+  const feedback = db.qualityInspection.feedback[req.params.id] || {};
+  const rework = feedback.rework || {};
+  const isReworkSchedule = normalizeText(rework.completedAt) || normalizeText(rework.reworkCompleteTime);
+  if (normalizeText(nextSchedule.status) === '已安排' && isReworkSchedule) {
+    db.qualityInspection.feedback[req.params.id] = {
+      ...feedback,
+      rework: {
+        ...rework,
+        status: '待验货',
+        scheduledAt: updatedAt,
+        scheduledBy: req.authUser.name,
+        updatedAt,
+        updatedBy: req.authUser.name
+      },
+      updatedAt
+    };
+  }
   await saveDb(db);
   res.json(db.qualityInspection.schedules[req.params.id]);
 });
@@ -1712,9 +1738,22 @@ app.patch('/api/quality-inspection/feedback/:id', requireAuth, requirePages('ins
   const hasCompletedRework = normalizeText(nextFeedback.rework?.reworkCompleteTime) || normalizeText(nextFeedback.rework?.completedAt);
   if (result === '返工' && !hasCompletedRework) {
     nextFeedback.rework = pendingReworkForFeedback(nextFeedback, req.authUser, updatedAt);
+  } else if (result !== '返工' && normalizeText(nextFeedback.rework?.status) === '待验货') {
+    nextFeedback.rework = {
+      ...(nextFeedback.rework || {}),
+      status: '已复验',
+      reinspectedAt: updatedAt,
+      reinspectedBy: req.authUser.name,
+      updatedAt,
+      updatedBy: req.authUser.name
+    };
   }
   const reworkCompleteTime = String(nextFeedback.rework?.reworkCompleteTime || '').trim();
   if (reworkCompleteTime) {
+    nextFeedback.rework = {
+      ...(nextFeedback.rework || {}),
+      status: '待安排验货'
+    };
     db.qualityInspection.notices = {
       ...(db.qualityInspection.notices || {}),
       rows: (db.qualityInspection.notices.rows || []).map((row) => (

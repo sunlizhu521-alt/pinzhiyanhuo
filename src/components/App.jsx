@@ -1200,14 +1200,31 @@ function App() {
         const scheduledDate = normalize(draft.scheduledDate);
         const inspector = normalize(draft.inspector);
         targetIds.forEach((targetId) => {
+          const status = scheduledDate || inspector ? '已安排' : '未安排';
           db.qualityInspection.schedules[targetId] = {
             ...(db.qualityInspection.schedules[targetId] || {}),
             scheduledDate,
             inspector,
             remark: normalize(draft.remark),
-            status: scheduledDate || inspector ? '已安排' : '未安排',
+            status,
             updatedAt: nowText()
           };
+          const feedback = db.qualityInspection.feedback[targetId] || {};
+          const rework = feedback.rework || {};
+          if (status === '已安排' && (normalize(rework.completedAt) || normalize(rework.reworkCompleteTime))) {
+            db.qualityInspection.feedback[targetId] = {
+              ...feedback,
+              rework: {
+                ...rework,
+                status: '待验货',
+                scheduledAt: nowText(),
+                scheduledBy: user.name,
+                updatedAt: nowText(),
+                updatedBy: user.name
+              },
+              updatedAt: nowText()
+            };
+          }
         });
       });
       saveStaticDb(db);
@@ -1388,25 +1405,47 @@ function App() {
     };
     const isRework = feedbackPatch.result === '返工';
     const feedbackPatchForRecord = (sourceRecord = record) => {
-      if (!isRework) return feedbackPatch;
       const existingRework = sourceRecord.rework || sourceRecord.feedback?.rework || {};
+      if (!isRework) {
+        if (normalize(existingRework.status) === '待验货') {
+          return {
+            ...feedbackPatch,
+            rework: {
+              ...existingRework,
+              status: '已复验',
+              reinspectedAt: savedAt,
+              reinspectedBy: user.name,
+              updatedAt: savedAt,
+              updatedBy: user.name
+            }
+          };
+        }
+        return feedbackPatch;
+      }
+      const nextRework = {
+        ...existingRework,
+        requestedAt: savedAt,
+        requestedBy: user.name,
+        status: '待复验',
+        sourceFeedback: {
+          actualInspectionTime: feedbackPatch.actualInspectionTime,
+          result: feedbackPatch.result,
+          issueLevel: feedbackPatch.issueLevel,
+          issueCategoryPrimary: feedbackPatch.issueCategoryPrimary,
+          feedbackText: feedbackPatch.feedbackText
+        },
+        updatedAt: savedAt,
+        updatedBy: user.name
+      };
+      delete nextRework.completedAt;
+      delete nextRework.completedBy;
+      delete nextRework.reworkCompleteTime;
+      delete nextRework.reworkRemark;
+      delete nextRework.scheduledAt;
+      delete nextRework.scheduledBy;
       return {
         ...feedbackPatch,
-        rework: {
-          ...existingRework,
-          requestedAt: existingRework.requestedAt || savedAt,
-          requestedBy: existingRework.requestedBy || user.name,
-          status: '待复验',
-          sourceFeedback: {
-            actualInspectionTime: feedbackPatch.actualInspectionTime,
-            result: feedbackPatch.result,
-            issueLevel: feedbackPatch.issueLevel,
-            issueCategoryPrimary: feedbackPatch.issueCategoryPrimary,
-            feedbackText: feedbackPatch.feedbackText
-          },
-          updatedAt: savedAt,
-          updatedBy: user.name
-        }
+        rework: nextRework
       };
     };
     const reportNo = isRework ? '' : feedbackReportNo(record, feedbackPatch.actualInspectionTime, feedbackPatch.inspectionQuantity);
@@ -1682,9 +1721,11 @@ function App() {
     if (rework.reworkCompleteTime) {
       rework.completedAt = nowText();
       rework.completedBy = user.name;
+      rework.status = '待安排验货';
     } else {
       delete rework.completedAt;
       delete rework.completedBy;
+      rework.status = '待复验';
     }
     if (STATIC_MODE) {
       const db = readStaticDb();
