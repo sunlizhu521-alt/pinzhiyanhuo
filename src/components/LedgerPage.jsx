@@ -9,7 +9,8 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
     supplierShortName: '',
     status: '',
     result: '',
-    keyword: ''
+    keyword: '',
+    notifier: ''
   });
   const [previewRecord, setPreviewRecord] = useState(null);
   const previewUrl = previewRecord ? reportHref(previewRecord) : '';
@@ -27,6 +28,7 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
         && (!normalizedFilters.result || normalize(feedback.result).toLowerCase() === normalizedFilters.result)
         && (!normalizedFilters.keyword
           || normalize(`${record.supplierShortName}${record.salesProductLine}${record.series}${record.schedule?.inspector || ''}`).toLowerCase().includes(normalizedFilters.keyword))
+        && (!normalizedFilters.notifier || normalize(record.inspectionNotifier || record.inspectionApplicant || '').toLowerCase().includes(normalizedFilters.notifier))
       );
     });
   }, [records, filters]);
@@ -43,7 +45,7 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
   }
 
   function clearFilters() {
-    setFilters({ supplierShortName: '', status: '', result: '', keyword: '' });
+    setFilters({ supplierShortName: '', status: '', result: '', keyword: '', notifier: '' });
   }
 
   function reportPreviewCell(record) {
@@ -139,6 +141,11 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
           value={filters.supplierShortName}
           onChange={(event) => updateFilter('supplierShortName', event.target.value)}
         />
+        <input
+          placeholder="验货通知人"
+          value={filters.notifier || ''}
+          onChange={(event) => updateFilter('notifier', event.target.value)}
+        />
         <select value={filters.status} onChange={(event) => updateFilter('status', event.target.value)}>
           <option value="">全部状态</option>
           {['未安排', '已安排', '验货中', '已完成', '已取消'].map((status) => <option key={status} value={status}>{status}</option>)}
@@ -151,7 +158,7 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
       </div>
       <DataTable
         rows={filteredRecords}
-        columns={['供应商', '产品线', '系列', '数量', 'SKU', '事业部', '验货通知人', '是否首批验货', '验货员', '计划日期', '状态', '实际验货时间', '实际验货数量', '检验数量', '验货合格数量', '验货方式', '报告结论', '验货结果', '问题等级', '问题分类', '问题反馈', '报告文件', '是否返工', '备注']}
+        columns={['供应商', '产品线', '系列', '数量', 'SKU', '事业部', '验货通知人', '是否首批验货', '验货员', '状态', '实际验货时间', '实际验货数量', '检验数量', '验货合格数量', '验货合格率', '验货方式', '验货结果', '问题等级', '问题分类', '问题反馈', '报告文件', '是否返工', '备注']}
         render={(record) => {
           const feedback = latestFeedback(record.feedback);
           const allRemarks = [
@@ -159,6 +166,9 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
             record.schedule?.remark,
             feedback.remark
           ].filter((remark) => remark && remark.trim()).join('；');
+          const qualified = Number(feedback.qualifiedQuantity);
+          const checked = Number(feedback.checkQuantity);
+          const passRate = checked > 0 && !Number.isNaN(qualified) ? `${Math.round((qualified / checked) * 100)}%` : '';
           return [
             record.supplierShortName,
             record.salesProductLine,
@@ -169,14 +179,13 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
             record.inspectionNotifier || record.inspectionApplicant || '',
             record.firstInspection || '',
             record.schedule?.inspector || '',
-            formatDate(record.schedule?.scheduledDate),
             record.schedule?.status || '未安排',
             formatDate(feedback.actualInspectionTime),
             feedback.inspectionQuantity || '',
             feedback.checkQuantity || '',
             feedback.qualifiedQuantity || '',
+            passRate,
             feedback.inspectionMethod || '',
-            record.report?.conclusion || '',
             feedback.result || '',
             feedback.issueLevel || '',
             feedback.issueCategoryPrimary || '',
