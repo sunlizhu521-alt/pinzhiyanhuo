@@ -1610,9 +1610,13 @@ app.post('/api/quality-inspection/reports/:id/stamp', requireAuth, requirePages(
     await rename(req.file.path, reportFilePath(previous.fileName));
   } else {
     const dataUrl = String(req.body.fileDataUrl || '');
-    const match = dataUrl.match(/^data:image\/(png|jpeg|jpg);base64,([a-zA-Z0-9+/=]+)$/);
-    if (!match) return res.status(400).json({ error: '仅支持图片格式检验报告单盖章' });
-    await writeFile(reportFilePath(previous.fileName), Buffer.from(match[2], 'base64'));
+    if (dataUrl) {
+      const match = dataUrl.match(/^data:image\/(png|jpeg|jpg);base64,([a-zA-Z0-9+/=]+)$/);
+      if (!match) return res.status(400).json({ error: '仅支持图片格式检验报告单盖章' });
+      await writeFile(reportFilePath(previous.fileName), Buffer.from(match[2], 'base64'));
+    } else if (!skipStamp) {
+      return res.status(400).json({ error: '缺少已盖章图片文件' });
+    }
   }
 
   db.qualityInspection.reports[req.params.id] = {

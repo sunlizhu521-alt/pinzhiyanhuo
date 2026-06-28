@@ -1832,20 +1832,25 @@ function App() {
     }
     setSavingId(record.id);
     try {
+      const normalizedRotation = ((Number(rotation) || 0) % 360 + 360) % 360;
+      const canReuseOriginalImage = skipStamp && normalizedRotation === 0;
       const fileDataUrl = stampedDataUrl || (
-        skipStamp
-          ? await createRotatedReportImageDataUrl(record, rotation)
-          : await createStampedImageDataUrl(record, rotation)
+        canReuseOriginalImage
+          ? (record.report?.fileDataUrl || '')
+          : skipStamp
+            ? await createRotatedReportImageDataUrl(record, rotation)
+            : await createStampedImageDataUrl(record, rotation)
       );
       if (record.isStampUpload) {
         const fileName = normalizeStampUploadFileName(record.report?.fileName || record.report?.originalName, record.report?.originalName || `stamped-${Date.now()}.png`);
+        const uploadSource = fileDataUrl || reportHref(record);
         if (STATIC_MODE) {
           const nextFiles = [
             ...readReportFileLibrary(),
             {
               id: createId(),
               fileName,
-              fileUrl: fileDataUrl,
+              fileUrl: uploadSource,
               size: record.report?.size || 0,
               source: skipStamp ? '无需盖章上传' : '加盖上传',
               stampedAt: skipStamp ? '' : nowText(),
@@ -1857,7 +1862,7 @@ function App() {
           setReportFiles(nextFiles);
         } else {
           const form = new FormData();
-          form.append('files', await dataUrlToFile(fileDataUrl, fileName));
+          form.append('files', await dataUrlToFile(uploadSource, fileName));
           const res = await authFetch(`${API}/api/quality-inspection/report-files`, { method: 'POST', body: form });
           if (!res.ok) {
             setMessage('检验章已生成，但保存到报告单文件库失败。');
@@ -1873,11 +1878,11 @@ function App() {
         const db = readStaticDb();
         db.qualityInspection.reports[record.id] = {
           ...(db.qualityInspection.reports[record.id] || {}),
-          fileDataUrl,
+          ...(fileDataUrl ? { fileDataUrl } : {}),
           ...(skipStamp
             ? { stampSkippedAt: nowText(), stampSkippedBy: user.name }
             : { stampedAt: nowText(), stampedBy: user.name }),
-          stampRotation: rotation,
+          stampRotation: normalizedRotation,
           updatedAt: nowText()
         };
         saveStaticDb(db);
@@ -1887,8 +1892,8 @@ function App() {
       }
       const stampFileName = record.report?.fileName || record.report?.originalName || 'stamped-report.png';
       const form = new FormData();
-      form.append('file', await dataUrlToFile(fileDataUrl, stampFileName));
-      form.append('rotation', String(rotation));
+      if (fileDataUrl) form.append('file', await dataUrlToFile(fileDataUrl, stampFileName));
+      form.append('rotation', String(normalizedRotation));
       form.append('skipStamp', skipStamp ? '1' : '0');
       const res = await authFetch(`${API}/api/quality-inspection/reports/${encodeURIComponent(record.id)}/stamp`, {
         method: 'POST',

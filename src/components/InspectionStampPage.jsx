@@ -86,7 +86,10 @@ function InspectionStampPage({ records, savingId, onStamp }) {
     setPreviewing(true);
     setPreviewError('');
     try {
-      const dataUrl = await createRotatedReportImageDataUrl(current, rotation);
+      const normalizedRotation = ((rotation % 360) + 360) % 360;
+      const dataUrl = normalizedRotation === 0
+        ? (current.report?.fileDataUrl || '')
+        : await createRotatedReportImageDataUrl(current, rotation);
       await saveStampResult(dataUrl, true);
     } catch (error) {
       console.error('stamp save without stamp failed', error);
@@ -171,7 +174,7 @@ function InspectionStampPage({ records, savingId, onStamp }) {
         <button
           type="button"
           className="compact-button"
-          disabled={!canStamp || savingId === current?.id}
+          disabled={!canStamp || previewing || savingId === current?.id}
           onClick={saveWithoutStamp}
         >
           {savingId === current?.id ? '保存中' : '直接保存'}
@@ -179,7 +182,7 @@ function InspectionStampPage({ records, savingId, onStamp }) {
         <button
           type="button"
           className="compact-button"
-          disabled={!activePreview || savingId === current?.id}
+          disabled={!activePreview || previewing || savingId === current?.id}
           onClick={confirmStamp}
         >
           {savingId === current?.id ? '保存中' : '已盖章保存'}
