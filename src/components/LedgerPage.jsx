@@ -67,6 +67,33 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
     );
   }
 
+  const ledgerColumns = [
+    '供应商',
+    '产品线',
+    '系列',
+    '数量',
+    { key: 'skuQuantity', label: 'SKU', className: 'ledger-wrap-cell' },
+    '事业部',
+    '验货通知人',
+    '是否首批验货',
+    '验货员',
+    '状态',
+    '实际验货时间',
+    '实际验货数量',
+    '检验数量',
+    '验货合格数量',
+    '验货合格率',
+    '验货方式',
+    '验货结果',
+    '问题等级',
+    '问题分类',
+    { key: 'feedbackText', label: '问题反馈', className: 'ledger-wrap-cell ledger-long-cell' },
+    '报告文件',
+    '是否返工',
+    { key: 'remarks', label: '备注', className: 'ledger-wrap-cell ledger-long-cell' },
+    ...(canDelete ? ['操作'] : [])
+  ];
+
   return (
     <>
       <div className="section-heading-row">
@@ -142,8 +169,9 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
         <button type="button" className="ghost compact-button" onClick={clearFilters}>清除</button>
       </div>
       <DataTable
+        className="inspection-ledger-table"
         rows={filteredRecords}
-        columns={canDelete ? ['供应商', '产品线', '系列', '数量', 'SKU', '事业部', '验货通知人', '是否首批验货', '验货员', '状态', '实际验货时间', '实际验货数量', '检验数量', '验货合格数量', '验货合格率', '验货方式', '验货结果', '问题等级', '问题分类', '问题反馈', '报告文件', '是否返工', '备注', '操作'] : ['供应商', '产品线', '系列', '数量', 'SKU', '事业部', '验货通知人', '是否首批验货', '验货员', '状态', '实际验货时间', '实际验货数量', '检验数量', '验货合格数量', '验货合格率', '验货方式', '验货结果', '问题等级', '问题分类', '问题反馈', '报告文件', '是否返工', '备注']}
+        columns={ledgerColumns}
         render={(record) => {
           const feedback = latestFeedback(record.feedback);
           const allRemarks = [

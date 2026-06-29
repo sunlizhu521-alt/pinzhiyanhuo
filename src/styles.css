@@ -363,6 +363,26 @@ th {
   z-index: 1;
 }
 
+.inspection-ledger-table th,
+.inspection-ledger-table td {
+  white-space: nowrap;
+}
+
+.inspection-ledger-table td.ledger-wrap-cell {
+  min-width: 220px;
+  max-width: 340px;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+  line-height: 1.45;
+}
+
+.inspection-ledger-table td.ledger-long-cell {
+  min-width: 280px;
+  max-width: 440px;
+}
+
 .required-star {
   color: #dc2626;
   font-weight: 800;
