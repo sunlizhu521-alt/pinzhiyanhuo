@@ -2616,7 +2616,7 @@ function App() {
         )}
         {canAccessPage(user, 'inspectionLedger') && activeTab === 'inspectionLedger' && (
           <LedgerPage
-            records={summaryRecords}
+            records={displayRecords}
             canImport={isAdminUser(user)}
             importPreview={ledgerImportPreview}
             onUpload={previewLedgerRows}
@@ -2624,7 +2624,7 @@ function App() {
             onClearImportPreview={clearLedgerImportPreview}
             canDelete={canDeleteInspectionInfo}
             onDelete={deleteInspectionRecord}
-            onExport={() => exportSummaryData('验货台账', summaryRecords)}
+            onExport={() => exportSummaryData('验货台账', displayRecords)}
           />
         )}
         {canAccessPage(user, 'inspectionInitialData') && activeTab === 'inspectionInitialData' && (
