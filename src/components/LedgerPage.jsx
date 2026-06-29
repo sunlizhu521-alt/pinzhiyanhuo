@@ -17,8 +17,11 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
   const previewExt = previewRecord ? reportFileExt(previewRecord) : '';
 
   function ledgerStatus(record) {
+    const result = normalize(latestFeedback(record.feedback).result);
     if (!normalize(record.schedule?.inspector)) return '未安排';
-    return record.schedule?.status || '已安排';
+    if (result === '返工') return '需返工';
+    if (['通过', '让步'].includes(result)) return '已完成';
+    return '验货中';
   }
 
   const filteredRecords = useMemo(() => {
@@ -130,7 +133,7 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
         />
         <select value={filters.status} onChange={(event) => updateFilter('status', event.target.value)}>
           <option value="">全部状态</option>
-          {['未安排', '已安排', '验货中', '已完成', '已取消'].map((status) => <option key={status} value={status}>{status}</option>)}
+          {['未安排', '验货中', '已完成', '需返工'].map((status) => <option key={status} value={status}>{status}</option>)}
         </select>
         <select value={filters.result} onChange={(event) => updateFilter('result', event.target.value)}>
           <option value="">全部结果</option>
