@@ -16,6 +16,11 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
   const previewUrl = previewRecord ? reportHref(previewRecord) : '';
   const previewExt = previewRecord ? reportFileExt(previewRecord) : '';
 
+  function ledgerStatus(record) {
+    if (!normalize(record.schedule?.inspector)) return '未安排';
+    return record.schedule?.status || '已安排';
+  }
+
   const filteredRecords = useMemo(() => {
     const normalizedFilters = Object.fromEntries(
       Object.entries(filters).map(([key, value]) => [key, normalize(value).toLowerCase()])
@@ -24,7 +29,7 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
       const feedback = latestFeedback(record.feedback);
       return (
         (!normalizedFilters.supplierShortName || normalize(record.supplierShortName).toLowerCase().includes(normalizedFilters.supplierShortName))
-        && (!normalizedFilters.status || normalize(record.schedule?.status).toLowerCase() === normalizedFilters.status)
+        && (!normalizedFilters.status || normalize(ledgerStatus(record)).toLowerCase() === normalizedFilters.status)
         && (!normalizedFilters.result || normalize(feedback.result).toLowerCase() === normalizedFilters.result)
         && (!normalizedFilters.keyword
           || normalize(`${record.supplierShortName}${record.salesProductLine}${record.series}${record.schedule?.inspector || ''}`).toLowerCase().includes(normalizedFilters.keyword))
@@ -179,7 +184,7 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
             record.inspectionNotifier || record.inspectionApplicant || '',
             record.firstInspection || '',
             record.schedule?.inspector || '',
-            record.schedule?.status || '未安排',
+            ledgerStatus(record),
             formatDate(feedback.actualInspectionTime),
             feedback.inspectionQuantity || '',
             feedback.checkQuantity || '',
