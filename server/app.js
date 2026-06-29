@@ -689,6 +689,8 @@ function pendingReworkForFeedback(feedback = {}, user, timestamp = nowText()) {
   const existing = feedback.rework || {};
   const next = {
     ...existing,
+    source: 'inspectionFeedback',
+    feedbackSubmitId: normalizeText(existing.feedbackSubmitId) || randomUUID(),
     requestedAt: timestamp,
     requestedBy: user?.name || '',
     status: '待复验',

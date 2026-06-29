@@ -1434,6 +1434,7 @@ function App() {
       feedbackText: normalize(form.get('feedbackText'))
     };
     const isRework = feedbackPatch.result === '返工';
+    const feedbackSubmitId = isRework ? createId() : '';
     const feedbackPatchForRecord = (sourceRecord = record) => {
       const existingRework = sourceRecord.rework || sourceRecord.feedback?.rework || {};
       if (!isRework) {
@@ -1454,6 +1455,8 @@ function App() {
       }
       const nextRework = {
         ...existingRework,
+        source: 'inspectionFeedback',
+        feedbackSubmitId: normalize(existingRework.feedbackSubmitId) || feedbackSubmitId,
         requestedAt: savedAt,
         requestedBy: user.name,
         status: '待复验',
@@ -1644,6 +1647,8 @@ function App() {
     const isRework = feedback.result === '返工';
     if (isRework) {
       feedback.rework = {
+        source: 'inspectionFeedback',
+        feedbackSubmitId: createId(),
         requestedAt: createdAt,
         requestedBy: user.name,
         status: '待复验',
@@ -2624,7 +2629,7 @@ function App() {
             onClearImportPreview={clearLedgerImportPreview}
             canDelete={canDeleteInspectionInfo}
             onDelete={deleteInspectionRecord}
-            onExport={() => exportSummaryData('验货台账', displayRecords)}
+            onExport={(sourceRecords) => exportSummaryData('验货台账', sourceRecords || displayRecords)}
           />
         )}
         {canAccessPage(user, 'inspectionInitialData') && activeTab === 'inspectionInitialData' && (

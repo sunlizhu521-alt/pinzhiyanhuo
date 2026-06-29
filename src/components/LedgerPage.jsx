@@ -16,10 +16,52 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
   const previewUrl = previewRecord ? reportHref(previewRecord) : '';
   const previewExt = previewRecord ? reportFileExt(previewRecord) : '';
 
+  function reworkInfo(record) {
+    const feedback = latestFeedback(record.feedback);
+    return record.rework || feedback.rework || {};
+  }
+
+  function isFeedbackSubmittedRework(record) {
+    const feedback = latestFeedback(record.feedback);
+    const rework = reworkInfo(record);
+    if (normalize(feedback.result) !== '返工') return false;
+    if (normalize(rework.status) === '已删除' || normalize(rework.deletedAt)) return false;
+    if (normalize(rework.completedAt) || normalize(rework.reworkCompleteTime)) return false;
+    if (normalize(rework.source) === 'inspectionFeedback') return true;
+    if (normalize(record.importSource) === 'summaryImport') return false;
+    return normalize(rework.requestedAt) && normalize(rework.status) === '待复验';
+  }
+
+  function reworkSubmitKey(record) {
+    const feedback = latestFeedback(record.feedback);
+    const rework = reworkInfo(record);
+    return normalize(rework.feedbackSubmitId) || [
+      rework.requestedAt,
+      rework.requestedBy,
+      record.supplierShortName,
+      record.salesProductLine,
+      record.series,
+      feedback.actualInspectionTime,
+      feedback.feedbackText
+    ].map(normalize).join('|') || record.id;
+  }
+
+  const ledgerRecords = useMemo(() => {
+    const seenReworkSubmits = new Set();
+    return records.filter((record) => {
+      if (normalize(latestFeedback(record.feedback).result) !== '返工') return true;
+      if (!isFeedbackSubmittedRework(record)) return false;
+      const key = reworkSubmitKey(record);
+      if (seenReworkSubmits.has(key)) return false;
+      seenReworkSubmits.add(key);
+      return true;
+    });
+  }, [records]);
+
   function ledgerStatus(record) {
     const result = normalize(latestFeedback(record.feedback).result);
+    if (isFeedbackSubmittedRework(record)) return '需返工';
     if (!normalize(record.schedule?.inspector)) return '未安排';
-    if (result === '返工') return '需返工';
     if (['通过', '让步'].includes(result)) return '已完成';
     return '验货中';
   }
@@ -28,7 +70,7 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
     const normalizedFilters = Object.fromEntries(
       Object.entries(filters).map(([key, value]) => [key, normalize(value).toLowerCase()])
     );
-    return records.filter((record) => {
+    return ledgerRecords.filter((record) => {
       const feedback = latestFeedback(record.feedback);
       return (
         (!normalizedFilters.supplierShortName || normalize(record.supplierShortName).toLowerCase().includes(normalizedFilters.supplierShortName))
@@ -39,14 +81,14 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
         && (!normalizedFilters.notifier || normalize(record.inspectionNotifier || record.inspectionApplicant || '').toLowerCase().includes(normalizedFilters.notifier))
       );
     });
-  }, [records, filters]);
+  }, [ledgerRecords, filters]);
 
   const stats = useMemo(() => ({
-    total: records.length,
-    passed: records.filter((record) => latestFeedback(record.feedback).result === '通过').length,
-    failed: records.filter((record) => latestFeedback(record.feedback).result === '返工').length,
-    pending: records.filter((record) => !latestFeedback(record.feedback).result).length
-  }), [records]);
+    total: ledgerRecords.length,
+    passed: ledgerRecords.filter((record) => latestFeedback(record.feedback).result === '通过').length,
+    failed: ledgerRecords.filter(isFeedbackSubmittedRework).length,
+    pending: ledgerRecords.filter((record) => !latestFeedback(record.feedback).result).length
+  }), [ledgerRecords]);
 
   function updateFilter(key, value) {
     setFilters((current) => ({ ...current, [key]: value }));
@@ -98,8 +140,8 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
     <>
       <div className="section-heading-row">
         <h2>验货台账</h2>
-        <span className="section-count">全部 {records.length} 条 | 通过 {stats.passed} | 返工 {stats.failed} | 待反馈 {stats.pending}</span>
-        <button type="button" className="ghost compact-button" disabled={!records.length} onClick={onExport}>导出</button>
+        <span className="section-count">全部 {ledgerRecords.length} 条 | 通过 {stats.passed} | 返工 {stats.failed} | 待反馈 {stats.pending}</span>
+        <button type="button" className="ghost compact-button" disabled={!ledgerRecords.length} onClick={() => onExport(ledgerRecords)}>导出</button>
       </div>
       {canImport && (
         <label
@@ -204,7 +246,7 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
             feedback.issueCategoryPrimary || '',
             feedback.feedbackText || '',
             reportPreviewCell(record),
-            record.rework?.completedAt ? '是' : '否',
+            isFeedbackSubmittedRework(record) ? '是' : '否',
             allRemarks,
             ...(canDelete ? [
               <button
