@@ -29,6 +29,24 @@ async function exportRowsToWorkbook(rows, sheetName, fileName) {
   return true;
 }
 
+const ACTIVE_TAB_KEY = 'qualityInspectionActiveTab';
+
+function readStoredActiveTab() {
+  try {
+    return localStorage.getItem(ACTIVE_TAB_KEY) || 'inspectionNotice';
+  } catch {
+    return 'inspectionNotice';
+  }
+}
+
+function saveStoredActiveTab(tab) {
+  try {
+    if (tab) localStorage.setItem(ACTIVE_TAB_KEY, tab);
+  } catch {
+    // localStorage may be unavailable in private or restricted browser contexts.
+  }
+}
+
 function createBlankNoticeRow(values = {}) {
   return createNoticeRow({
     inspectionFillTime: formatDate(new Date()),
@@ -64,7 +82,7 @@ async function detectReportTextRotation(record) {
 }
 
 function App() {
-  const [activeTab, setActiveTab] = useState('inspectionNotice');
+  const [activeTab, setActiveTab] = useState(readStoredActiveTab);
   const [authMode, setAuthMode] = useState('login');
   const [loginName, setLoginName] = useState('');
   const [password, setPassword] = useState('');
@@ -187,7 +205,13 @@ function App() {
 
   useEffect(() => {
     if (!user) return;
-    if (!canAccessPage(user, activeTab)) setActiveTab(homeTabForUser(user));
+    if (canAccessPage(user, activeTab)) {
+      saveStoredActiveTab(activeTab);
+      return;
+    }
+    const fallbackTab = homeTabForUser(user);
+    setActiveTab(fallbackTab);
+    saveStoredActiveTab(fallbackTab);
   }, [activeTab, user]);
 
   useEffect(() => {
