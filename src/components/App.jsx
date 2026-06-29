@@ -1389,10 +1389,11 @@ function App() {
     setMessage('检验报告单已回传。');
   }
 
-  async function saveFeedback(record, formElement) {
+  async function saveFeedback(record, formElement, cachedReportFile) {
     setSavingId(record.id);
     const form = new FormData(formElement);
-    const file = form.get('reportFile');
+    const formFile = form.get('reportFile');
+    const file = cachedReportFile instanceof File && cachedReportFile.size > 0 ? cachedReportFile : formFile;
     const sourceIds = Array.isArray(record.sourceIds) && record.sourceIds.length ? record.sourceIds : [record.id];
     const savedAt = nowText();
     const feedbackPatch = {

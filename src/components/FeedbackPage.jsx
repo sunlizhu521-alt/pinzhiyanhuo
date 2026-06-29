@@ -32,6 +32,7 @@ function FeedbackPage({
   const [feedbackDrafts, setFeedbackDrafts] = useState({});
   const [freshlySubmitted, setFreshlySubmitted] = useState(new Set());
   const [reworkRowIds, setReworkRowIds] = useState(new Set());
+  const [reportFileDrafts, setReportFileDrafts] = useState({});
   const [showAddForm, setShowAddForm] = useState(false);
   const [addReportNo, setAddReportNo] = useState('');
   const previewRows = importPreview?.items || [];
@@ -363,6 +364,7 @@ function FeedbackPage({
       <DataTable
         className="inspection-feedback-table"
         rows={filteredRecords}
+        stickyColumns={3}
         columns={[
           '供应商简称',
           '产品线',
@@ -398,6 +400,7 @@ function FeedbackPage({
           const draft = feedbackDraft(record);
           const reportNo = feedbackReportNo(record, draft.actualInspectionTime, draft.inspectionQuantity);
           const isReworkRow = !justSubmitted && normalize(draft.result) === '返工';
+          const cachedReportFile = reportFileDrafts[record.id]?.file;
           return [
             record.supplierShortName,
             record.salesProductLine,
@@ -543,7 +546,24 @@ function FeedbackPage({
                   </button>
                 </>
               ) : (
-                <input name="reportFile" form={`feedback-form-${record.id}`} type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx" />
+                <>
+                  <input
+                    name="reportFile"
+                    form={`feedback-form-${record.id}`}
+                    type="file"
+                    accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      setReportFileDrafts((current) => {
+                        const next = { ...current };
+                        if (file instanceof File && file.size > 0) next[record.id] = { file, name: file.name };
+                        else delete next[record.id];
+                        return next;
+                      });
+                    }}
+                  />
+                  {cachedReportFile && <span className="cached-report-file">{cachedReportFile.name}</span>}
+                </>
               )}
             </div>,
             <div className="table-action-row">
@@ -553,7 +573,7 @@ function FeedbackPage({
                   event.preventDefault();
                   if (!window.confirm('确认提交当前验货反馈？')) return;
                   const form = event.currentTarget;
-                  const saved = await onSave(record, form);
+                  const saved = await onSave(record, form, cachedReportFile);
                   if (saved) {
                     setFreshlySubmitted((prev) => new Set([...prev, record.id]));
                     setReworkRowIds((prev) => {
@@ -568,6 +588,11 @@ function FeedbackPage({
                       else element.value = '';
                     });
                     setFeedbackDrafts((current) => {
+                      const next = { ...current };
+                      delete next[record.id];
+                      return next;
+                    });
+                    setReportFileDrafts((current) => {
                       const next = { ...current };
                       delete next[record.id];
                       return next;

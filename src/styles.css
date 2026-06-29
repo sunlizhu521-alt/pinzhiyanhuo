@@ -838,6 +838,44 @@ th {
   white-space: nowrap;
 }
 
+.inspection-feedback-table .sticky-column {
+  position: sticky;
+  background: #fff;
+  z-index: 2;
+}
+
+.inspection-feedback-table th.sticky-column {
+  background: #f8fafc;
+  z-index: 5;
+}
+
+.inspection-feedback-table .sticky-column-1 {
+  left: 0;
+  min-width: 150px;
+  width: 150px;
+  max-width: 150px;
+}
+
+.inspection-feedback-table .sticky-column-2 {
+  left: 150px;
+  min-width: 150px;
+  width: 150px;
+  max-width: 150px;
+}
+
+.inspection-feedback-table .sticky-column-3 {
+  left: 300px;
+  min-width: 150px;
+  width: 150px;
+  max-width: 150px;
+  box-shadow: 3px 0 6px rgba(15, 23, 42, 0.08);
+}
+
+.inspection-feedback-table td.sticky-column {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .inspection-feedback-table .table-textarea {
   white-space: nowrap;
   resize: horizontal;
@@ -863,6 +901,17 @@ th {
 
 .feedback-report-cell input {
   min-width: 180px;
+}
+
+.cached-report-file {
+  display: inline-block;
+  max-width: 180px;
+  overflow: hidden;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  vertical-align: middle;
 }
 
 .stamp-page {

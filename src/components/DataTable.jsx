@@ -1,4 +1,11 @@
-function DataTable({ rows, columns, render, className = '' }) {
+function DataTable({ rows, columns, render, className = '', stickyColumns = 0 }) {
+  function columnClassName(col, index) {
+    const classes = [];
+    if (col.className) classes.push(col.className);
+    if (index < stickyColumns) classes.push(`sticky-column sticky-column-${index + 1}`);
+    return classes.join(' ');
+  }
+
   function renderHeader(col) {
     const label = col.label || col;
     if (typeof label === 'string' && label.endsWith(' *')) {
@@ -16,7 +23,7 @@ function DataTable({ rows, columns, render, className = '' }) {
     <div className={`data-table-wrapper table-wrap ${className}`}>
       <table className="data-table">
         <thead>
-          <tr>{columns.map((col) => <th key={col.key || col}>{renderHeader(col)}</th>)}</tr>
+          <tr>{columns.map((col, index) => <th key={col.key || col} className={columnClassName(col, index)}>{renderHeader(col)}</th>)}</tr>
         </thead>
         <tbody>
           {rows.length === 0 ? (
@@ -26,7 +33,7 @@ function DataTable({ rows, columns, render, className = '' }) {
             if (!Array.isArray(rendered)) return rendered;
             return (
               <tr key={row.id || `${row.name || 'row'}-${row.rowNumber || i}`}>
-                {rendered.map((cell, index) => <td key={index}>{cell}</td>)}
+                {rendered.map((cell, index) => <td key={index} className={columnClassName(columns[index] || {}, index)}>{cell}</td>)}
               </tr>
             );
           })}
