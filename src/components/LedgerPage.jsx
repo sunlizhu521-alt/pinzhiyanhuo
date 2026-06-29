@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import DataTable from './DataTable.jsx';
 import ReportPreviewModal from './ReportPreviewModal.jsx';
 import { normalize, formatDate, latestFeedback } from '../utils.js';
-import { reportHref, reportFileExt, isImageReport } from '../file-utils.js';
+import { reportHref, reportFileExt } from '../file-utils.js';
 
 function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImport, onClearImportPreview, canDelete, onDelete, onExport }) {
   const [filters, setFilters] = useState({
@@ -56,33 +56,10 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
   function reportPreviewCell(record) {
     const href = reportHref(record);
     if (!href) return '';
-    const ext = reportFileExt(record);
     const title = record.report?.originalName || record.report?.reportNo || '报告文件预览';
-    if (isImageReport(record)) {
-      return (
-        <button type="button" className="link-button" onClick={() => setPreviewRecord(record)} title={title}>
-          <img
-            src={href}
-            alt={title}
-            style={{ width: 96, height: 72, objectFit: 'cover', border: '1px solid #d8e0ee', borderRadius: 4 }}
-          />
-        </button>
-      );
-    }
-    if (ext === '.pdf') {
-      return (
-        <button type="button" className="link-button" onClick={() => setPreviewRecord(record)} title={title}>
-          <iframe
-            title={title}
-            src={href}
-            style={{ width: 120, height: 80, border: '1px solid #d8e0ee', borderRadius: 4, pointerEvents: 'none' }}
-          />
-        </button>
-      );
-    }
     return (
-      <button type="button" className="link-button" onClick={() => setPreviewRecord(record)}>
-        {title}
+      <button type="button" className="link-button" onClick={() => setPreviewRecord(record)} title={title}>
+        查看检验单
       </button>
     );
   }
