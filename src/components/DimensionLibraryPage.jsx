@@ -52,7 +52,14 @@ function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loadin
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={(event) => { event.preventDefault(); onUpload(slot.id, event.dataTransfer.files); }}
               >
-                <input type="file" accept=".xlsx,.xlsm,.xls,.csv" onChange={(event) => onUpload(slot.id, event.target.files)} />
+                <input
+                  type="file"
+                  accept=".xlsx,.xlsm,.xls,.csv"
+                  onChange={(event) => {
+                    onUpload(slot.id, event.target.files);
+                    event.target.value = '';
+                  }}
+                />
                 <strong>{record ? '替换维度表文件' : '上传维度表文件'}</strong>
                 <span>点击或拖拽 Excel / CSV 到此槽位</span>
               </label>

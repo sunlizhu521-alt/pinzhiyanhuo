@@ -1226,12 +1226,39 @@ app.post('/api/quality-inspection/dimension-library/:slotId/apply', requireAuth,
   const originalName = fixMojibakeText(req.file.originalname || '');
   const storedName = await uniqueDimensionUploadName(`${slotId}-${originalName || `file-${Date.now()}`}`);
   await rename(req.file.path, dimensionFilePath(storedName));
+
+  let parsedRecord;
+  let derivedCache = {};
+  try {
+    parsedRecord = parseDimensionWorkbookPreview(storedName);
+    if (!(parsedRecord.sheets || []).some((sheet) => (sheet.rows || []).length)) {
+      throw new Error('empty dimension file');
+    }
+    if (slotId === PRODUCT_CATEGORY_SLOT_ID) {
+      derivedCache = {
+        ...derivedCache,
+        ...parseCategoryOptionsFromDimensionFile(storedName)
+      };
+    }
+    if (slotId === PURCHASE_WORK_DIVISION_SLOT_ID) {
+      derivedCache = {
+        ...derivedCache,
+        supplierAddressLookup: buildSupplierAddressLookupRowsFromDimensionFile(storedName)
+      };
+    }
+  } catch {
+    await unlink(dimensionFilePath(storedName)).catch(() => {});
+    return res.status(400).json({ error: '维度表文件解析失败，请检查文件格式、工作表内容或表头位置。' });
+  }
+
   if (previousStoredName && previousStoredName !== storedName) {
     await unlink(dimensionFilePath(previousStoredName)).catch(() => {});
   }
 
   const next = {
     ...record,
+    ...parsedRecord,
+    ...derivedCache,
     id: slotId,
     fileName: originalName || fixMojibakeText(record.fileName) || storedName,
     storedFileName: storedName,

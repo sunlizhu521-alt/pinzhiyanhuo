@@ -854,10 +854,16 @@ function App() {
     try {
       const res = await authFetch(`${API}/api/quality-inspection/dimension-library`, { cache: 'no-store' });
       if (res.ok) {
-        const library = normalizeDimensionLibrary((await res.json()).library || {});
-        setDimensionLibrary(library);
+        const serverLibrary = normalizeDimensionLibrary((await res.json()).library || {});
+        const nextLibrary = { ...serverLibrary };
+        Object.entries(dimensionPendingFiles).forEach(([slotId, pendingFile]) => {
+          const pendingRecord = dimensionLibrary[slotId];
+          if (!pendingFile || !pendingRecord || pendingRecord.applied) return;
+          nextLibrary[slotId] = pendingRecord;
+        });
+        setDimensionLibrary(nextLibrary);
         clearDimensionLibraryCache();
-        return library;
+        return nextLibrary;
       }
     } finally {
       if (!options.silent) setDimensionLibraryLoading(false);
@@ -887,6 +893,7 @@ function App() {
     const payload = await res.json();
     const library = normalizeDimensionLibrary(payload.library || {});
     setDimensionLibrary(library);
+    setDimensionPendingFiles({});
     clearDimensionLibraryCache();
     const appliedCount = DIMENSION_LIBRARY_SLOTS.filter((slot) => library[slot.id]?.applied).length;
     setMessage(`已下载同步腾讯云最新维度表数据：已应用 ${appliedCount} 个槽位。`);
@@ -1165,7 +1172,8 @@ function App() {
     }
     setSavingId(slotId);
     const form = new FormData();
-    form.append('file', pendingFile, existing.fileName || fixMojibakeText(pendingFile.name));
+    const uploadFileName = fixMojibakeText(pendingFile.name) || existing.fileName || `dimension-${Date.now()}`;
+    form.append('file', pendingFile, uploadFileName);
     form.append('record', JSON.stringify(next[slotId]));
     const res = await authFetch(`${API}/api/quality-inspection/dimension-library/${encodeURIComponent(slotId)}/apply`, {
       method: 'POST',
@@ -1173,7 +1181,8 @@ function App() {
     });
     setSavingId('');
     if (!res.ok) {
-      setMessage(`${existing.fileName} 应用刷新失败，服务器未保存。`);
+      const payload = await res.json().catch(() => ({}));
+      setMessage(payload.error || `${existing.fileName} 应用刷新失败，服务器未保存。`);
       return;
     }
     const payload = await res.json();
