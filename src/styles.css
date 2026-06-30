@@ -1351,8 +1351,27 @@ th {
   font-size: 13px;
 }
 
-.dimension-drop-zone input {
-  display: none;
+.dimension-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.dimension-file-picker-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.dimension-file-picker-button.disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .dimension-slot-meta-grid {

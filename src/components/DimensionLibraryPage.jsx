@@ -1,4 +1,3 @@
-import { useRef } from 'react';
 import { DIMENSION_LIBRARY_SLOTS } from '../constants.js';
 
 const SLOT_DESCRIPTIONS = {
@@ -47,8 +46,22 @@ function firstSheetPreview(record) {
   return sheets[0] || null;
 }
 
+function DimensionFileInput({ slotId, disabled, onUpload }) {
+  return (
+    <input
+      className="dimension-file-input"
+      type="file"
+      accept=".xlsx,.xlsm,.xls,.csv"
+      disabled={disabled}
+      onChange={(event) => {
+        onUpload(slotId, event.target.files);
+        event.target.value = '';
+      }}
+    />
+  );
+}
+
 function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loading, uploadProgress = {}, savingId, onRefresh, onSync, onUpload, onApply, onDelete }) {
-  const replaceInputRefs = useRef({});
   const filledCount = slots.filter((slot) => library[slot.id]).length;
   const appliedCount = slots.filter((slot) => library[slot.id]?.applied).length;
   const latestUpdate = slots
@@ -167,31 +180,9 @@ function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loadin
               </div>
               <h3>{slot.title}</h3>
               <p className="slot-description">{SLOT_DESCRIPTIONS[slot.id] || `维度表槽位 ${index + 1}`}</p>
-              <input
-                ref={(input) => { replaceInputRefs.current[slot.id] = input; }}
-                type="file"
-                accept=".xlsx,.xlsm,.xls,.csv"
-                style={{ display: 'none' }}
-                disabled={isBusy}
-                onChange={(event) => {
-                  onUpload(slot.id, event.target.files);
-                  event.target.value = '';
-                }}
-              />
-              <div
+              <label
                 className={`dimension-drop-zone${isBusy ? ' disabled' : ''}`}
-                role="button"
                 tabIndex={isBusy ? -1 : 0}
-                onClick={() => {
-                  if (!isBusy) replaceInputRefs.current[slot.id]?.click();
-                }}
-                onKeyDown={(event) => {
-                  if (isBusy) return;
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    replaceInputRefs.current[slot.id]?.click();
-                  }
-                }}
                 onDragOver={(event) => {
                   event.preventDefault();
                   if (!isBusy) event.dataTransfer.dropEffect = 'copy';
@@ -201,9 +192,10 @@ function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loadin
                   if (!isBusy) onUpload(slot.id, event.dataTransfer.files);
                 }}
               >
+                <DimensionFileInput slotId={slot.id} disabled={isBusy} onUpload={onUpload} />
                 <strong>{isUploading ? '正在读取新文件' : displayFileName}</strong>
                 <span>{isUploading ? '正在解析最新上传文件，请稍候' : fileMeta}</span>
-              </div>
+              </label>
               {progressBlock}
               {record ? (
                 <>
@@ -238,14 +230,10 @@ function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loadin
                     <small>G/H/AD：{diagnosticColumns[6] || '-'} / {diagnosticColumns[7] || '-'} / {diagnosticColumns[29] || '-'}</small>
                   </div>
                   <div className="card-actions">
-                    <button
-                      type="button"
-                      className="compact-button"
-                      disabled={isBusy}
-                      onClick={() => replaceInputRefs.current[slot.id]?.click()}
-                    >
+                    <label className={`compact-button dimension-file-picker-button${isBusy ? ' disabled' : ''}`}>
+                      <DimensionFileInput slotId={slot.id} disabled={isBusy} onUpload={onUpload} />
                       {isUploading ? '读取中' : record ? '替换文件' : '上传文件'}
-                    </button>
+                    </label>
                     <button type="button" className="compact-button" disabled={isBusy} onClick={() => onApply(slot.id)}>
                       {isApplying ? '应用中' : '应用刷新'}
                     </button>
@@ -254,14 +242,10 @@ function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loadin
                 </>
               ) : (
                 <div className="card-actions">
-                  <button
-                    type="button"
-                    className="compact-button"
-                    disabled={isBusy}
-                    onClick={() => replaceInputRefs.current[slot.id]?.click()}
-                  >
+                  <label className={`compact-button dimension-file-picker-button${isBusy ? ' disabled' : ''}`}>
+                    <DimensionFileInput slotId={slot.id} disabled={isBusy} onUpload={onUpload} />
                     {isUploading ? '读取中' : '上传文件'}
-                  </button>
+                  </label>
                   <button type="button" className="compact-button" disabled>应用刷新</button>
                   <button type="button" className="ghost compact-button" disabled>删除</button>
                 </div>
