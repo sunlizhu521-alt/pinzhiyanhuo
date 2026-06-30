@@ -1200,6 +1200,16 @@ th {
   cursor: pointer;
 }
 
+.dimension-drop-zone.disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.dimension-drop-zone:focus-visible {
+  outline: 2px solid #ff6b35;
+  outline-offset: 2px;
+}
+
 .dimension-drop-zone strong {
   color: #1e293b;
 }

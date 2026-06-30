@@ -80,27 +80,38 @@ function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loadin
                 type="file"
                 accept=".xlsx,.xlsm,.xls,.csv"
                 style={{ display: 'none' }}
+                disabled={isBusy}
                 onChange={(event) => {
                   onUpload(slot.id, event.target.files);
                   event.target.value = '';
                 }}
               />
-              <label
-                className="dimension-drop-zone"
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={(event) => { event.preventDefault(); onUpload(slot.id, event.dataTransfer.files); }}
+              <div
+                className={`dimension-drop-zone${isBusy ? ' disabled' : ''}`}
+                role="button"
+                tabIndex={isBusy ? -1 : 0}
+                onClick={() => {
+                  if (!isBusy) replaceInputRefs.current[slot.id]?.click();
+                }}
+                onKeyDown={(event) => {
+                  if (isBusy) return;
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    replaceInputRefs.current[slot.id]?.click();
+                  }
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  if (!isBusy) event.dataTransfer.dropEffect = 'copy';
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  if (!isBusy) onUpload(slot.id, event.dataTransfer.files);
+                }}
               >
-                <input
-                  type="file"
-                  accept=".xlsx,.xlsm,.xls,.csv"
-                  onChange={(event) => {
-                    onUpload(slot.id, event.target.files);
-                    event.target.value = '';
-                  }}
-                />
                 <strong>{isUploading ? '正在读取新文件' : record ? '替换维度表文件' : '上传维度表文件'}</strong>
                 <span>{isUploading ? '正在解析最新上传文件，请稍候' : '点击或拖拽 Excel / CSV 到此槽位'}</span>
-              </label>
+              </div>
               {progressBlock}
               {record ? (
                 <>
