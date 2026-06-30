@@ -2621,7 +2621,7 @@ function App() {
       <main className="login-shell">
         <form className="login-panel" onSubmit={submitAuth} autoComplete="off">
           <h1>品质验货</h1>
-          <p className="auth-note">账号由管理员孙立柱创建并授权页面后才能进入系统。</p>
+          <p className="auth-note">可直接注册账号；注册后需管理员孙立柱在“权限管理”页面授权后才能进入系统。</p>
           {message && <p className="message">{message}</p>}
           {authMode === 'login' ? (
             <>
@@ -2649,6 +2649,7 @@ function App() {
                 />
               </label>
               <button type="submit">登录</button>
+              <button type="button" className="ghost auth-switch-button" onClick={() => setAuthMode('register')}>新用户注册</button>
             </>
           ) : (
             <>
@@ -2660,7 +2661,8 @@ function App() {
                 密码
                 <input name="qi-register-pass" type="password" autoComplete="new-password" value={registerPassword} onChange={(event) => setRegisterPassword(event.target.value)} />
               </label>
-              <button type="submit">注册并进入</button>
+              <p className="auth-note">注册成功后账号会进入待授权状态，管理员授权页面后即可登录。</p>
+              <button type="submit">注册账号</button>
               <button type="button" className="ghost auth-switch-button" onClick={() => setAuthMode('login')}>返回登录</button>
             </>
           )}

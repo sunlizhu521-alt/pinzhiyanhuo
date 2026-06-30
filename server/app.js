@@ -1131,11 +1131,12 @@ app.post('/api/auth/change-password', requireAuth, async (req, res) => {
   res.json({ success: true });
 });
 
-app.post('/api/auth/register', requireAuth, requirePrimaryAdmin, async (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   const db = await readDb();
   const name = String(req.body.name || '').trim();
   const password = String(req.body.password || '').trim();
   if (!name || !password) return res.status(400).json({ error: '请输入姓名和密码' });
+  if (password.length < 4) return res.status(400).json({ error: '密码至少4位' });
   if (db.users.some((user) => user.name === name)) return res.status(409).json({ error: '该姓名已存在' });
   const hashedPassword = await hashPassword(password);
   const user = { id: randomUUID(), name, password: hashedPassword, role: ROLE_USER, pageAccess: [], mustResetPassword: true };

@@ -3,6 +3,8 @@ dist
 server-start.*.log
 data/uploads
 data/db.json
+data/db.sqlite
+data/dimension-uploads
 backups
 *.log
 .env
