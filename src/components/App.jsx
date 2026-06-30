@@ -912,6 +912,14 @@ function App() {
     setMessage(`已下载同步腾讯云最新维度表数据：已应用 ${appliedCount} 个槽位。`);
   }
 
+  async function updateDimensionLibraryFromServer() {
+    setSavingId('dimensionLibraryUpdate');
+    const library = await refreshDimensionLibrary({ silent: true });
+    setSavingId('');
+    const appliedCount = DIMENSION_LIBRARY_SLOTS.filter((slot) => library?.[slot.id]?.applied).length;
+    setMessage(`维度表文件库已更新：当前已应用 ${appliedCount} 个槽位。`);
+  }
+
   async function refreshPermissionUsers() {
     if (STATIC_MODE) {
       setPermissionUsers(readStaticDb().users || []);
@@ -2692,6 +2700,7 @@ function App() {
             library={dimensionLibrary}
             loading={dimensionLibraryLoading}
             savingId={savingId}
+            onRefresh={updateDimensionLibraryFromServer}
             onSync={syncDimensionLibraryFromServer}
             onUpload={uploadDimensionSlot}
             onApply={applyDimensionSlot}

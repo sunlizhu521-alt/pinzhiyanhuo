@@ -2,7 +2,7 @@ import { DIMENSION_LIBRARY_SLOTS } from '../constants.js';
 import DataTable from './DataTable.jsx';
 import EmptyState from './EmptyState.jsx';
 
-function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loading, savingId, onSync, onUpload, onApply, onDelete }) {
+function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loading, savingId, onRefresh, onSync, onUpload, onApply, onDelete }) {
   const filledCount = slots.filter((slot) => library[slot.id]).length;
   const appliedCount = slots.filter((slot) => library[slot.id]?.applied).length;
   return (
@@ -10,6 +10,14 @@ function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loadin
       <div className="section-heading-row">
         <h2>维度表文件库</h2>
         <span className="section-count">{loading ? '正在同步腾讯云服务器最新维度表...' : `4 个槽位，已上传 ${filledCount} 个，已应用 ${appliedCount} 个`}</span>
+        <button
+          type="button"
+          className="compact-button"
+          disabled={savingId === 'dimensionLibraryUpdate' || savingId === 'dimensionLibrarySync'}
+          onClick={onRefresh}
+        >
+          {savingId === 'dimensionLibraryUpdate' ? '更新中' : '更新'}
+        </button>
         <button
           type="button"
           className="ghost compact-button"
