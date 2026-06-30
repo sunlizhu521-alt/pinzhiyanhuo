@@ -3,7 +3,7 @@ import { DIMENSION_LIBRARY_SLOTS, PURCHASE_WORK_DIVISION_SLOT_ID } from '../cons
 import DataTable from './DataTable.jsx';
 import EmptyState from './EmptyState.jsx';
 
-function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loading, savingId, onRefresh, onSync, onUpload, onApply, onDelete }) {
+function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loading, uploadProgress = {}, savingId, onRefresh, onSync, onUpload, onApply, onDelete }) {
   const replaceInputRefs = useRef({});
   const filledCount = slots.filter((slot) => library[slot.id]).length;
   const appliedCount = slots.filter((slot) => library[slot.id]?.applied).length;
@@ -32,6 +32,7 @@ function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loadin
       <section className="dimension-library-grid">
         {slots.map((slot, index) => {
           const record = library[slot.id];
+          const progress = uploadProgress[slot.id];
           const isUploading = savingId === `dimensionUpload:${slot.id}`;
           const isApplying = savingId === slot.id;
           const isBusy = isUploading || isApplying;
@@ -49,6 +50,7 @@ function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loadin
             ? record.sheetNames
             : sheetPreviews.map((sheet) => sheet.sheetName).filter(Boolean);
           const previewCount = sheetPreviews.reduce((sum, sheet) => sum + (sheet.rows?.length || 0), 0);
+          const updatedAt = record?.updatedAt || record?.appliedAt || record?.savedAt || '';
           return (
             <article key={slot.id} className="dimension-slot-card">
               <div className="slot-head">
@@ -96,9 +98,22 @@ function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loadin
                     <span>工作表：{sheetNames.join('、') || '未识别'}</span>
                     <span>总行数：{record.importedCount || 0}</span>
                     <span>预览：{previewCount} 行</span>
+                    <span>更新日期：{updatedAt || '未更新'}</span>
                     <span>保存：{record.savedAt}</span>
                     {record.appliedAt && <span>应用：{record.appliedAt}</span>}
                   </div>
+                  {progress && (
+                    <div className={`dimension-upload-progress ${progress.status || 'running'}`}>
+                      <div className="dimension-upload-progress-head">
+                        <strong>{progress.label || '正在处理'}</strong>
+                        <span>{Math.max(0, Math.min(100, Number(progress.percent) || 0))}%</span>
+                      </div>
+                      <div className="dimension-upload-progress-bar">
+                        <span style={{ width: `${Math.max(0, Math.min(100, Number(progress.percent) || 0))}%` }} />
+                      </div>
+                      <p>{progress.fileName ? `${progress.fileName}：` : ''}{progress.detail || '正在解析文件，请稍候。'}</p>
+                    </div>
+                  )}
                   <div className="dimension-sheet-list">
                     {sheetPreviews.map((sheet, sheetIndex) => {
                       const columns = sheet.columns?.length ? sheet.columns.slice(0, 8) : ['暂无字段'];

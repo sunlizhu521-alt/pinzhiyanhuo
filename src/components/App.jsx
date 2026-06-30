@@ -106,6 +106,7 @@ function App() {
   const [dimensionLibrary, setDimensionLibrary] = useState(() => STATIC_MODE ? readDimensionLibrary() : normalizeDimensionLibrary());
   const [dimensionLibraryLoading, setDimensionLibraryLoading] = useState(false);
   const [dimensionPendingFiles, setDimensionPendingFiles] = useState({});
+  const [dimensionUploadProgress, setDimensionUploadProgress] = useState({});
   const dimensionLibraryRef = useRef(dimensionLibrary);
   const dimensionPendingFilesRef = useRef(dimensionPendingFiles);
   const [reportFiles, setReportFiles] = useState(() => STATIC_MODE ? readReportFileLibrary() : []);
@@ -1116,18 +1117,45 @@ function App() {
     if (!file) return;
     const displayFileName = fixMojibakeText(file.name);
     const uploadingKey = `dimensionUpload:${slotId}`;
+    const setSlotProgress = (progress) => {
+      setDimensionUploadProgress((current) => ({
+        ...current,
+        [slotId]: {
+          fileName: displayFileName,
+          ...progress
+        }
+      }));
+    };
+    const clearSlotProgressLater = () => {
+      window.setTimeout(() => {
+        setDimensionUploadProgress((current) => {
+          const nextProgress = { ...current };
+          delete nextProgress[slotId];
+          return nextProgress;
+        });
+      }, 3000);
+    };
     setSavingId(uploadingKey);
     try {
+      setSlotProgress({ status: 'running', percent: 15, label: '读取文件', detail: '正在读取最新上传文件。' });
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
       const result = await parseWorkbookSheetsInBrowser(file);
       if (!(result.sheets || []).some((sheet) => (sheet.rows || []).length)) {
         throw new Error('未识别到有效表头或数据，请确认前 10 行内包含字段名。');
       }
+      setSlotProgress({
+        status: 'running',
+        percent: 45,
+        label: '解析工作表',
+        detail: `已识别 ${result.sheetCount || (result.sheets || []).length} 个工作表，正在生成预览。`
+      });
       const supplierAddressLookup = slotId === PURCHASE_WORK_DIVISION_SLOT_ID
         ? buildSupplierAddressLookupRows(result.sheets || [])
         : [];
       const categoryOptions = slotId === PRODUCT_CATEGORY_SLOT_ID
         ? buildCategoryDimensionOptions(result.sheets || [])
         : {};
+      setSlotProgress({ status: 'running', percent: 70, label: '生成预览', detail: '正在更新槽位预览和待应用文件。' });
       const sheets = (result.sheets || []).map((sheet) => ({
         sheetName: sheet.sheetName,
         columns: sheet.columns || [],
@@ -1152,6 +1180,7 @@ function App() {
         supplierAddressLookup,
         ...categoryOptions,
         savedAt: nowText(),
+        updatedAt: nowText(),
         applied: false,
         appliedAt: ''
       };
@@ -1170,9 +1199,24 @@ function App() {
         ? `维度表文件库已读取：${displayFileName}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行，请点击应用刷新同步。`
         : `维度表文件库已读取：${displayFileName}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行；文件较大，已保留预览信息但浏览器缓存保存失败。`);
       if (options.autoApply) {
-        await applyDimensionSlot(slotId, { autoApplied: true, fileName: displayFileName });
+        setSlotProgress({ status: 'running', percent: 88, label: '自动应用', detail: '正在上传腾讯云服务器并应用刷新。' });
+        const applied = await applyDimensionSlot(slotId, { autoApplied: true, fileName: displayFileName });
+        if (!applied) {
+          setSlotProgress({ status: 'error', percent: 100, label: '应用失败', detail: '最新文件已解析，但上传腾讯云服务器应用刷新失败。' });
+          return;
+        }
+        setSlotProgress({ status: 'success', percent: 100, label: '更新完成', detail: '最新文件已解析并应用到腾讯云服务器。' });
+      } else {
+        setSlotProgress({ status: 'success', percent: 100, label: '解析完成', detail: '最新文件已解析，请点击应用刷新同步到服务器。' });
       }
+      clearSlotProgressLater();
     } catch (error) {
+      setSlotProgress({
+        status: 'error',
+        percent: 100,
+        label: '解析失败',
+        detail: error?.message || '请检查文件格式、工作表内容或表头位置。'
+      });
       setMessage(`维度表文件库读取失败：${error?.message || '请检查文件格式、工作表内容或表头位置。'}`);
     } finally {
       setSavingId((current) => (current === uploadingKey ? '' : current));
@@ -1185,16 +1229,16 @@ function App() {
     const existing = currentLibrary[slotId];
     if (!existing) {
       setMessage('该槽位暂无可应用文件。');
-      return;
+      return false;
     }
     const pendingFile = currentPendingFiles[slotId];
     if (!STATIC_MODE && !pendingFile && !existing.storedFileName) {
       setMessage('请先重新上传维度表文件，再应用刷新到服务器。');
-      return;
+      return false;
     }
     if (!STATIC_MODE && !pendingFile && existing.applied) {
       setMessage(`${existing.fileName} 已是服务器当前应用文件。`);
-      return;
+      return true;
     }
     const next = {
       ...currentLibrary,
@@ -1210,7 +1254,7 @@ function App() {
         return pending;
       });
       setMessage(saved ? `${existing.fileName} 已应用刷新。` : `${existing.fileName} 已应用刷新，但浏览器缓存保存失败。`);
-      return;
+      return saved;
     }
     setSavingId(slotId);
     const form = new FormData();
@@ -1225,7 +1269,7 @@ function App() {
     if (!res.ok) {
       const payload = await res.json().catch(() => ({}));
       setMessage(payload.error || `${existing.fileName} 应用刷新失败，服务器未保存。`);
-      return;
+      return false;
     }
     const payload = await res.json();
     const library = normalizeDimensionLibrary(payload.library || {});
@@ -1239,6 +1283,7 @@ function App() {
     setMessage(options.autoApplied
       ? `${options.fileName || existing.fileName} 已替换并自动应用到腾讯云服务器。`
       : `${existing.fileName} 已上传到腾讯云服务器并应用，其他用户可读取最新文件。`);
+    return true;
   }
 
   async function deleteDimensionSlot(slotId) {
@@ -2710,6 +2755,7 @@ function App() {
             slots={DIMENSION_LIBRARY_SLOTS}
             library={dimensionLibrary}
             loading={dimensionLibraryLoading}
+            uploadProgress={dimensionUploadProgress}
             savingId={savingId}
             onRefresh={updateDimensionLibraryFromServer}
             onSync={syncDimensionLibraryFromServer}

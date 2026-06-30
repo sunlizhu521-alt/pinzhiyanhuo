@@ -1220,6 +1220,64 @@ th {
   font-size: 13px;
 }
 
+.dimension-upload-progress {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: 13px;
+}
+
+.dimension-upload-progress.success {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.dimension-upload-progress.error {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.dimension-upload-progress-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.dimension-upload-progress-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(30, 64, 175, .16);
+}
+
+.dimension-upload-progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #2563eb;
+  transition: width .2s ease;
+}
+
+.dimension-upload-progress.success .dimension-upload-progress-bar span {
+  background: #16a34a;
+}
+
+.dimension-upload-progress.error .dimension-upload-progress-bar span {
+  background: #dc2626;
+}
+
+.dimension-upload-progress p {
+  margin: 0;
+  line-height: 1.45;
+}
+
 .dimension-sheet-list {
   display: grid;
   gap: 10px;
