@@ -1111,7 +1111,7 @@ function App() {
     setMessage(`验货信息初始数据已读取：成功 ${payload.importedCount || 0} 行。`);
   }
 
-  async function uploadDimensionSlot(slotId, files) {
+  async function uploadDimensionSlot(slotId, files, options = {}) {
     const file = files?.[0];
     if (!file) return;
     const displayFileName = fixMojibakeText(file.name);
@@ -1169,6 +1169,9 @@ function App() {
       setMessage(saved
         ? `维度表文件库已读取：${displayFileName}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行，请点击应用刷新同步。`
         : `维度表文件库已读取：${displayFileName}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行；文件较大，已保留预览信息但浏览器缓存保存失败。`);
+      if (options.autoApply) {
+        await applyDimensionSlot(slotId, { autoApplied: true, fileName: displayFileName });
+      }
     } catch (error) {
       setMessage(`维度表文件库读取失败：${error?.message || '请检查文件格式、工作表内容或表头位置。'}`);
     } finally {
@@ -1176,7 +1179,7 @@ function App() {
     }
   }
 
-  async function applyDimensionSlot(slotId) {
+  async function applyDimensionSlot(slotId, options = {}) {
     const currentLibrary = dimensionLibraryRef.current || dimensionLibrary;
     const currentPendingFiles = dimensionPendingFilesRef.current || dimensionPendingFiles;
     const existing = currentLibrary[slotId];
@@ -1233,7 +1236,9 @@ function App() {
       dimensionPendingFilesRef.current = pending;
       return pending;
     });
-    setMessage(`${existing.fileName} 已上传到腾讯云服务器并应用，其他用户可读取最新文件。`);
+    setMessage(options.autoApplied
+      ? `${options.fileName || existing.fileName} 已替换并自动应用到腾讯云服务器。`
+      : `${existing.fileName} 已上传到腾讯云服务器并应用，其他用户可读取最新文件。`);
   }
 
   async function deleteDimensionSlot(slotId) {
