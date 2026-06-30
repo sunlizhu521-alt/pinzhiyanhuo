@@ -194,6 +194,17 @@ let dbReady = false;
 async function ensureDb() {
   if (!dbReady) {
     await initDatabase();
+    // 启动时自动备份数据库，防止代码bug导致数据损坏
+    try {
+      const { copyFileSync, existsSync } = await import('node:fs');
+      const dbFile = path.join(dataDir, 'db.sqlite');
+      const backupFile = path.join(dataDir, 'db.backup.sqlite');
+      if (existsSync(dbFile)) {
+        copyFileSync(dbFile, backupFile);
+      }
+    } catch {
+      // 备份失败不阻塞启动
+    }
     dbReady = true;
     deleteExpiredSessions();
   }
