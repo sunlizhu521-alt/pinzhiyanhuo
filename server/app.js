@@ -458,10 +458,19 @@ async function recoverDimensionLibraryRecordsFromUploadedFiles(db, force = false
     ...(db.qualityInspection.dimensionLibrary || {})
   };
   let changed = false;
-  latest.forEach(({ storedFileName, info }, slotId) => {
+  for (const [slotId, { storedFileName, info }] of latest.entries()) {
     const existing = db.qualityInspection.dimensionLibrary[slotId] || {};
-    if (!force && existing.storedFileName) return;
-    if (!force && existing.storedFileName === storedFileName && existing.fileUrl) return;
+    const existingStoredName = existing.storedFileName || '';
+    const existingFileExists = existingStoredName
+      ? await stat(dimensionFilePath(existingStoredName)).catch(() => null)
+      : null;
+
+    // The database record is the source of truth. Sync should rebuild/refresh the
+    // applied record, not replace it with an older test file that happens to have
+    // the newest filesystem mtime in data/dimension-uploads.
+    if (existingStoredName && existingFileExists) continue;
+    if (!force && existingStoredName) continue;
+    if (!force && existingStoredName === storedFileName && existing.fileUrl) continue;
     if (force || existing.storedFileName !== storedFileName || !existing.fileUrl) {
       const recoveredAt = format(info.mtime, 'yyyy-MM-dd HH:mm:ss');
       const storedChanged = existing.storedFileName !== storedFileName;
@@ -481,7 +490,7 @@ async function recoverDimensionLibraryRecordsFromUploadedFiles(db, force = false
       };
       changed = true;
     }
-  });
+  }
   return changed;
 }
 
@@ -1243,7 +1252,7 @@ app.post('/api/quality-inspection/dimension-library/:slotId/apply', requireAuth,
 
   const existing = db.qualityInspection.dimensionLibrary?.[slotId] || {};
   const previousStoredName = existing.storedFileName || '';
-  const originalName = fixMojibakeText(req.file.originalname || '');
+  const originalName = fixUploadFileName(req.file.originalname || record.fileName || '');
   const storedName = await uniqueDimensionUploadName(`${slotId}-${originalName || `file-${Date.now()}`}`);
   await rename(req.file.path, dimensionFilePath(storedName));
 
