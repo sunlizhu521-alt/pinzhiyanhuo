@@ -914,11 +914,34 @@ function App() {
   }
 
   async function updateDimensionLibraryFromServer() {
+    if (STATIC_MODE) {
+      const library = readDimensionLibrary();
+      setDimensionLibrary(library);
+      const appliedCount = DIMENSION_LIBRARY_SLOTS.filter((slot) => library?.[slot.id]?.applied).length;
+      setMessage(`维度表文件库已更新：当前已应用 ${appliedCount} 个槽位。`);
+      return;
+    }
     setSavingId('dimensionLibraryUpdate');
-    const library = await refreshDimensionLibrary({ silent: true });
+    setDimensionLibraryLoading(true);
+    const res = await authFetch(`${API}/api/quality-inspection/dimension-library/sync`, {
+      method: 'POST',
+      cache: 'no-store'
+    });
     setSavingId('');
+    setDimensionLibraryLoading(false);
+    if (!res.ok) {
+      setMessage('维度表文件库更新失败，请稍后重试。');
+      return;
+    }
+    const payload = await res.json();
+    const library = normalizeDimensionLibrary(payload.library || {});
+    dimensionLibraryRef.current = library;
+    dimensionPendingFilesRef.current = {};
+    setDimensionLibrary(library);
+    setDimensionPendingFiles({});
+    clearDimensionLibraryCache();
     const appliedCount = DIMENSION_LIBRARY_SLOTS.filter((slot) => library?.[slot.id]?.applied).length;
-    setMessage(`维度表文件库已更新：当前已应用 ${appliedCount} 个槽位。`);
+    setMessage(`维度表文件库已更新并同步腾讯云数据：当前已应用 ${appliedCount} 个槽位。`);
   }
 
   function clearPendingDimensionSlot(slotId) {
