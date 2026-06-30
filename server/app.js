@@ -210,6 +210,29 @@ async function ensureDb() {
   }
 }
 
+setInterval(async () => {
+  try {
+    const { copyFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, statSync } = await import('node:fs');
+    const backupDir = path.join(dataDir, 'backups');
+    mkdirSync(backupDir, { recursive: true });
+    const dbFile = path.join(dataDir, 'db.sqlite');
+    if (!existsSync(dbFile)) return;
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+    const hourStr = String(now.getHours()).padStart(2, '0');
+    const backupFile = path.join(backupDir, `db-${dateStr}-${hourStr}.sqlite`);
+    copyFileSync(dbFile, backupFile);
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    readdirSync(backupDir).forEach((f) => {
+      if (f.endsWith('.sqlite') && statSync(path.join(backupDir, f)).mtimeMs < sevenDaysAgo) {
+        unlinkSync(path.join(backupDir, f));
+      }
+    });
+  } catch {
+    // 备份失败不影响服务
+  }
+}, 6 * 60 * 60 * 1000);
+
 async function readDb() {
   await ensureDb();
   const qualityInspection = {
