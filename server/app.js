@@ -1247,10 +1247,9 @@ app.post('/api/quality-inspection/initial-data/import', requireAuth, requirePage
 app.get('/api/quality-inspection/dimension-library', requireAuth, requirePages('dimensionLibrary', 'inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'reworkRecords', 'inspectionReportLibrary', 'inspectionReportQuery', 'inspectionSummary', 'inspectionLedger'), async (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   const db = await readDb();
-  const recovered = await recoverDimensionLibraryRecordsFromUploadedFiles(db);
   const fileDataUpdated = ensureDimensionLibraryFileDataCache(db);
   const productCacheUpdated = await ensureProductCategoryOptionCache(db);
-  if (recovered || fileDataUpdated || productCacheUpdated) await saveDb(db);
+  if (fileDataUpdated || productCacheUpdated) await saveDb(db);
   const library = db.qualityInspection.dimensionLibrary || {};
   if (!hasPageAccess(req.authUser, 'dimensionLibrary')) {
     const productCategory = library[PRODUCT_CATEGORY_SLOT_ID] || {};
