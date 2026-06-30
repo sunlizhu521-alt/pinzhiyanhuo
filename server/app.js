@@ -8,7 +8,7 @@ import rateLimit from 'express-rate-limit';
 import { format } from 'date-fns';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
-import { initDatabase, getUsers, getUserByName, getUserById, upsertUser, createUser, deleteUser, getSessions, setSession, deleteSession, deleteSessionsByUserId, getNotices, saveNotices, getSchedule, saveSchedule, deleteSchedule, getReport, saveReport, deleteReport, getFeedback, saveFeedback, deleteFeedback, getDimensionLibrary, saveDimensionLibrary, deleteDimensionLibrary, getInitialData, saveInitialData } from './database.js';
+import { initDatabase, getUsers, getUserByName, getUserById, upsertUser, createUser, deleteUser, getSessions, setSession, deleteSession, deleteSessionsByUserId, getNotices, saveNotices, getSchedule, saveSchedule, deleteSchedule, getReport, saveReport, deleteReport, getFeedback, saveFeedback, deleteFeedback, getDimensionLibrary, saveDimensionLibrary, deleteDimensionLibrary, getInitialData, saveInitialData, getSchedulesBatch, getReportsBatch, getFeedbacksBatch, deleteExpiredSessions } from './database.js';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
 import { fileURLToPath } from 'node:url';
@@ -210,10 +210,14 @@ async function readDb() {
   };
   // schedules/reports/feedback are loaded for known notice rows to keep the old object shape.
   const noticesRows = qualityInspection.notices.rows || [];
+  const noticeIds = noticesRows.map((row) => row.id).filter(Boolean);
+  const schedules = getSchedulesBatch(noticeIds);
+  const reports = getReportsBatch(noticeIds);
+  const feedback = getFeedbacksBatch(noticeIds);
   noticesRows.forEach((row) => {
-    qualityInspection.schedules[row.id] = getSchedule(row.id);
-    qualityInspection.reports[row.id] = getReport(row.id);
-    qualityInspection.feedback[row.id] = getFeedback(row.id);
+    qualityInspection.schedules[row.id] = schedules[row.id] || {};
+    qualityInspection.reports[row.id] = reports[row.id] || {};
+    qualityInspection.feedback[row.id] = feedback[row.id] || {};
   });
   return {
     users: getUsers(),

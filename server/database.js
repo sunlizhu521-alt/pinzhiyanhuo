@@ -226,6 +226,34 @@ export function deleteFeedback(id) {
   saveDb();
 }
 
+// Batch query helpers - avoid N+1 queries in readDb()
+export function getSchedulesBatch(ids) {
+  if (!ids || !ids.length) return {};
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = queryAll(`SELECT * FROM schedules WHERE id IN (${placeholders})`, ids);
+  const result = {};
+  rows.forEach((row) => { result[row.id] = JSON.parse(row.data); });
+  return result;
+}
+
+export function getReportsBatch(ids) {
+  if (!ids || !ids.length) return {};
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = queryAll(`SELECT * FROM reports WHERE id IN (${placeholders})`, ids);
+  const result = {};
+  rows.forEach((row) => { result[row.id] = JSON.parse(row.data); });
+  return result;
+}
+
+export function getFeedbacksBatch(ids) {
+  if (!ids || !ids.length) return {};
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = queryAll(`SELECT * FROM feedback WHERE id IN (${placeholders})`, ids);
+  const result = {};
+  rows.forEach((row) => { result[row.id] = JSON.parse(row.data); });
+  return result;
+}
+
 export function getDimensionLibrary() {
   const rows = queryAll('SELECT * FROM dimension_library');
   const library = {};
@@ -258,4 +286,13 @@ export function saveInitialData(data) {
 function setMeta(key, value) {
   db.run('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', [key, value]);
   saveDb();
+}
+
+// Session cleanup - delete sessions older than maxAgeMs (default 7 days)
+export function deleteExpiredSessions(maxAgeMs = 7 * 24 * 60 * 60 * 1000) {
+  const cutoff = new Date(Date.now() - maxAgeMs).toISOString().replace('T', ' ').slice(0, 19);
+  db.run('DELETE FROM sessions WHERE created_at < ?', [cutoff]);
+  const changed = db.getRowsModified();
+  if (changed > 0) saveDb();
+  return changed;
 }
