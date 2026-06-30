@@ -623,6 +623,18 @@ function dimensionFilePath(fileName) {
   return path.join(dimensionUploadDir, path.basename(fileName || ''));
 }
 
+async function removeDimensionSlotFiles(slotId, keepFileName = '') {
+  const prefix = `${slotId}-`;
+  const keep = path.basename(keepFileName || '');
+  const entries = await readdir(dimensionUploadDir, { withFileTypes: true }).catch(() => []);
+  await Promise.all(entries.map(async (entry) => {
+    if (!entry.isFile()) return;
+    if (!entry.name.startsWith(prefix)) return;
+    if (keep && entry.name === keep) return;
+    await unlink(dimensionFilePath(entry.name)).catch(() => {});
+  }));
+}
+
 function preferredUploadName(fileName, fallback = 'report') {
   const ext = path.extname(fileName || '');
   const base = safeFileBaseName(path.basename(fileName || fallback, ext), fallback);
@@ -1326,6 +1338,7 @@ app.post('/api/quality-inspection/dimension-library/:slotId/apply', requireAuth,
   if (previousStoredName && previousStoredName !== storedName) {
     await unlink(dimensionFilePath(previousStoredName)).catch(() => {});
   }
+  await removeDimensionSlotFiles(slotId, storedName);
 
   const processedAt = nowText();
   const next = {
@@ -1357,6 +1370,7 @@ app.delete('/api/quality-inspection/dimension-library/:slotId', requireAuth, req
   const slotId = String(req.params.slotId || '').trim();
   const existing = db.qualityInspection.dimensionLibrary?.[slotId];
   if (existing?.storedFileName) await unlink(dimensionFilePath(existing.storedFileName)).catch(() => {});
+  await removeDimensionSlotFiles(slotId);
   db.qualityInspection.dimensionLibrary = { ...(db.qualityInspection.dimensionLibrary || {}) };
   delete db.qualityInspection.dimensionLibrary[slotId];
   await saveDb(db);
