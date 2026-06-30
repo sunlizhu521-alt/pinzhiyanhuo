@@ -1203,6 +1203,7 @@ app.get('/api/quality-inspection/dimension-library', requireAuth, requirePages('
           fileName: purchaseWorkDivision.fileName || '',
           applied: Boolean(purchaseWorkDivision.applied),
           appliedAt: purchaseWorkDivision.appliedAt || '',
+          supplierShortNames: purchaseWorkDivision.supplierShortNames || [],
           supplierAddressLookup: purchaseWorkDivision.supplierAddressLookup || []
         }
       }
