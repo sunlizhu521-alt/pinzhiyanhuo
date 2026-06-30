@@ -191,14 +191,22 @@ function normalizePageAccess(user) {
 
 let dbReady = false;
 
+// In-memory cache to avoid re-reading SQLite on every request
+let _dbCache = null;
+let _dbCacheTime = 0;
+const DB_CACHE_TTL = 3000;
+
 async function ensureDb() {
   if (!dbReady) {
     await initDatabase();
     dbReady = true;
+    deleteExpiredSessions();
   }
 }
 
 async function readDb() {
+  const now = Date.now();
+  if (_dbCache && (now - _dbCacheTime) < DB_CACHE_TTL) return _dbCache;
   await ensureDb();
   const qualityInspection = {
     initialData: getInitialData(),
@@ -219,16 +227,28 @@ async function readDb() {
     qualityInspection.reports[row.id] = reports[row.id] || {};
     qualityInspection.feedback[row.id] = feedback[row.id] || {};
   });
-  return {
-    users: getUsers(),
+  const db = {
+    users: getUsers().map(({ password, ...rest }) => rest),
     sessions: getSessions(),
     qualityInspection
   };
+  _dbCache = db;
+  _dbCacheTime = now;
+  return db;
 }
 
 async function saveDb(db) {
   await ensureDb();
-  if (db.users) db.users.forEach((u) => upsertUser(u));
+  if (db.users) {
+    db.users.forEach((u) => {
+      if (u.password) {
+        upsertUser(u);
+        return;
+      }
+      const existing = getUserById(u.id) || getUserByName(u.name);
+      if (existing) upsertUser({ ...existing, ...u, password: existing.password });
+    });
+  }
   if (db.sessions) {
     Object.entries(db.sessions).forEach(([token, s]) => setSession(token, s.userId, s.createdAt));
   }
@@ -242,6 +262,7 @@ async function saveDb(db) {
     else deleteDimensionLibrary(slotId);
   });
   if (qi?.initialData?.columns?.length) saveInitialData(qi.initialData);
+  _dbCache = null;
 }
 
 async function removeUploadedFile(file) {
@@ -1120,63 +1141,68 @@ app.get('/api/app-version', async (req, res) => {
 });
 
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
-  const db = await readDb();
+  await ensureDb();
   const name = String(req.body.name || '').trim();
   const password = String(req.body.password || '').trim();
-  const user = db.users.find((item) => item.name === name);
+  const user = getUserByName(name);
   if (!user || !(await verifyPassword(password, user.password))) {
     return res.status(401).json({ error: '账号或密码不正确' });
   }
   if (!isBcryptHash(user.password)) {
     user.password = await hashPassword(password);
-    await saveDb(db);
+    upsertUser(user);
+    _dbCache = null;
   }
   if (!isPrimaryAdminUser(user) && !(user.pageAccess || []).length) {
     return res.status(403).json({ error: '账号已注册，请等待管理员孙立柱授权页面后再登录' });
   }
   const token = randomUUID();
-  db.sessions[token] = { userId: user.id, createdAt: nowText() };
-  await saveDb(db);
+  setSession(token, user.id, nowText());
+  _dbCache = null;
   res.json({
     id: user.id,
     name: user.name,
     role: user.role,
-    pageAccess: (user.name === DEFAULT_ADMIN_USER.name || user.role === ROLE_ADMIN) ? PAGE_KEYS : (user.pageAccess || []),
+    pageAccess: (isPrimaryAdminUser(user) || user.role === ROLE_ADMIN) ? PAGE_KEYS : (user.pageAccess || []),
     token,
     mustResetPassword: !!user.mustResetPassword
   });
 });
 
 app.post('/api/auth/change-password', requireAuth, async (req, res) => {
-  const db = await readDb();
+  await ensureDb();
   const oldPassword = String(req.body.oldPassword || '');
   const newPassword = String(req.body.newPassword || '');
   if (!newPassword || newPassword.length < 4) return res.status(400).json({ error: '新密码至少4位' });
-  const user = db.users.find((item) => item.id === req.authUser.id);
+  const user = getUserById(req.authUser.id);
   if (!user) return res.status(404).json({ error: '用户不存在' });
   if (!user.mustResetPassword && !(await verifyPassword(oldPassword, user.password))) {
     return res.status(401).json({ error: '旧密码不正确' });
   }
   user.password = await hashPassword(newPassword);
   user.mustResetPassword = false;
-  await saveDb(db);
+  upsertUser(user);
+  _dbCache = null;
   res.json({ success: true });
 });
 
 app.post('/api/auth/register', registerLimiter, async (req, res) => {
-  const db = await readDb();
+  await ensureDb();
   const name = String(req.body.name || '').trim();
   const password = String(req.body.password || '').trim();
   if (!name || !password) return res.status(400).json({ error: '请输入姓名和密码' });
   if (password.length < 4) return res.status(400).json({ error: '密码至少4位' });
-  if (db.users.some((user) => user.name === name)) return res.status(409).json({ error: '该姓名已存在' });
+  if (getUserByName(name)) return res.status(409).json({ error: '该姓名已存在' });
   const hashedPassword = await hashPassword(password);
-  const user = { id: randomUUID(), name, password: hashedPassword, role: ROLE_USER, pageAccess: [], mustResetPassword: true };
-  db.users.push(user);
-  await saveDb(db);
-  res.json({ id: user.id, name: user.name, role: user.role, pageAccess: user.pageAccess || [], mustResetPassword: true });
+  const id = randomUUID();
+  createUser({ id, name, password: hashedPassword, role: ROLE_USER, pageAccess: [], mustResetPassword: true });
+  _dbCache = null;
+  res.json({ id, name, role: ROLE_USER, pageAccess: [], mustResetPassword: true });
 });
 
+app.post('/api/auth/register-legacy-disabled', registerLimiter, async (req, res) => {
+  res.status(410).json({ error: 'register legacy route disabled' });
+});
 app.get('/api/auth/users', requireAuth, requirePages('permissionManagement'), requireRoles(ROLE_ADMIN), async (req, res) => {
   const db = await readDb();
   res.json({
