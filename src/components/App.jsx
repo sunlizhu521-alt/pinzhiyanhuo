@@ -930,7 +930,8 @@ function App() {
     setSavingId('');
     setDimensionLibraryLoading(false);
     if (!res.ok) {
-      setMessage('维度表文件库更新失败，请稍后重试。');
+      const payload = await res.json().catch(() => ({}));
+      setMessage(payload.error || '维度表文件库更新失败，请稍后重试。');
       return;
     }
     const payload = await res.json();

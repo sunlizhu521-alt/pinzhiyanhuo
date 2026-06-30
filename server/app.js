@@ -205,7 +205,10 @@ async function saveDb(db) {
   if (qi?.schedules) Object.entries(qi.schedules).forEach(([id, data]) => { if (Object.keys(data).length) saveSchedule(id, data); });
   if (qi?.reports) Object.entries(qi.reports).forEach(([id, data]) => { if (Object.keys(data).length) saveReport(id, data); });
   if (qi?.feedback) Object.entries(qi.feedback).forEach(([id, data]) => { if (Object.keys(data).length) saveFeedback(id, data); });
-  if (qi?.dimensionLibrary) Object.entries(qi.dimensionLibrary).forEach(([slotId, data]) => saveDimensionLibrary(slotId, data));
+  if (qi?.dimensionLibrary) Object.entries(qi.dimensionLibrary).forEach(([slotId, data]) => {
+    if (data && Object.keys(data).length) saveDimensionLibrary(slotId, data);
+    else deleteDimensionLibrary(slotId);
+  });
   if (qi?.initialData?.columns?.length) saveInitialData(qi.initialData);
 }
 
@@ -403,6 +406,7 @@ function ensureDimensionLibraryFileDataCache(db, force = false) {
   const library = db.qualityInspection.dimensionLibrary || {};
   let changed = false;
   Object.entries(library).forEach(([slotId, record]) => {
+    if (!record || typeof record !== 'object') return;
     const needsSupplierCache = slotId === PURCHASE_WORK_DIVISION_SLOT_ID
       && (!Array.isArray(record.supplierShortNames) || !record.supplierShortNames.length);
     if (!record?.storedFileName || (!force && !dimensionRecordNeedsFileData(record) && !needsSupplierCache)) return;
@@ -1278,13 +1282,19 @@ app.get('/api/quality-inspection/dimension-library', requireAuth, requirePages('
 
 app.post('/api/quality-inspection/dimension-library/sync', requireAuth, requirePages('dimensionLibrary'), async (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-  const db = await readDb();
-  const recovered = await recoverDimensionLibraryRecordsFromUploadedFiles(db, true);
-  const fileDataUpdated = ensureDimensionLibraryFileDataCache(db, true);
-  const productCacheUpdated = await ensureProductCategoryOptionCache(db);
-  const updated = recovered || fileDataUpdated || productCacheUpdated;
-  if (updated) await saveDb(db);
-  res.json({ library: db.qualityInspection.dimensionLibrary || {}, updated, recovered });
+  try {
+    const db = await readDb();
+    const recovered = await recoverDimensionLibraryRecordsFromUploadedFiles(db, true);
+    const fileDataUpdated = ensureDimensionLibraryFileDataCache(db, true);
+    const productCacheUpdated = await ensureProductCategoryOptionCache(db);
+    const updated = recovered || fileDataUpdated || productCacheUpdated;
+    if (updated) await saveDb(db);
+    res.json({ library: db.qualityInspection.dimensionLibrary || {}, updated, recovered });
+  } catch (error) {
+    res.status(500).json({
+      error: `维度表文件库更新失败：${error?.message || '服务器同步异常'}`
+    });
+  }
 });
 
 app.post('/api/quality-inspection/dimension-library/:slotId/apply', requireAuth, requirePages('dimensionLibrary'), dimensionUpload.single('file'), async (req, res) => {
