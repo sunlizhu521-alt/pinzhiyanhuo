@@ -443,12 +443,35 @@ async function latestDimensionUploadsBySlot() {
     if (!slotId) return;
     const info = await stat(dimensionFilePath(storedFileName)).catch(() => null);
     if (!info) return;
+    let preview = null;
+    try {
+      preview = parseDimensionWorkbookPreview(storedFileName);
+    } catch {
+      preview = null;
+    }
+    const score = dimensionRecordQualityScore({
+      ...(preview || {}),
+      fileName: dimensionFileDisplayName(slotId, storedFileName),
+      storedFileName
+    });
     const existing = latest.get(slotId);
-    if (!existing || info.mtimeMs > existing.info.mtimeMs) {
-      latest.set(slotId, { storedFileName, info });
+    if (!existing || score > existing.score || (score === existing.score && info.mtimeMs > existing.info.mtimeMs)) {
+      latest.set(slotId, { storedFileName, info, preview, score });
     }
   }));
   return latest;
+}
+
+function dimensionRecordQualityScore(record = {}) {
+  const importedCount = Number(record.importedCount || 0);
+  const sheetCount = Number(record.sheetCount || 0);
+  const previewCount = Number(record.previewCount || 0);
+  return importedCount + (sheetCount * 100) + previewCount;
+}
+
+function isTestDimensionRecord(record = {}) {
+  const text = `${record.fileName || ''} ${record.storedFileName || ''}`.toLowerCase();
+  return text.includes('test-dimension');
 }
 
 async function recoverDimensionLibraryRecordsFromUploadedFiles(db, force = false) {
@@ -458,17 +481,35 @@ async function recoverDimensionLibraryRecordsFromUploadedFiles(db, force = false
     ...(db.qualityInspection.dimensionLibrary || {})
   };
   let changed = false;
-  for (const [slotId, { storedFileName, info }] of latest.entries()) {
+  for (const [slotId, { storedFileName, info, preview }] of latest.entries()) {
     const existing = db.qualityInspection.dimensionLibrary[slotId] || {};
     const existingStoredName = existing.storedFileName || '';
     const existingFileExists = existingStoredName
       ? await stat(dimensionFilePath(existingStoredName)).catch(() => null)
       : null;
 
-    // The database record is the source of truth. Sync should rebuild/refresh the
-    // applied record, not replace it with an older test file that happens to have
-    // the newest filesystem mtime in data/dimension-uploads.
-    if (existingStoredName && existingFileExists) continue;
+    let latestPreview = preview || null;
+    if (force && existingStoredName && existingFileExists && existingStoredName !== storedFileName) {
+      try {
+        latestPreview = parseDimensionWorkbookPreview(storedFileName);
+      } catch {
+        latestPreview = null;
+      }
+      const latestDisplayRecord = {
+        ...latestPreview,
+        fileName: dimensionFileDisplayName(slotId, storedFileName),
+        storedFileName
+      };
+      const shouldKeepExisting = !isTestDimensionRecord(existing)
+        && dimensionRecordQualityScore(existing) >= dimensionRecordQualityScore(latestDisplayRecord);
+
+      // The database record is the source of truth. During manual sync, only
+      // recover a different uploaded file when it is clearly better than the
+      // current record, or when the current record is the old test placeholder.
+      if (shouldKeepExisting) continue;
+    } else if (existingStoredName && existingFileExists) {
+      continue;
+    }
     if (!force && existingStoredName) continue;
     if (!force && existingStoredName === storedFileName && existing.fileUrl) continue;
     if (force || existing.storedFileName !== storedFileName || !existing.fileUrl) {
@@ -476,6 +517,7 @@ async function recoverDimensionLibraryRecordsFromUploadedFiles(db, force = false
       const storedChanged = existing.storedFileName !== storedFileName;
       db.qualityInspection.dimensionLibrary[slotId] = {
         ...existing,
+        ...(latestPreview || {}),
         id: slotId,
         fileName: storedChanged ? dimensionFileDisplayName(slotId, storedFileName) : existing.fileName || dimensionFileDisplayName(slotId, storedFileName),
         storedFileName,
