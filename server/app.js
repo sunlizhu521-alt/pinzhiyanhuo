@@ -191,11 +191,6 @@ function normalizePageAccess(user) {
 
 let dbReady = false;
 
-// In-memory cache to avoid re-reading SQLite on every request
-let _dbCache = null;
-let _dbCacheTime = 0;
-const DB_CACHE_TTL = 3000;
-
 async function ensureDb() {
   if (!dbReady) {
     await initDatabase();
@@ -205,8 +200,6 @@ async function ensureDb() {
 }
 
 async function readDb() {
-  const now = Date.now();
-  if (_dbCache && (now - _dbCacheTime) < DB_CACHE_TTL) return _dbCache;
   await ensureDb();
   const qualityInspection = {
     initialData: getInitialData(),
@@ -227,14 +220,11 @@ async function readDb() {
     qualityInspection.reports[row.id] = reports[row.id] || {};
     qualityInspection.feedback[row.id] = feedback[row.id] || {};
   });
-  const db = {
+  return {
     users: getUsers().map(({ password, ...rest }) => rest),
     sessions: getSessions(),
     qualityInspection
   };
-  _dbCache = db;
-  _dbCacheTime = now;
-  return db;
 }
 
 async function saveDb(db) {
@@ -262,7 +252,6 @@ async function saveDb(db) {
     else deleteDimensionLibrary(slotId);
   });
   if (qi?.initialData?.columns?.length) saveInitialData(qi.initialData);
-  _dbCache = null;
 }
 
 async function removeUploadedFile(file) {
@@ -1151,14 +1140,12 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
   if (!isBcryptHash(user.password)) {
     user.password = await hashPassword(password);
     upsertUser(user);
-    _dbCache = null;
   }
   if (!isPrimaryAdminUser(user) && !(user.pageAccess || []).length) {
     return res.status(403).json({ error: '账号已注册，请等待管理员孙立柱授权页面后再登录' });
   }
   const token = randomUUID();
   setSession(token, user.id, nowText());
-  _dbCache = null;
   res.json({
     id: user.id,
     name: user.name,
@@ -1182,7 +1169,6 @@ app.post('/api/auth/change-password', requireAuth, async (req, res) => {
   user.password = await hashPassword(newPassword);
   user.mustResetPassword = false;
   upsertUser(user);
-  _dbCache = null;
   res.json({ success: true });
 });
 
@@ -1196,7 +1182,6 @@ app.post('/api/auth/register', registerLimiter, async (req, res) => {
   const hashedPassword = await hashPassword(password);
   const id = randomUUID();
   createUser({ id, name, password: hashedPassword, role: ROLE_USER, pageAccess: [], mustResetPassword: true });
-  _dbCache = null;
   res.json({ id, name, role: ROLE_USER, pageAccess: [], mustResetPassword: true });
 });
 
