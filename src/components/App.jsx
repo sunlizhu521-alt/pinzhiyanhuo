@@ -1167,7 +1167,7 @@ function App() {
     const file = files?.[0];
     if (!file) return;
     const displayFileName = fixMojibakeText(file.name);
-    const shouldAutoApply = options.autoApply !== false;
+    const shouldAutoApply = options.autoApply === true;
     const uploadingKey = `dimensionUpload:${slotId}`;
     const setSlotProgress = (progress) => {
       setDimensionSlotProgress(slotId, displayFileName, progress);
@@ -1223,6 +1223,8 @@ function App() {
         supplierAddressLookup,
         ...(slotId === PURCHASE_WORK_DIVISION_SLOT_ID ? { supplierShortNames } : {}),
         ...categoryOptions,
+        pendingName: displayFileName,
+        pendingFile: true,
         savedAt: nowText(),
         updatedAt: nowText(),
         applied: false,
@@ -1240,7 +1242,7 @@ function App() {
       setDimensionLibrary(next);
       setDimensionPendingFiles(pending);
       setMessage(saved
-        ? `维度表文件库已读取：${displayFileName}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行，正在自动应用刷新。`
+        ? `维度表文件库已读取：${displayFileName}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行。请确认预览后点击应用刷新。`
         : `维度表文件库已读取：${displayFileName}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行；文件较大，已保留预览信息但浏览器缓存保存失败。`);
       if (shouldAutoApply) {
         setSlotProgress({

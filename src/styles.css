@@ -1133,17 +1133,137 @@ th {
   color: #1e3a8a;
 }
 
+.dimension-library-page {
+  display: grid;
+  gap: 16px;
+}
+
+.dimension-library-top {
+  display: grid;
+  gap: 6px;
+}
+
+.dimension-library-top h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 24px;
+}
+
+.dimension-library-top p {
+  margin: 0;
+  color: #52637a;
+  font-size: 14px;
+}
+
+.dimension-library-summary {
+  padding: 18px;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, .05);
+}
+
+.dimension-summary-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.dimension-summary-eyebrow,
+.dimension-slot-card .slot-kicker {
+  display: block;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+
+.dimension-summary-head h3 {
+  margin: 4px 0 0;
+  color: #0f172a;
+  font-size: 20px;
+}
+
+.dimension-saved-badge,
+.dimension-slot-card .slot-state {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #047857;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.dimension-saved-badge.pending,
+.dimension-slot-card .slot-state.pending {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.dimension-slot-card .slot-state.empty {
+  background: #edf2f6;
+  color: #64748b;
+}
+
+.dimension-summary-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.dimension-summary-metrics div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.dimension-summary-metrics span {
+  display: block;
+  color: #667085;
+  font-size: 12px;
+}
+
+.dimension-summary-metrics strong {
+  display: block;
+  margin-top: 6px;
+  color: #1f2933;
+  overflow-wrap: anywhere;
+  font-size: 18px;
+}
+
+.dimension-summary-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.dimension-summary-toolbar span {
+  color: #667085;
+  font-size: 13px;
+}
+
 .dimension-library-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(240px, 1fr));
+  grid-template-columns: repeat(2, minmax(320px, 1fr));
   gap: 14px;
 }
 
 .dimension-slot-card {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   align-content: start;
-  padding: 14px;
+  min-height: 420px;
+  padding: 22px;
   border: 1px solid #dde5f0;
   border-radius: 8px;
   background: white;
@@ -1152,18 +1272,25 @@ th {
 
 .slot-head {
   display: flex;
-  align-items: start;
   justify-content: space-between;
   gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
 }
 
-.slot-head h3 {
-  margin: 2px 0 0;
+.dimension-slot-card h3 {
+  margin: 0;
+  color: #1f2933;
+  font-size: 18px;
+  line-height: 1.28;
 }
 
-.slot-kicker {
-  color: #64748b;
-  font-size: 12px;
+.slot-description {
+  min-height: 40px;
+  margin: 0 0 12px;
+  color: #667085;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .slot-state {
@@ -1186,12 +1313,14 @@ th {
 }
 
 .dimension-drop-zone {
-  min-height: 104px;
+  width: min(320px, 100%);
+  min-height: 112px;
   display: grid;
-  place-items: center;
-  gap: 6px;
-  margin: 0;
-  padding: 14px;
+  align-content: center;
+  justify-items: center;
+  gap: 7px;
+  margin: 0 0 12px;
+  padding: 18px;
   border: 1px dashed #9db4d5;
   border-radius: 8px;
   background: #f8fafc;
@@ -1212,6 +1341,9 @@ th {
 
 .dimension-drop-zone strong {
   color: #1e293b;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+  line-height: 1.35;
 }
 
 .dimension-drop-zone span {
@@ -1223,11 +1355,55 @@ th {
   display: none;
 }
 
+.dimension-slot-meta-grid {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.slot-info,
+.path-info,
+.parse-info {
+  margin-bottom: 8px;
+  padding: 9px 10px;
+  border: 1px solid #e5ebf3;
+  border-radius: 8px;
+  background: #fbfdff;
+}
+
 .slot-info {
-  display: grid;
-  gap: 4px;
-  color: #475569;
+  min-width: 96px;
+}
+
+.slot-info span,
+.path-info span,
+.parse-info span {
+  display: block;
+  color: #758799;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.slot-info strong,
+.path-info strong,
+.parse-info strong {
+  display: block;
+  margin-top: 4px;
+  color: #263241;
+  overflow-wrap: anywhere;
   font-size: 13px;
+  line-height: 1.35;
+}
+
+.path-info small,
+.parse-info small {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .dimension-upload-progress {
