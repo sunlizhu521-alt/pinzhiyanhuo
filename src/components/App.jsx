@@ -1167,7 +1167,7 @@ function App() {
     const file = files?.[0];
     if (!file) return;
     const displayFileName = fixMojibakeText(file.name);
-    const shouldAutoApply = options.autoApply === true;
+    const shouldAutoApply = options.autoApply !== false;
     const uploadingKey = `dimensionUpload:${slotId}`;
     const setSlotProgress = (progress) => {
       setDimensionSlotProgress(slotId, displayFileName, progress);
@@ -1242,7 +1242,7 @@ function App() {
       setDimensionLibrary(next);
       setDimensionPendingFiles(pending);
       setMessage(saved
-        ? `维度表文件库已读取：${displayFileName}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行。请确认预览后点击应用刷新。`
+        ? `维度表文件库已读取：${displayFileName}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行。正在上传并应用到服务器。`
         : `维度表文件库已读取：${displayFileName}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行；文件较大，已保留预览信息但浏览器缓存保存失败。`);
       if (shouldAutoApply) {
         setSlotProgress({
@@ -1294,12 +1294,12 @@ function App() {
       return false;
     }
     const pendingFile = currentPendingFiles[slotId];
-    if (!STATIC_MODE && !pendingFile && !existing.storedFileName) {
-      setMessage('请先重新上传维度表文件，再应用刷新到服务器。');
-      return false;
-    }
-    if (!STATIC_MODE && !pendingFile && existing.applied) {
-      setMessage(`${existing.fileName} 已是服务器当前应用文件。`);
+    if (!STATIC_MODE && !pendingFile) {
+      if (!existing.storedFileName) {
+        setMessage('请先重新上传维度表文件，再应用刷新到服务器。');
+        return false;
+      }
+      setMessage(`${existing.fileName} 已是服务器当前应用文件。如需更新，请点击上传或替换文件。`);
       return true;
     }
     const progressFileName = pendingFile?.name || existing.fileName || `dimension-${Date.now()}`;
@@ -1330,7 +1330,7 @@ function App() {
     }
     setSavingId(slotId);
     const form = new FormData();
-    const uploadFileName = fixMojibakeText(pendingFile.name) || existing.fileName || `dimension-${Date.now()}`;
+    const uploadFileName = fixMojibakeText(pendingFile?.name) || existing.fileName || `dimension-${Date.now()}`;
     form.append('file', pendingFile, uploadFileName);
     form.append('record', JSON.stringify(next[slotId]));
     setDimensionSlotProgress(slotId, uploadFileName, {
@@ -1393,7 +1393,8 @@ function App() {
     const res = await authFetch(`${API}/api/quality-inspection/dimension-library/${encodeURIComponent(slotId)}`, { method: 'DELETE' });
     setSavingId('');
     if (!res.ok) {
-      setMessage('维度表槽位删除失败。');
+      const payload = await res.json().catch(() => ({}));
+      setMessage(payload.error || '维度表槽位删除失败。');
       return;
     }
     const payload = await res.json();
@@ -2842,7 +2843,7 @@ function App() {
             savingId={savingId}
             onRefresh={updateDimensionLibraryFromServer}
             onSync={syncDimensionLibraryFromServer}
-            onUpload={uploadDimensionSlot}
+            onUpload={(slotId, files) => uploadDimensionSlot(slotId, files, { autoApply: true })}
             onApply={applyDimensionSlot}
             onDelete={deleteDimensionSlot}
           />

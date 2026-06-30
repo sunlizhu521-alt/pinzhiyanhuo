@@ -1376,7 +1376,7 @@ app.post('/api/quality-inspection/dimension-library/:slotId/apply', requireAuth,
   res.json({ library: db.qualityInspection.dimensionLibrary, record: next });
 });
 
-app.delete('/api/quality-inspection/dimension-library/:slotId', requireAuth, requirePages('dimensionLibrary'), async (req, res) => {
+app.delete('/api/quality-inspection/dimension-library/:slotId', requireAuth, requirePages('dimensionLibrary'), requirePrimaryAdmin, async (req, res) => {
   const db = await readDb();
   const slotId = String(req.params.slotId || '').trim();
   const existing = db.qualityInspection.dimensionLibrary?.[slotId];
@@ -1385,6 +1385,7 @@ app.delete('/api/quality-inspection/dimension-library/:slotId', requireAuth, req
   db.qualityInspection.dimensionLibrary = { ...(db.qualityInspection.dimensionLibrary || {}) };
   delete db.qualityInspection.dimensionLibrary[slotId];
   deleteDimensionLibrary(slotId);
+  await saveDb(db);
   res.json({ library: db.qualityInspection.dimensionLibrary });
 });
 
