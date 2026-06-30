@@ -1259,6 +1259,7 @@ app.post('/api/quality-inspection/dimension-library/:slotId/apply', requireAuth,
     await unlink(dimensionFilePath(previousStoredName)).catch(() => {});
   }
 
+  const processedAt = nowText();
   const next = {
     ...record,
     ...parsedRecord,
@@ -1270,9 +1271,9 @@ app.post('/api/quality-inspection/dimension-library/:slotId/apply', requireAuth,
     fileSize: req.file.size || record.fileSize || 0,
     fileType: req.file.mimetype || record.fileType || '未知类型',
     applied: true,
-    appliedAt: nowText(),
-    savedAt: record.savedAt || nowText(),
-    updatedAt: nowText(),
+    appliedAt: processedAt,
+    savedAt: processedAt,
+    updatedAt: processedAt,
     updatedBy: req.authUser.name
   };
   db.qualityInspection.dimensionLibrary = {

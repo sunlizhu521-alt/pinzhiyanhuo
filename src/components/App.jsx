@@ -921,6 +921,13 @@ function App() {
     setMessage(`维度表文件库已更新：当前已应用 ${appliedCount} 个槽位。`);
   }
 
+  function clearPendingDimensionSlot(slotId) {
+    const pending = { ...(dimensionPendingFilesRef.current || {}) };
+    delete pending[slotId];
+    dimensionPendingFilesRef.current = pending;
+    setDimensionPendingFiles(pending);
+  }
+
   async function refreshPermissionUsers() {
     if (STATIC_MODE) {
       setPermissionUsers(readStaticDb().users || []);
@@ -1267,11 +1274,7 @@ function App() {
       const saved = saveDimensionLibrary(next);
       dimensionLibraryRef.current = next;
       setDimensionLibrary(next);
-      setDimensionPendingFiles((current) => {
-        const pending = { ...current, [slotId]: null };
-        dimensionPendingFilesRef.current = pending;
-        return pending;
-      });
+      clearPendingDimensionSlot(slotId);
       setMessage(saved ? `${existing.fileName} 已应用刷新。` : `${existing.fileName} 已应用刷新，但浏览器缓存保存失败。`);
       return saved;
     }
@@ -1294,11 +1297,8 @@ function App() {
     const library = normalizeDimensionLibrary(payload.library || {});
     dimensionLibraryRef.current = library;
     setDimensionLibrary(library);
-    setDimensionPendingFiles((current) => {
-      const pending = { ...current, [slotId]: null };
-      dimensionPendingFilesRef.current = pending;
-      return pending;
-    });
+    clearPendingDimensionSlot(slotId);
+    await refreshDimensionLibrary({ silent: true });
     setMessage(options.autoApplied
       ? `${options.fileName || existing.fileName} 已替换并自动应用到腾讯云服务器。`
       : `${existing.fileName} 已上传到腾讯云服务器并应用，其他用户可读取最新文件。`);
@@ -1315,11 +1315,7 @@ function App() {
       const saved = saveDimensionLibrary(next);
       dimensionLibraryRef.current = next;
       setDimensionLibrary(next);
-      setDimensionPendingFiles((current) => {
-        const pending = { ...current, [slotId]: null };
-        dimensionPendingFilesRef.current = pending;
-        return pending;
-      });
+      clearPendingDimensionSlot(slotId);
       setMessage(saved ? '已清除该维度表槽位。' : '已清除该维度表槽位，但浏览器缓存保存失败。');
       return;
     }
@@ -1334,11 +1330,7 @@ function App() {
     const library = normalizeDimensionLibrary(payload.library || {});
     dimensionLibraryRef.current = library;
     setDimensionLibrary(library);
-    setDimensionPendingFiles((current) => {
-      const pending = { ...current, [slotId]: null };
-      dimensionPendingFilesRef.current = pending;
-      return pending;
-    });
+    clearPendingDimensionSlot(slotId);
     setMessage('已清除该维度表槽位，服务器文件同步删除。');
   }
 
