@@ -1215,15 +1215,13 @@ function App() {
         });
         const applied = await applyDimensionSlot(slotId, { autoApplied: true, fileName: displayFileName });
         if (!applied) {
-          if (!STATIC_MODE) {
-            dimensionLibraryRef.current = currentLibrary;
-            setDimensionLibrary(currentLibrary);
-            const restoredPending = { ...(dimensionPendingFilesRef.current || dimensionPendingFiles) };
-            delete restoredPending[slotId];
-            dimensionPendingFilesRef.current = restoredPending;
-            setDimensionPendingFiles(restoredPending);
-          }
-          setSlotProgress({ status: 'error', percent: 100, label: '应用失败', detail: '最新文件已解析，但上传腾讯云服务器应用刷新失败。' });
+          setSlotProgress({
+            status: 'error',
+            percent: 100,
+            label: '应用失败',
+            detail: '最新文件已解析，但上传服务器失败。可点击下方"应用刷新"按钮重试，无需重新上传文件。'
+          });
+          setMessage('维度表应用刷新失败，文件预览已保留，请稍后点击"应用刷新"重试。');
           return;
         }
         setSlotProgress({
