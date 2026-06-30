@@ -1340,7 +1340,11 @@ app.post('/api/quality-inspection/dimension-library/:slotId/apply', requireAuth,
         supplierShortNames: buildSupplierShortNamesFromDimensionFile(storedName)
       };
     }
-  } catch {
+  } catch (parseErr) {
+    console.error('[dimension-apply] 解析失败:', parseErr?.message || parseErr);
+    console.error('[dimension-apply] slotId:', slotId);
+    console.error('[dimension-apply] storedName:', storedName);
+    console.error('[dimension-apply] filePath:', dimensionFilePath(storedName));
     await unlink(dimensionFilePath(storedName)).catch(() => {});
     return res.status(400).json({ error: '维度表文件解析失败，请检查文件格式、工作表内容或表头位置。' });
   }
