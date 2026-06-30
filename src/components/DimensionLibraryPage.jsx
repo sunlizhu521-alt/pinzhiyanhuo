@@ -51,6 +51,19 @@ function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loadin
             : sheetPreviews.map((sheet) => sheet.sheetName).filter(Boolean);
           const previewCount = sheetPreviews.reduce((sum, sheet) => sum + (sheet.rows?.length || 0), 0);
           const updatedAt = record?.updatedAt || record?.appliedAt || record?.savedAt || '';
+          const progressPercent = Math.max(0, Math.min(100, Number(progress?.percent) || 0));
+          const progressBlock = progress ? (
+            <div className={`dimension-upload-progress ${progress.status || 'running'}`}>
+              <div className="dimension-upload-progress-head">
+                <strong>{progress.label || '正在处理'}</strong>
+                <span>{progressPercent}%</span>
+              </div>
+              <div className="dimension-upload-progress-bar">
+                <span style={{ width: `${progressPercent}%` }} />
+              </div>
+              <p>{progress.fileName ? `${progress.fileName}：` : ''}{progress.detail || '正在解析文件，请稍候。'}</p>
+            </div>
+          ) : null;
           return (
             <article key={slot.id} className="dimension-slot-card">
               <div className="slot-head">
@@ -88,6 +101,7 @@ function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loadin
                 <strong>{isUploading ? '正在读取新文件' : record ? '替换维度表文件' : '上传维度表文件'}</strong>
                 <span>{isUploading ? '正在解析最新上传文件，请稍候' : '点击或拖拽 Excel / CSV 到此槽位'}</span>
               </label>
+              {progressBlock}
               {record ? (
                 <>
                   <div className="slot-info">
@@ -100,18 +114,6 @@ function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loadin
                     <span>保存：{record.savedAt}</span>
                     {record.appliedAt && <span>应用：{record.appliedAt}</span>}
                   </div>
-                  {progress && (
-                    <div className={`dimension-upload-progress ${progress.status || 'running'}`}>
-                      <div className="dimension-upload-progress-head">
-                        <strong>{progress.label || '正在处理'}</strong>
-                        <span>{Math.max(0, Math.min(100, Number(progress.percent) || 0))}%</span>
-                      </div>
-                      <div className="dimension-upload-progress-bar">
-                        <span style={{ width: `${Math.max(0, Math.min(100, Number(progress.percent) || 0))}%` }} />
-                      </div>
-                      <p>{progress.fileName ? `${progress.fileName}：` : ''}{progress.detail || '正在解析文件，请稍候。'}</p>
-                    </div>
-                  )}
                   <div className="dimension-sheet-list">
                     {sheetPreviews.map((sheet, sheetIndex) => {
                       const columns = sheet.columns?.length ? sheet.columns.slice(0, 8) : ['暂无字段'];

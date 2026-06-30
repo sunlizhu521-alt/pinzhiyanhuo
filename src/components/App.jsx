@@ -928,6 +928,26 @@ function App() {
     setDimensionPendingFiles(pending);
   }
 
+  function setDimensionSlotProgress(slotId, fileName, progress) {
+    setDimensionUploadProgress((current) => ({
+      ...current,
+      [slotId]: {
+        fileName: fixMojibakeText(fileName || ''),
+        ...progress
+      }
+    }));
+  }
+
+  function clearDimensionSlotProgressLater(slotId, delay = 3000) {
+    window.setTimeout(() => {
+      setDimensionUploadProgress((current) => {
+        const nextProgress = { ...current };
+        delete nextProgress[slotId];
+        return nextProgress;
+      });
+    }, delay);
+  }
+
   async function refreshPermissionUsers() {
     if (STATIC_MODE) {
       setPermissionUsers(readStaticDb().users || []);
@@ -1126,22 +1146,10 @@ function App() {
     const shouldAutoApply = options.autoApply !== false;
     const uploadingKey = `dimensionUpload:${slotId}`;
     const setSlotProgress = (progress) => {
-      setDimensionUploadProgress((current) => ({
-        ...current,
-        [slotId]: {
-          fileName: displayFileName,
-          ...progress
-        }
-      }));
+      setDimensionSlotProgress(slotId, displayFileName, progress);
     };
     const clearSlotProgressLater = () => {
-      window.setTimeout(() => {
-        setDimensionUploadProgress((current) => {
-          const nextProgress = { ...current };
-          delete nextProgress[slotId];
-          return nextProgress;
-        });
-      }, 3000);
+      clearDimensionSlotProgressLater(slotId);
     };
     setSavingId(uploadingKey);
     try {
@@ -1268,6 +1276,13 @@ function App() {
       setMessage(`${existing.fileName} 已是服务器当前应用文件。`);
       return true;
     }
+    const progressFileName = pendingFile?.name || existing.fileName || `dimension-${Date.now()}`;
+    setDimensionSlotProgress(slotId, progressFileName, {
+      status: 'running',
+      percent: options.autoApplied ? 88 : 72,
+      label: options.autoApplied ? '自动应用' : '应用刷新',
+      detail: STATIC_MODE ? '正在应用到本地预览文件库。' : '正在准备上传服务器并应用刷新。'
+    });
     const next = {
       ...currentLibrary,
       [slotId]: { ...existing, applied: true, appliedAt: nowText() }
@@ -1277,6 +1292,13 @@ function App() {
       dimensionLibraryRef.current = next;
       setDimensionLibrary(next);
       clearPendingDimensionSlot(slotId);
+      setDimensionSlotProgress(slotId, progressFileName, {
+        status: saved ? 'success' : 'error',
+        percent: 100,
+        label: saved ? '应用完成' : '应用失败',
+        detail: saved ? '已应用到本地预览文件库。' : '浏览器缓存保存失败，请重试。'
+      });
+      if (saved) clearDimensionSlotProgressLater(slotId);
       setMessage(saved ? `${existing.fileName} 已应用刷新。` : `${existing.fileName} 已应用刷新，但浏览器缓存保存失败。`);
       return saved;
     }
@@ -1285,6 +1307,12 @@ function App() {
     const uploadFileName = fixMojibakeText(pendingFile.name) || existing.fileName || `dimension-${Date.now()}`;
     form.append('file', pendingFile, uploadFileName);
     form.append('record', JSON.stringify(next[slotId]));
+    setDimensionSlotProgress(slotId, uploadFileName, {
+      status: 'running',
+      percent: options.autoApplied ? 92 : 86,
+      label: '上传服务器',
+      detail: '正在上传腾讯云服务器，服务器将重新解析并保存最新维度表。'
+    });
     const res = await authFetch(`${API}/api/quality-inspection/dimension-library/${encodeURIComponent(slotId)}/apply`, {
       method: 'POST',
       body: form
@@ -1292,6 +1320,13 @@ function App() {
     setSavingId('');
     if (!res.ok) {
       const payload = await res.json().catch(() => ({}));
+      const errorMessage = payload.error || `${existing.fileName} 应用刷新失败，服务器未保存。`;
+      setDimensionSlotProgress(slotId, uploadFileName, {
+        status: 'error',
+        percent: 100,
+        label: '应用失败',
+        detail: errorMessage
+      });
       setMessage(payload.error || `${existing.fileName} 应用刷新失败，服务器未保存。`);
       return false;
     }
@@ -1301,6 +1336,13 @@ function App() {
     setDimensionLibrary(library);
     clearPendingDimensionSlot(slotId);
     await refreshDimensionLibrary({ silent: true });
+    setDimensionSlotProgress(slotId, uploadFileName, {
+      status: 'success',
+      percent: 100,
+      label: '应用完成',
+      detail: '服务器已解析并应用最新维度表，其他用户刷新后可读取最新文件。'
+    });
+    clearDimensionSlotProgressLater(slotId);
     setMessage(options.autoApplied
       ? `${options.fileName || existing.fileName} 已替换并自动应用到腾讯云服务器。`
       : `${existing.fileName} 已上传到腾讯云服务器并应用，其他用户可读取最新文件。`);
