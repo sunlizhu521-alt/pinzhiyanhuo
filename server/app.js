@@ -1373,7 +1373,7 @@ app.delete('/api/quality-inspection/dimension-library/:slotId', requireAuth, req
   await removeDimensionSlotFiles(slotId);
   db.qualityInspection.dimensionLibrary = { ...(db.qualityInspection.dimensionLibrary || {}) };
   delete db.qualityInspection.dimensionLibrary[slotId];
-  await saveDb(db);
+  deleteDimensionLibrary(slotId);
   res.json({ library: db.qualityInspection.dimensionLibrary });
 });
 
