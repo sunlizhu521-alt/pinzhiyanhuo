@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { API, STATIC_MODE, DEFAULT_ADMIN_USER, ROLE_ADMIN, ROLE_USER, BUSINESS_DEPARTMENT_OPTIONS, NOTICE_FIELDS, MENU_PAGES, PAGE_OPTIONS, DIMENSION_LIBRARY_SLOTS, PRODUCT_CATEGORY_SLOT_ID, PURCHASE_WORK_DIVISION_SLOT_ID, RECORD_REFRESH_PAGES, DIMENSION_REFRESH_PAGES, REPORT_FILE_REFRESH_PAGES } from '../constants.js';
 import { createId, normalize, formatDate, nowText, splitMultiValue, joinBusinessDepartments, canAccessPage, homeTabForUser, isAdminUser, isPrimaryAdminUser, canReadClientRecord, createNoticeRow, feedbackReportNo, mergeNoticeRowsForImport } from '../utils.js';
 import { readStaticDb, saveStaticDb, readDimensionLibrary, saveDimensionLibrary, clearDimensionLibraryCache, readReportFileLibrary, saveReportFileLibrary, readStoredUser, saveStoredUser, clearStoredUser, composedStaticRecords, normalizeStaticDb, normalizeDimensionLibrary } from '../db-utils.js';
@@ -106,6 +106,8 @@ function App() {
   const [dimensionLibrary, setDimensionLibrary] = useState(() => STATIC_MODE ? readDimensionLibrary() : normalizeDimensionLibrary());
   const [dimensionLibraryLoading, setDimensionLibraryLoading] = useState(false);
   const [dimensionPendingFiles, setDimensionPendingFiles] = useState({});
+  const dimensionLibraryRef = useRef(dimensionLibrary);
+  const dimensionPendingFilesRef = useRef(dimensionPendingFiles);
   const [reportFiles, setReportFiles] = useState(() => STATIC_MODE ? readReportFileLibrary() : []);
   const [permissionUsers, setPermissionUsers] = useState([]);
   const [records, setRecords] = useState([]);
@@ -160,6 +162,14 @@ function App() {
   const schedulePageRecords = clearedScheduleSignature && clearedScheduleSignature === currentRecordSignature
     ? []
     : pendingScheduleRecords;
+
+  useEffect(() => {
+    dimensionLibraryRef.current = dimensionLibrary;
+  }, [dimensionLibrary]);
+
+  useEffect(() => {
+    dimensionPendingFilesRef.current = dimensionPendingFiles;
+  }, [dimensionPendingFiles]);
 
   function completeLogin(payload) {
     const nextUser = {
@@ -856,11 +866,12 @@ function App() {
       if (res.ok) {
         const serverLibrary = normalizeDimensionLibrary((await res.json()).library || {});
         const nextLibrary = { ...serverLibrary };
-        Object.entries(dimensionPendingFiles).forEach(([slotId, pendingFile]) => {
-          const pendingRecord = dimensionLibrary[slotId];
+        Object.entries(dimensionPendingFilesRef.current || {}).forEach(([slotId, pendingFile]) => {
+          const pendingRecord = dimensionLibraryRef.current?.[slotId];
           if (!pendingFile || !pendingRecord || pendingRecord.applied) return;
           nextLibrary[slotId] = pendingRecord;
         });
+        dimensionLibraryRef.current = nextLibrary;
         setDimensionLibrary(nextLibrary);
         clearDimensionLibraryCache();
         return nextLibrary;
@@ -892,6 +903,8 @@ function App() {
     }
     const payload = await res.json();
     const library = normalizeDimensionLibrary(payload.library || {});
+    dimensionLibraryRef.current = library;
+    dimensionPendingFilesRef.current = {};
     setDimensionLibrary(library);
     setDimensionPendingFiles({});
     clearDimensionLibraryCache();
@@ -1134,8 +1147,13 @@ function App() {
       };
       const next = { ...dimensionLibrary, [slotId]: record };
       const saved = STATIC_MODE ? saveDimensionLibrary(next) : true;
+      dimensionLibraryRef.current = next;
       setDimensionLibrary(next);
-      setDimensionPendingFiles((current) => ({ ...current, [slotId]: file }));
+      setDimensionPendingFiles((current) => {
+        const pending = { ...current, [slotId]: file };
+        dimensionPendingFilesRef.current = pending;
+        return pending;
+      });
       setMessage(saved
         ? `维度表文件库已读取：${displayFileName}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行，请点击应用刷新同步。`
         : `维度表文件库已读取：${displayFileName}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行；文件较大，已保留预览信息但浏览器缓存保存失败。`);
@@ -1145,12 +1163,14 @@ function App() {
   }
 
   async function applyDimensionSlot(slotId) {
-    const existing = dimensionLibrary[slotId];
+    const currentLibrary = dimensionLibraryRef.current || dimensionLibrary;
+    const currentPendingFiles = dimensionPendingFilesRef.current || dimensionPendingFiles;
+    const existing = currentLibrary[slotId];
     if (!existing) {
       setMessage('该槽位暂无可应用文件。');
       return;
     }
-    const pendingFile = dimensionPendingFiles[slotId];
+    const pendingFile = currentPendingFiles[slotId];
     if (!STATIC_MODE && !pendingFile && !existing.storedFileName) {
       setMessage('请先重新上传维度表文件，再应用刷新到服务器。');
       return;
@@ -1160,13 +1180,18 @@ function App() {
       return;
     }
     const next = {
-      ...dimensionLibrary,
+      ...currentLibrary,
       [slotId]: { ...existing, applied: true, appliedAt: nowText() }
     };
     if (STATIC_MODE) {
       const saved = saveDimensionLibrary(next);
+      dimensionLibraryRef.current = next;
       setDimensionLibrary(next);
-      setDimensionPendingFiles((current) => ({ ...current, [slotId]: null }));
+      setDimensionPendingFiles((current) => {
+        const pending = { ...current, [slotId]: null };
+        dimensionPendingFilesRef.current = pending;
+        return pending;
+      });
       setMessage(saved ? `${existing.fileName} 已应用刷新。` : `${existing.fileName} 已应用刷新，但浏览器缓存保存失败。`);
       return;
     }
@@ -1186,8 +1211,14 @@ function App() {
       return;
     }
     const payload = await res.json();
-    setDimensionLibrary(normalizeDimensionLibrary(payload.library || {}));
-    setDimensionPendingFiles((current) => ({ ...current, [slotId]: null }));
+    const library = normalizeDimensionLibrary(payload.library || {});
+    dimensionLibraryRef.current = library;
+    setDimensionLibrary(library);
+    setDimensionPendingFiles((current) => {
+      const pending = { ...current, [slotId]: null };
+      dimensionPendingFilesRef.current = pending;
+      return pending;
+    });
     setMessage(`${existing.fileName} 已上传到腾讯云服务器并应用，其他用户可读取最新文件。`);
   }
 
@@ -1199,8 +1230,13 @@ function App() {
     const next = { ...dimensionLibrary, [slotId]: null };
     if (STATIC_MODE) {
       const saved = saveDimensionLibrary(next);
+      dimensionLibraryRef.current = next;
       setDimensionLibrary(next);
-      setDimensionPendingFiles((current) => ({ ...current, [slotId]: null }));
+      setDimensionPendingFiles((current) => {
+        const pending = { ...current, [slotId]: null };
+        dimensionPendingFilesRef.current = pending;
+        return pending;
+      });
       setMessage(saved ? '已清除该维度表槽位。' : '已清除该维度表槽位，但浏览器缓存保存失败。');
       return;
     }
@@ -1212,8 +1248,14 @@ function App() {
       return;
     }
     const payload = await res.json();
-    setDimensionLibrary(normalizeDimensionLibrary(payload.library || {}));
-    setDimensionPendingFiles((current) => ({ ...current, [slotId]: null }));
+    const library = normalizeDimensionLibrary(payload.library || {});
+    dimensionLibraryRef.current = library;
+    setDimensionLibrary(library);
+    setDimensionPendingFiles((current) => {
+      const pending = { ...current, [slotId]: null };
+      dimensionPendingFilesRef.current = pending;
+      return pending;
+    });
     setMessage('已清除该维度表槽位，服务器文件同步删除。');
   }
 
