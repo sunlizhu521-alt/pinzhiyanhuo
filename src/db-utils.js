@@ -1,6 +1,5 @@
 import {
   STATIC_DB_KEY,
-  DIMENSION_LIBRARY_KEY,
   REPORT_FILE_LIBRARY_KEY,
   AUTH_USER_KEY,
   DEFAULT_ADMIN_USER,
@@ -14,6 +13,7 @@ import {
   STATIC_MODE
 } from './constants.js';
 import { createId, fixMojibakeText, normalizePageAccessList, isPrimaryAdminUser } from './utils.js';
+import { getCachedDimensionLibrary, setCachedDimensionLibrary, clearCachedDimensionLibrary } from './dimension-cache.js';
 
 function defaultStaticDb() {
   return {
@@ -83,26 +83,26 @@ function saveStaticDb(db) {
   localStorage.setItem(STATIC_DB_KEY, JSON.stringify(normalizeStaticDb(db)));
 }
 
-function readDimensionLibrary() {
+async function readDimensionLibrary() {
   try {
-    return normalizeDimensionLibrary(JSON.parse(localStorage.getItem(DIMENSION_LIBRARY_KEY) || '{}'));
+    const cached = await getCachedDimensionLibrary();
+    return normalizeDimensionLibrary(cached?.library || {});
   } catch {
     return normalizeDimensionLibrary();
   }
 }
 
-function saveDimensionLibrary(library) {
+async function saveDimensionLibrary(library) {
   try {
-    localStorage.setItem(DIMENSION_LIBRARY_KEY, JSON.stringify(library));
-    return true;
+    return Boolean(await setCachedDimensionLibrary(normalizeDimensionLibrary(library)));
   } catch {
     return false;
   }
 }
 
-function clearDimensionLibraryCache() {
+async function clearDimensionLibraryCache() {
   try {
-    localStorage.removeItem(DIMENSION_LIBRARY_KEY);
+    await clearCachedDimensionLibrary();
   } catch {
     // Ignore unavailable browser storage.
   }

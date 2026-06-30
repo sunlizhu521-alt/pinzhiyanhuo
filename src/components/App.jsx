@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { API, STATIC_MODE, DEFAULT_ADMIN_USER, ROLE_ADMIN, ROLE_USER, BUSINESS_DEPARTMENT_OPTIONS, NOTICE_FIELDS, MENU_PAGES, PAGE_OPTIONS, DIMENSION_LIBRARY_SLOTS, PRODUCT_CATEGORY_SLOT_ID, PURCHASE_WORK_DIVISION_SLOT_ID, RECORD_REFRESH_PAGES, DIMENSION_REFRESH_PAGES, REPORT_FILE_REFRESH_PAGES } from '../constants.js';
 import { createId, normalize, formatDate, nowText, fixMojibakeText, splitMultiValue, joinBusinessDepartments, canAccessPage, homeTabForUser, isAdminUser, isPrimaryAdminUser, canReadClientRecord, createNoticeRow, feedbackReportNo, mergeNoticeRowsForImport } from '../utils.js';
-import { readStaticDb, saveStaticDb, readDimensionLibrary, saveDimensionLibrary, clearDimensionLibraryCache, readReportFileLibrary, saveReportFileLibrary, readStoredUser, saveStoredUser, clearStoredUser, composedStaticRecords, normalizeStaticDb, normalizeDimensionLibrary } from '../db-utils.js';
+import { readStaticDb, saveStaticDb, readDimensionLibrary, saveDimensionLibrary, readReportFileLibrary, saveReportFileLibrary, readStoredUser, saveStoredUser, clearStoredUser, composedStaticRecords, normalizeStaticDb, normalizeDimensionLibrary } from '../db-utils.js';
+import { getCachedDimensionLibrary, setCachedDimensionLibrary } from '../dimension-cache.js';
 import { loadXlsxModule, parseWorkbookInBrowser, exportFileStamp, recordToMigrationLedgerRow, recordToReportExportRow, parseWorkbookSheetsInBrowser, parseDimensionSheet, importedRowsToNoticeRows, importedRowsToSummaryItems, importedRowsToFeedbackItems } from '../import-utils.js';
 import { buildSupplierShortNameOptions, buildSupplierShortNameOptionsFromSheets, buildSalesProductLineOptions, buildSalesSeriesOptions, buildSeriesByProductLineOptions, buildCategoryDimensionOptions, buildSupplierAddressLookupRows, normalizeRecordDimensions, normalizeNoticeDimensions, validateNoticeRows, findSupplierShortNameOption, supplierProvinceCityForName } from '../dimension-utils.js';
 import { readFileAsDataUrl, dataUrlToFile, reportHref, reportFileNameFromCode, isImageReport, isReportLibraryFile, normalizeStampUploadFileName, createRotatedReportImageDataUrl, createStampedImageDataUrl, scoreOcrResult, shouldShowFeedbackRecord, shouldShowScheduleRecord, shouldShowSummaryRecord, recordIdSignature } from '../file-utils.js';
@@ -103,7 +104,7 @@ function App() {
   const [ledgerImportPreview, setLedgerImportPreview] = useState(null);
   const [initialData, setInitialData] = useState({ sheetName: '', columns: [], rows: [], updatedAt: '' });
   const [initialImportResult, setInitialImportResult] = useState(null);
-  const [dimensionLibrary, setDimensionLibrary] = useState(() => STATIC_MODE ? readDimensionLibrary() : normalizeDimensionLibrary());
+  const [dimensionLibrary, setDimensionLibrary] = useState(() => normalizeDimensionLibrary());
   const [dimensionLibraryLoading, setDimensionLibraryLoading] = useState(false);
   const [dimensionPendingFiles, setDimensionPendingFiles] = useState({});
   const [dimensionUploadProgress, setDimensionUploadProgress] = useState({});
@@ -198,7 +199,6 @@ function App() {
   }
 
   useEffect(() => {
-    if (!STATIC_MODE) clearDimensionLibraryCache();
     if (STATIC_MODE) {
       setAppVersionTime(nowText().slice(0, 16));
       return;
@@ -269,7 +269,7 @@ function App() {
         ? (inspection.notices.rows || [])
         : (inspection.notices.rows || []).filter((row) => row.inspectionApplicant === user.name);
       setInitialData(inspection.initialData);
-      setDimensionLibrary(readDimensionLibrary());
+      setDimensionLibrary(await readDimensionLibrary());
       setNoticeSubmission({ ...inspection.notices, rows: visibleNotices });
       setNoticeRows([createBlankNoticeRow({ inspectionApplicant: user.name })]);
       setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
@@ -857,9 +857,19 @@ function App() {
 
   async function refreshDimensionLibrary(options = {}) {
     if (STATIC_MODE) {
-      const library = readDimensionLibrary();
+      const library = await readDimensionLibrary();
       setDimensionLibrary(library);
       return library;
+    }
+    if (!options.force) {
+      const cached = await getCachedDimensionLibrary();
+      if (cached?.library) {
+        const cachedLibrary = normalizeDimensionLibrary(cached.library);
+        dimensionLibraryRef.current = cachedLibrary;
+        setDimensionLibrary(cachedLibrary);
+        refreshDimensionLibrary({ force: true, silent: true }).catch(() => {});
+        return cachedLibrary;
+      }
     }
     if (!options.silent) setDimensionLibraryLoading(true);
     try {
@@ -874,7 +884,7 @@ function App() {
         });
         dimensionLibraryRef.current = nextLibrary;
         setDimensionLibrary(nextLibrary);
-        clearDimensionLibraryCache();
+        await setCachedDimensionLibrary(nextLibrary);
         return nextLibrary;
       }
     } finally {
@@ -885,7 +895,7 @@ function App() {
 
   async function syncDimensionLibraryFromServer() {
     if (STATIC_MODE) {
-      const library = readDimensionLibrary();
+      const library = await readDimensionLibrary();
       setDimensionLibrary(library);
       setMessage('当前是静态预览模式，已读取浏览器本地维度表文件库。');
       return;
@@ -908,14 +918,14 @@ function App() {
     dimensionPendingFilesRef.current = {};
     setDimensionLibrary(library);
     setDimensionPendingFiles({});
-    clearDimensionLibraryCache();
+    await setCachedDimensionLibrary(library);
     const appliedCount = DIMENSION_LIBRARY_SLOTS.filter((slot) => library[slot.id]?.applied).length;
     setMessage(`已下载同步腾讯云最新维度表数据：已应用 ${appliedCount} 个槽位。`);
   }
 
   async function updateDimensionLibraryFromServer() {
     if (STATIC_MODE) {
-      const library = readDimensionLibrary();
+      const library = await readDimensionLibrary();
       setDimensionLibrary(library);
       const appliedCount = DIMENSION_LIBRARY_SLOTS.filter((slot) => library?.[slot.id]?.applied).length;
       setMessage(`维度表文件库已更新：当前已应用 ${appliedCount} 个槽位。`);
@@ -940,7 +950,7 @@ function App() {
     dimensionPendingFilesRef.current = {};
     setDimensionLibrary(library);
     setDimensionPendingFiles({});
-    clearDimensionLibraryCache();
+    await setCachedDimensionLibrary(library);
     const appliedCount = DIMENSION_LIBRARY_SLOTS.filter((slot) => library?.[slot.id]?.applied).length;
     setMessage(`维度表文件库已更新并同步腾讯云数据：当前已应用 ${appliedCount} 个槽位。`);
   }
@@ -1237,7 +1247,7 @@ function App() {
         [slotId]: file
       };
       dimensionPendingFilesRef.current = pending;
-      const saved = STATIC_MODE ? saveDimensionLibrary(next) : true;
+      const saved = STATIC_MODE ? await saveDimensionLibrary(next) : true;
       dimensionLibraryRef.current = next;
       setDimensionLibrary(next);
       setDimensionPendingFiles(pending);
@@ -1314,7 +1324,7 @@ function App() {
       [slotId]: { ...existing, applied: true, appliedAt: nowText() }
     };
     if (STATIC_MODE) {
-      const saved = saveDimensionLibrary(next);
+      const saved = await saveDimensionLibrary(next);
       dimensionLibraryRef.current = next;
       setDimensionLibrary(next);
       clearPendingDimensionSlot(slotId);
@@ -1361,7 +1371,7 @@ function App() {
     dimensionLibraryRef.current = library;
     setDimensionLibrary(library);
     clearPendingDimensionSlot(slotId);
-    await refreshDimensionLibrary({ silent: true });
+    await refreshDimensionLibrary({ force: true, silent: true });
     setDimensionSlotProgress(slotId, uploadFileName, {
       status: 'success',
       percent: 100,
@@ -1382,7 +1392,7 @@ function App() {
     }
     const next = { ...dimensionLibrary, [slotId]: null };
     if (STATIC_MODE) {
-      const saved = saveDimensionLibrary(next);
+      const saved = await saveDimensionLibrary(next);
       dimensionLibraryRef.current = next;
       setDimensionLibrary(next);
       clearPendingDimensionSlot(slotId);
@@ -1402,6 +1412,7 @@ function App() {
     dimensionLibraryRef.current = library;
     setDimensionLibrary(library);
     clearPendingDimensionSlot(slotId);
+    await setCachedDimensionLibrary(library);
     setMessage('已清除该维度表槽位，服务器文件同步删除。');
   }
 
