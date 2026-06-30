@@ -381,6 +381,18 @@ function buildSupplierAddressLookupRowsFromDimensionFile(fileName) {
   });
 }
 
+function buildSupplierShortNamesFromDimensionFile(fileName) {
+  const workbook = xlsx.readFile(dimensionFilePath(fileName), { cellDates: true });
+  const options = new Map();
+  workbook.SheetNames.forEach((sheetName) => {
+    parseDimensionSheetRows(workbook.Sheets[sheetName]).forEach((row) => {
+      const normalizedSource = normalizedSourceMap(row);
+      addDimensionOption(options, readImportedValue(normalizedSource, DIMENSION_SUPPLIER_ALIASES));
+    });
+  });
+  return Array.from(options.values()).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
+}
+
 function dimensionRecordNeedsFileData(record = {}) {
   const hasSheets = Array.isArray(record.sheets)
     && record.sheets.some((sheet) => Array.isArray(sheet.rows) && sheet.rows.length);
@@ -391,7 +403,9 @@ function ensureDimensionLibraryFileDataCache(db, force = false) {
   const library = db.qualityInspection.dimensionLibrary || {};
   let changed = false;
   Object.entries(library).forEach(([slotId, record]) => {
-    if (!record?.storedFileName || (!force && !dimensionRecordNeedsFileData(record))) return;
+    const needsSupplierCache = slotId === PURCHASE_WORK_DIVISION_SLOT_ID
+      && (!Array.isArray(record.supplierShortNames) || !record.supplierShortNames.length);
+    if (!record?.storedFileName || (!force && !dimensionRecordNeedsFileData(record) && !needsSupplierCache)) return;
     try {
       const preview = parseDimensionWorkbookPreview(record.storedFileName);
       Object.assign(record, preview, {
@@ -403,6 +417,7 @@ function ensureDimensionLibraryFileDataCache(db, force = false) {
       }
       if (slotId === PURCHASE_WORK_DIVISION_SLOT_ID) {
         record.supplierAddressLookup = buildSupplierAddressLookupRowsFromDimensionFile(record.storedFileName);
+        record.supplierShortNames = buildSupplierShortNamesFromDimensionFile(record.storedFileName);
       }
       changed = true;
     } catch {
@@ -1247,7 +1262,8 @@ app.post('/api/quality-inspection/dimension-library/:slotId/apply', requireAuth,
     if (slotId === PURCHASE_WORK_DIVISION_SLOT_ID) {
       derivedCache = {
         ...derivedCache,
-        supplierAddressLookup: buildSupplierAddressLookupRowsFromDimensionFile(storedName)
+        supplierAddressLookup: buildSupplierAddressLookupRowsFromDimensionFile(storedName),
+        supplierShortNames: buildSupplierShortNamesFromDimensionFile(storedName)
       };
     }
   } catch {

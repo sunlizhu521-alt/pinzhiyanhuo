@@ -101,9 +101,22 @@ function addSupplierOption(options, supplier) {
 function buildSupplierShortNameOptions(dimensionLibrary = {}) {
   const record = dimensionLibrary[PURCHASE_WORK_DIVISION_SLOT_ID];
   const options = new Map();
+  const cachedSuppliers = Array.isArray(record?.supplierShortNames) ? record.supplierShortNames : [];
+  cachedSuppliers.forEach((item) => addSupplierOption(options, item));
   const indexedRows = Array.isArray(record?.supplierAddressLookup) ? record.supplierAddressLookup : [];
   indexedRows.forEach((item) => addSupplierOption(options, item.supplierShortName || item.supplier));
   const sheets = Array.isArray(record?.sheets) ? record.sheets : [];
+  sheets.forEach((sheet) => {
+    (sheet.rows || []).forEach((row) => {
+      const normalizedSource = normalizedSourceMap(row);
+      addSupplierOption(options, readImportedValue(normalizedSource, DIMENSION_SUPPLIER_ALIASES));
+    });
+  });
+  return Array.from(options.values()).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
+}
+
+function buildSupplierShortNameOptionsFromSheets(sheets = []) {
+  const options = new Map();
   sheets.forEach((sheet) => {
     (sheet.rows || []).forEach((row) => {
       const normalizedSource = normalizedSourceMap(row);
@@ -359,6 +372,7 @@ export {
   supplierProvinceCityForName,
   addSupplierOption,
   buildSupplierShortNameOptions,
+  buildSupplierShortNameOptionsFromSheets,
   supplierMatchesQuery,
   findSupplierShortNameOption,
   optionMatchesQuery,

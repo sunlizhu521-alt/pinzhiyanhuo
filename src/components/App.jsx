@@ -3,7 +3,7 @@ import { API, STATIC_MODE, DEFAULT_ADMIN_USER, ROLE_ADMIN, ROLE_USER, BUSINESS_D
 import { createId, normalize, formatDate, nowText, splitMultiValue, joinBusinessDepartments, canAccessPage, homeTabForUser, isAdminUser, isPrimaryAdminUser, canReadClientRecord, createNoticeRow, feedbackReportNo, mergeNoticeRowsForImport } from '../utils.js';
 import { readStaticDb, saveStaticDb, readDimensionLibrary, saveDimensionLibrary, clearDimensionLibraryCache, readReportFileLibrary, saveReportFileLibrary, readStoredUser, saveStoredUser, clearStoredUser, composedStaticRecords, normalizeStaticDb, normalizeDimensionLibrary } from '../db-utils.js';
 import { loadXlsxModule, parseWorkbookInBrowser, exportFileStamp, recordToMigrationLedgerRow, recordToReportExportRow, parseWorkbookSheetsInBrowser, parseDimensionSheet, importedRowsToNoticeRows, importedRowsToSummaryItems, importedRowsToFeedbackItems } from '../import-utils.js';
-import { buildSupplierShortNameOptions, buildSalesProductLineOptions, buildSalesSeriesOptions, buildSeriesByProductLineOptions, buildCategoryDimensionOptions, buildSupplierAddressLookupRows, normalizeRecordDimensions, normalizeNoticeDimensions, validateNoticeRows, findSupplierShortNameOption, supplierProvinceCityForName } from '../dimension-utils.js';
+import { buildSupplierShortNameOptions, buildSupplierShortNameOptionsFromSheets, buildSalesProductLineOptions, buildSalesSeriesOptions, buildSeriesByProductLineOptions, buildCategoryDimensionOptions, buildSupplierAddressLookupRows, normalizeRecordDimensions, normalizeNoticeDimensions, validateNoticeRows, findSupplierShortNameOption, supplierProvinceCityForName } from '../dimension-utils.js';
 import { readFileAsDataUrl, dataUrlToFile, reportHref, reportFileNameFromCode, isImageReport, isReportLibraryFile, normalizeStampUploadFileName, createRotatedReportImageDataUrl, createStampedImageDataUrl, scoreOcrResult, shouldShowFeedbackRecord, shouldShowScheduleRecord, shouldShowSummaryRecord, recordIdSignature } from '../file-utils.js';
 import SecurityWatermark from './SecurityWatermark.jsx';
 import InitialDataPage from './InitialDataPage.jsx';
@@ -1160,6 +1160,9 @@ function App() {
       const supplierAddressLookup = slotId === PURCHASE_WORK_DIVISION_SLOT_ID
         ? buildSupplierAddressLookupRows(result.sheets || [])
         : [];
+      const supplierShortNames = slotId === PURCHASE_WORK_DIVISION_SLOT_ID
+        ? buildSupplierShortNameOptionsFromSheets(result.sheets || [])
+        : [];
       const categoryOptions = slotId === PRODUCT_CATEGORY_SLOT_ID
         ? buildCategoryDimensionOptions(result.sheets || [])
         : {};
@@ -1186,6 +1189,7 @@ function App() {
         importedCount: result.importedCount || 0,
         previewCount: sheets.reduce((sum, sheet) => sum + (sheet.previewCount || 0), 0),
         supplierAddressLookup,
+        ...(slotId === PURCHASE_WORK_DIVISION_SLOT_ID ? { supplierShortNames } : {}),
         ...categoryOptions,
         savedAt: nowText(),
         updatedAt: nowText(),
