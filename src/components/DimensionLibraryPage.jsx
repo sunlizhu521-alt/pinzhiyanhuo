@@ -1,8 +1,10 @@
-import { DIMENSION_LIBRARY_SLOTS } from '../constants.js';
+import { useRef } from 'react';
+import { DIMENSION_LIBRARY_SLOTS, PURCHASE_WORK_DIVISION_SLOT_ID } from '../constants.js';
 import DataTable from './DataTable.jsx';
 import EmptyState from './EmptyState.jsx';
 
 function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loading, savingId, onRefresh, onSync, onUpload, onApply, onDelete }) {
+  const replaceInputRefs = useRef({});
   const filledCount = slots.filter((slot) => library[slot.id]).length;
   const appliedCount = slots.filter((slot) => library[slot.id]?.applied).length;
   return (
@@ -58,6 +60,16 @@ function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loadin
                   {record?.applied ? '已应用' : record ? '待应用' : '缺失'}
                 </span>
               </div>
+              <input
+                ref={(input) => { replaceInputRefs.current[slot.id] = input; }}
+                type="file"
+                accept=".xlsx,.xlsm,.xls,.csv"
+                style={{ display: 'none' }}
+                onChange={(event) => {
+                  onUpload(slot.id, event.target.files);
+                  event.target.value = '';
+                }}
+              />
               <label
                 className="dimension-drop-zone"
                 onDragOver={(event) => event.preventDefault()}
@@ -109,6 +121,16 @@ function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loadin
                     <button type="button" className="compact-button" disabled={isBusy} onClick={() => onApply(slot.id)}>
                       {isApplying ? '应用中' : '应用刷新'}
                     </button>
+                    {slot.id === PURCHASE_WORK_DIVISION_SLOT_ID && (
+                      <button
+                        type="button"
+                        className="compact-button"
+                        disabled={isBusy}
+                        onClick={() => replaceInputRefs.current[slot.id]?.click()}
+                      >
+                        {isUploading ? '读取中' : '替换文件'}
+                      </button>
+                    )}
                     <button type="button" className="ghost compact-button" disabled={isBusy} onClick={() => onDelete(slot.id)}>删除</button>
                   </div>
                 </>
