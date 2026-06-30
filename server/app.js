@@ -1,8 +1,10 @@
 import cors from 'cors';
 import express from 'express';
+import helmet from 'helmet';
 import multer from 'multer';
 import xlsx from 'xlsx';
 import compression from 'compression';
+import rateLimit from 'express-rate-limit';
 import { format } from 'date-fns';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
@@ -74,6 +76,26 @@ await mkdir(uploadDir, { recursive: true });
 await mkdir(dimensionUploadDir, { recursive: true });
 
 const app = express();
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 500,
+  standardHeaders: true,
+  legacyHeaders: false
+});
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: '登录过于频繁，请15分钟后再试' }
+});
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: '注册过于频繁，请1小时后再试' }
+});
 const upload = multer({
   dest: uploadDir,
   limits: { fileSize: 20 * 1024 * 1024 }
@@ -83,11 +105,13 @@ const dimensionUpload = multer({
   limits: { fileSize: 100 * 1024 * 1024 }
 });
 
-app.use(cors());
+app.use(cors({ origin: 'https://zhugeaishiyanshi.com' }));
 app.use(compression({
   threshold: 1024
 }));
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '10mb' }));
+app.use(helmet());
+app.use('/api/', apiLimiter);
 
 function nowText() {
   return format(new Date(), 'yyyy-MM-dd HH:mm:ss');
@@ -1087,7 +1111,7 @@ app.get('/api/app-version', async (req, res) => {
   res.json({ service: 'quality-inspection', versionTime: format(latest, 'yyyy-MM-dd HH:mm') });
 });
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', loginLimiter, async (req, res) => {
   const db = await readDb();
   const name = String(req.body.name || '').trim();
   const password = String(req.body.password || '').trim();
@@ -1131,7 +1155,7 @@ app.post('/api/auth/change-password', requireAuth, async (req, res) => {
   res.json({ success: true });
 });
 
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', registerLimiter, async (req, res) => {
   const db = await readDb();
   const name = String(req.body.name || '').trim();
   const password = String(req.body.password || '').trim();
