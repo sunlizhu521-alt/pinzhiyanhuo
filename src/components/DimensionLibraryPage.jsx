@@ -30,6 +30,9 @@ function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loadin
       <section className="dimension-library-grid">
         {slots.map((slot, index) => {
           const record = library[slot.id];
+          const isUploading = savingId === `dimensionUpload:${slot.id}`;
+          const isApplying = savingId === slot.id;
+          const isBusy = isUploading || isApplying;
           const sheetPreviews = record?.sheets?.length
             ? record.sheets
             : record
@@ -68,8 +71,8 @@ function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loadin
                     event.target.value = '';
                   }}
                 />
-                <strong>{record ? '替换维度表文件' : '上传维度表文件'}</strong>
-                <span>点击或拖拽 Excel / CSV 到此槽位</span>
+                <strong>{isUploading ? '正在读取新文件' : record ? '替换维度表文件' : '上传维度表文件'}</strong>
+                <span>{isUploading ? '正在解析最新上传文件，请稍候' : '点击或拖拽 Excel / CSV 到此槽位'}</span>
               </label>
               {record ? (
                 <>
@@ -103,10 +106,10 @@ function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loadin
                     })}
                   </div>
                   <div className="card-actions">
-                    <button type="button" className="compact-button" disabled={savingId === slot.id} onClick={() => onApply(slot.id)}>
-                      {savingId === slot.id ? '应用中' : '应用刷新'}
+                    <button type="button" className="compact-button" disabled={isBusy} onClick={() => onApply(slot.id)}>
+                      {isApplying ? '应用中' : '应用刷新'}
                     </button>
-                    <button type="button" className="ghost compact-button" disabled={savingId === slot.id} onClick={() => onDelete(slot.id)}>删除</button>
+                    <button type="button" className="ghost compact-button" disabled={isBusy} onClick={() => onDelete(slot.id)}>删除</button>
                   </div>
                 </>
               ) : (

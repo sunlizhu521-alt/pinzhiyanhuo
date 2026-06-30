@@ -1115,6 +1115,8 @@ function App() {
     const file = files?.[0];
     if (!file) return;
     const displayFileName = fixMojibakeText(file.name);
+    const uploadingKey = `dimensionUpload:${slotId}`;
+    setSavingId(uploadingKey);
     try {
       const result = await parseWorkbookSheetsInBrowser(file);
       if (!(result.sheets || []).some((sheet) => (sheet.rows || []).length)) {
@@ -1153,20 +1155,24 @@ function App() {
         applied: false,
         appliedAt: ''
       };
-      const next = { ...dimensionLibrary, [slotId]: record };
+      const currentLibrary = dimensionLibraryRef.current || dimensionLibrary;
+      const next = { ...currentLibrary, [slotId]: record };
+      const pending = {
+        ...(dimensionPendingFilesRef.current || dimensionPendingFiles),
+        [slotId]: file
+      };
+      dimensionPendingFilesRef.current = pending;
       const saved = STATIC_MODE ? saveDimensionLibrary(next) : true;
       dimensionLibraryRef.current = next;
       setDimensionLibrary(next);
-      setDimensionPendingFiles((current) => {
-        const pending = { ...current, [slotId]: file };
-        dimensionPendingFilesRef.current = pending;
-        return pending;
-      });
+      setDimensionPendingFiles(pending);
       setMessage(saved
         ? `维度表文件库已读取：${displayFileName}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行，请点击应用刷新同步。`
         : `维度表文件库已读取：${displayFileName}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行；文件较大，已保留预览信息但浏览器缓存保存失败。`);
     } catch (error) {
       setMessage(`维度表文件库读取失败：${error?.message || '请检查文件格式、工作表内容或表头位置。'}`);
+    } finally {
+      setSavingId((current) => (current === uploadingKey ? '' : current));
     }
   }
 
