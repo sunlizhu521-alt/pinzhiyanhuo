@@ -110,7 +110,11 @@ app.use(compression({
   threshold: 1024
 }));
 app.use(express.json({ limit: '10mb' }));
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginResourcePolicy: false,
+  crossOriginOpenerPolicy: false
+}));
 app.use('/api/', apiLimiter);
 
 function nowText() {
