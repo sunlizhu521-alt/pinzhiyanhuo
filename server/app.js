@@ -78,6 +78,10 @@ const upload = multer({
   dest: uploadDir,
   limits: { fileSize: 20 * 1024 * 1024 }
 });
+const dimensionUpload = multer({
+  dest: dimensionUploadDir,
+  limits: { fileSize: 100 * 1024 * 1024 }
+});
 
 app.use(cors());
 app.use(compression({
@@ -1204,7 +1208,7 @@ app.post('/api/quality-inspection/dimension-library/sync', requireAuth, requireP
   res.json({ library: db.qualityInspection.dimensionLibrary || {}, updated, recovered });
 });
 
-app.post('/api/quality-inspection/dimension-library/:slotId/apply', requireAuth, requirePages('dimensionLibrary'), upload.single('file'), async (req, res) => {
+app.post('/api/quality-inspection/dimension-library/:slotId/apply', requireAuth, requirePages('dimensionLibrary'), dimensionUpload.single('file'), async (req, res) => {
   const db = await readDb();
   const slotId = String(req.params.slotId || '').trim();
   if (!slotId) {
@@ -1821,6 +1825,14 @@ app.get('/uploads/:fileName', (req, res) => {
 app.get('/dimension-uploads/:fileName', requireAuth, requirePages('dimensionLibrary'), (req, res) => {
   const safeName = path.basename(req.params.fileName);
   res.sendFile(dimensionFilePath(safeName));
+});
+
+app.use((error, req, res, next) => {
+  if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+    const limitMb = req.path.includes('/dimension-library/') ? 100 : 20;
+    return res.status(413).json({ error: `上传文件超过 ${limitMb}MB 限制，请压缩文件后重新上传。` });
+  }
+  return next(error);
 });
 
 const distDir = path.join(rootDir, 'dist');
