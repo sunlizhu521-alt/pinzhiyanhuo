@@ -1313,6 +1313,7 @@ th {
 }
 
 .dimension-drop-zone {
+  position: relative;
   width: min(320px, 100%);
   min-height: 112px;
   display: grid;
@@ -1327,6 +1328,7 @@ th {
   color: #475569;
   text-align: center;
   cursor: pointer;
+  overflow: hidden;
 }
 
 .dimension-drop-zone.disabled {
@@ -1353,25 +1355,34 @@ th {
 
 .dimension-file-input {
   position: absolute;
-  width: 1px;
-  height: 1px;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
   opacity: 0;
-  pointer-events: none;
+  cursor: pointer;
+  pointer-events: auto;
 }
 
 .dimension-file-picker-button {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-height: 32px;
   cursor: pointer;
+  overflow: hidden;
   user-select: none;
 }
 
 .dimension-file-picker-button.disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+
+.dimension-file-picker-button.disabled .dimension-file-input,
+.dimension-drop-zone.disabled .dimension-file-input {
+  cursor: not-allowed;
 }
 
 .dimension-slot-meta-grid {
