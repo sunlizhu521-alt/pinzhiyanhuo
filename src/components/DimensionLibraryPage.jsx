@@ -68,9 +68,7 @@ function DimensionLibraryPage({ slots = DIMENSION_LIBRARY_SLOTS, library, loadin
                 accept=".xlsx,.xlsm,.xls,.csv"
                 style={{ display: 'none' }}
                 onChange={(event) => {
-                  onUpload(slot.id, event.target.files, {
-                    autoApply: slot.id === PURCHASE_WORK_DIVISION_SLOT_ID
-                  });
+                  onUpload(slot.id, event.target.files);
                   event.target.value = '';
                 }}
               />

@@ -1116,6 +1116,7 @@ function App() {
     const file = files?.[0];
     if (!file) return;
     const displayFileName = fixMojibakeText(file.name);
+    const shouldAutoApply = options.autoApply !== false;
     const uploadingKey = `dimensionUpload:${slotId}`;
     const setSlotProgress = (progress) => {
       setDimensionUploadProgress((current) => ({
@@ -1196,16 +1197,34 @@ function App() {
       setDimensionLibrary(next);
       setDimensionPendingFiles(pending);
       setMessage(saved
-        ? `维度表文件库已读取：${displayFileName}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行，请点击应用刷新同步。`
+        ? `维度表文件库已读取：${displayFileName}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行，正在自动应用刷新。`
         : `维度表文件库已读取：${displayFileName}，共 ${record.sheetCount} 个工作表、${record.importedCount} 行；文件较大，已保留预览信息但浏览器缓存保存失败。`);
-      if (options.autoApply) {
-        setSlotProgress({ status: 'running', percent: 88, label: '自动应用', detail: '正在上传腾讯云服务器并应用刷新。' });
+      if (shouldAutoApply) {
+        setSlotProgress({
+          status: 'running',
+          percent: 88,
+          label: '自动应用',
+          detail: STATIC_MODE ? '正在应用到本地预览文件库。' : '正在上传腾讯云服务器并应用刷新。'
+        });
         const applied = await applyDimensionSlot(slotId, { autoApplied: true, fileName: displayFileName });
         if (!applied) {
+          if (!STATIC_MODE) {
+            dimensionLibraryRef.current = currentLibrary;
+            setDimensionLibrary(currentLibrary);
+            const restoredPending = { ...(dimensionPendingFilesRef.current || dimensionPendingFiles) };
+            delete restoredPending[slotId];
+            dimensionPendingFilesRef.current = restoredPending;
+            setDimensionPendingFiles(restoredPending);
+          }
           setSlotProgress({ status: 'error', percent: 100, label: '应用失败', detail: '最新文件已解析，但上传腾讯云服务器应用刷新失败。' });
           return;
         }
-        setSlotProgress({ status: 'success', percent: 100, label: '更新完成', detail: '最新文件已解析并应用到腾讯云服务器。' });
+        setSlotProgress({
+          status: 'success',
+          percent: 100,
+          label: '更新完成',
+          detail: STATIC_MODE ? '最新文件已解析并应用到本地预览文件库。' : '最新文件已解析并应用到腾讯云服务器。'
+        });
       } else {
         setSlotProgress({ status: 'success', percent: 100, label: '解析完成', detail: '最新文件已解析，请点击应用刷新同步到服务器。' });
       }
