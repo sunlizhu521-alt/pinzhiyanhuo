@@ -111,6 +111,12 @@ function FeedbackPage({
       }
     }));
   }
+  function openDraftReportFile(file) {
+    if (!(file instanceof File) || file.size <= 0) return;
+    const url = URL.createObjectURL(file);
+    window.open(url, '_blank', 'noopener,noreferrer');
+    window.setTimeout(() => URL.revokeObjectURL(url), 60 * 1000);
+  }
   return (
     <>
       <div className="section-heading-row">
@@ -562,7 +568,18 @@ function FeedbackPage({
                       });
                     }}
                   />
-                  {cachedReportFile && <span className="cached-report-file">{cachedReportFile.name}</span>}
+                  {cachedReportFile && (
+                    <div className="cached-report-file">
+                      <span>{cachedReportFile.name}</span>
+                      <button
+                        type="button"
+                        className="link-button"
+                        onClick={() => openDraftReportFile(cachedReportFile)}
+                      >
+                        查看文件
+                      </button>
+                    </div>
+                  )}
                 </>
               )}
             </div>,
