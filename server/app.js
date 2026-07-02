@@ -1730,6 +1730,8 @@ app.post('/api/quality-inspection/reports/:id', requireAuth, requirePages('inspe
     ...previous,
     reportNo,
     conclusion: String(req.body.conclusion || previous.conclusion || '').trim(),
+    reportRejectedAt: req.file ? '' : (previous.reportRejectedAt || ''),
+    reportRejectedBy: req.file ? '' : (previous.reportRejectedBy || ''),
     updatedAt: nowText()
   };
   if (req.file) {
@@ -1793,7 +1795,7 @@ app.delete('/api/quality-inspection/records/:id', requireAuth, requirePages('ins
 app.get('/api/quality-inspection/stamp-reports', requireAuth, requirePages('inspectionStamp'), requireRoles(ROLE_ADMIN), async (req, res) => {
   const db = await readDb();
   const rows = composedRecords(db)
-    .filter((record) => record.report?.fileName && !record.report?.stampedAt && !record.report?.stampSkippedAt)
+    .filter((record) => record.report?.fileName && !record.report?.stampedAt && !record.report?.stampSkippedAt && !record.report?.reportRejectedAt)
     .map((record) => ({
       ...record,
       report: {
@@ -1837,6 +1839,27 @@ app.post('/api/quality-inspection/reports/:id/stamp', requireAuth, requirePages(
   };
   await saveDb(db);
   res.json(db.qualityInspection.reports[req.params.id]);
+});
+
+app.post('/api/quality-inspection/reports/:id/reject', requireAuth, requirePages('inspectionStamp'), requireRoles(ROLE_ADMIN), async (req, res) => {
+  const db = await readDb();
+  const record = composedRecords(db).find((item) => item.id === req.params.id);
+  const previous = db.qualityInspection.reports[req.params.id] || {};
+  if (!record || !previous.fileName) return res.status(404).json({ error: '检验报告单不存在' });
+  const rejectedAt = nowText();
+  const nextReport = {
+    ...previous,
+    reportRejectedAt: rejectedAt,
+    reportRejectedBy: req.authUser.name,
+    updatedAt: rejectedAt
+  };
+  delete nextReport.stampedAt;
+  delete nextReport.stampedBy;
+  delete nextReport.stampSkippedAt;
+  delete nextReport.stampSkippedBy;
+  db.qualityInspection.reports[req.params.id] = nextReport;
+  await saveDb(db);
+  res.json(nextReport);
 });
 
 app.get('/api/quality-inspection/report-files', requireAuth, requirePages('inspectionReportLibrary', 'inspectionReportQuery'), async (req, res) => {

@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import DataTable from './DataTable.jsx';
 import { canReadClientRecord, hasObjectValue, normalize, formatDate, feedbackReportNo, supplierInitials, formatCompactDate, mergeFeedbackRecords } from '../utils.js';
-import { reportHref, isImageReport, shouldShowFeedbackRecord, feedbackMatchKey } from '../file-utils.js';
+import { reportHref, reportFileExt, isImageReport, shouldShowFeedbackRecord, feedbackMatchKey } from '../file-utils.js';
 import { NOTICE_FIELDS } from '../constants.js';
+import ReportPreviewModal from './ReportPreviewModal.jsx';
 
 function FeedbackPage({
   records,
@@ -33,6 +34,7 @@ function FeedbackPage({
   const [freshlySubmitted, setFreshlySubmitted] = useState(new Set());
   const [reworkRowIds, setReworkRowIds] = useState(new Set());
   const [reportFileDrafts, setReportFileDrafts] = useState({});
+  const [previewFile, setPreviewFile] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [addReportNo, setAddReportNo] = useState('');
   const previewRows = importPreview?.items || [];
@@ -111,12 +113,29 @@ function FeedbackPage({
       }
     }));
   }
-  function openDraftReportFile(file) {
+  function previewDraftReportFile(file) {
     if (!(file instanceof File) || file.size <= 0) return;
     const url = URL.createObjectURL(file);
-    window.open(url, '_blank', 'noopener,noreferrer');
-    window.setTimeout(() => URL.revokeObjectURL(url), 60 * 1000);
+    const ext = String(file.name || '').match(/\.[^.]+$/)?.[0]?.toLowerCase() || '';
+    setPreviewFile({ title: file.name, url, ext, revoke: true });
   }
+  function previewSavedReport(record) {
+    const url = reportHref(record);
+    if (!url) return;
+    setPreviewFile({
+      title: record.report?.originalName || record.report?.fileName || record.report?.reportNo || '检验单文件',
+      url,
+      ext: reportFileExt(record),
+      revoke: false
+    });
+  }
+  function closeReportPreview() {
+    if (previewFile?.revoke && previewFile.url) URL.revokeObjectURL(previewFile.url);
+    setPreviewFile(null);
+  }
+  useEffect(() => () => {
+    if (previewFile?.revoke && previewFile.url) URL.revokeObjectURL(previewFile.url);
+  }, [previewFile]);
   return (
     <>
       <div className="section-heading-row">
@@ -407,6 +426,7 @@ function FeedbackPage({
           const reportNo = feedbackReportNo(record, draft.actualInspectionTime, draft.inspectionQuantity);
           const isReworkRow = !justSubmitted && normalize(draft.result) === '返工';
           const cachedReportFile = reportFileDrafts[record.id]?.file;
+          const isReportRejected = !!normalize(record.report?.reportRejectedAt);
           return [
             record.supplierShortName,
             record.salesProductLine,
@@ -522,23 +542,39 @@ function FeedbackPage({
             <textarea name="feedbackText" form={`feedback-form-${record.id}`} className="table-textarea wide-textarea" defaultValue={feedback.feedbackText || ''} />,
             (() => {
               const href = reportHref(record);
+              if (cachedReportFile) {
+                return (
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => previewDraftReportFile(cachedReportFile)}
+                  >
+                    {cachedReportFile.name || '查看文件'}
+                  </button>
+                );
+              }
               if (!href) return '';
               return (
-                <button
-                  type="button"
-                  className="link-button"
-                  onClick={() => window.open(href, '_blank')}
-                >
-                  {record.report?.originalName || '查看报告'}
-                </button>
+                <div className="feedback-report-cell">
+                  {isReportRejected && <span style={{ color: '#dc2626', fontSize: '13px' }}>已驳回，请重新上传</span>}
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => previewSavedReport(record)}
+                  >
+                    {record.report?.originalName || '查看报告'}
+                  </button>
+                </div>
               );
             })(),
             <div className="feedback-report-cell">
               {(reworkRowIds.has(record.id) || isReworkRow) ? (
                 <span style={{ color: '#94a3b8', fontSize: '13px' }}>返工无需上传报告</span>
-              ) : reportHref(record) ? (
+              ) : reportHref(record) && !isReportRejected ? (
                 <>
-                  <a href={reportHref(record)} target="_blank" rel="noreferrer">{record.report?.originalName || '查看报告'}</a>
+                  <button type="button" className="link-button" onClick={() => previewSavedReport(record)}>
+                    {record.report?.originalName || '查看报告'}
+                  </button>
                   <button
                     type="button"
                     className="danger-button compact-button"
@@ -574,7 +610,7 @@ function FeedbackPage({
                       <button
                         type="button"
                         className="link-button"
-                        onClick={() => openDraftReportFile(cachedReportFile)}
+                        onClick={() => previewDraftReportFile(cachedReportFile)}
                       >
                         查看文件
                       </button>
@@ -633,6 +669,14 @@ function FeedbackPage({
           ];
         }}
       />
+      {previewFile && (
+        <ReportPreviewModal
+          title={previewFile.title}
+          url={previewFile.url}
+          ext={previewFile.ext}
+          onClose={closeReportPreview}
+        />
+      )}
     </>
   );
 }

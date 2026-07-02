@@ -1713,6 +1713,8 @@ function App() {
           reportNo,
           originalName: reportFileName,
           fileDataUrl: await readFileAsDataUrl(file),
+          reportRejectedAt: '',
+          reportRejectedBy: '',
           uploadedAt: nowText(),
           updatedAt: nowText()
         };
@@ -1892,6 +1894,8 @@ function App() {
           reportNo,
           originalName: reportFileNameFromCode(reportNo, file.name),
           fileDataUrl: await readFileAsDataUrl(file),
+          reportRejectedAt: '',
+          reportRejectedBy: '',
           uploadedAt: createdAt,
           updatedAt: createdAt
         };
@@ -2148,6 +2152,52 @@ function App() {
     } catch (error) {
       console.error('stampReport failed', error);
       setMessage(`检验章加盖失败：${error?.message || '请确认报告单图片可以正常打开。'}`);
+      return false;
+    } finally {
+      setSavingId('');
+    }
+  }
+
+  async function rejectStampReport(record) {
+    if (!record?.id || !reportHref(record)) {
+      setMessage('当前没有可驳回的检验报告单。');
+      return false;
+    }
+    setSavingId(record.id);
+    try {
+      if (STATIC_MODE) {
+        const db = readStaticDb();
+        db.qualityInspection.reports[record.id] = {
+          ...(db.qualityInspection.reports[record.id] || {}),
+          reportRejectedAt: nowText(),
+          reportRejectedBy: user.name,
+          updatedAt: nowText()
+        };
+        delete db.qualityInspection.reports[record.id].stampedAt;
+        delete db.qualityInspection.reports[record.id].stampedBy;
+        delete db.qualityInspection.reports[record.id].stampSkippedAt;
+        delete db.qualityInspection.reports[record.id].stampSkippedBy;
+        saveStaticDb(db);
+        setRecords(composedStaticRecords(db).filter((item) => canReadClientRecord(user, item)));
+        setActiveTab('inspectionFeedback');
+        setMessage('检验报告单已驳回，已返回验货反馈页面重新处理。');
+        return true;
+      }
+      const res = await authFetch(`${API}/api/quality-inspection/reports/${encodeURIComponent(record.id)}/reject`, {
+        method: 'POST'
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        setMessage(payload.error || '检验报告单驳回失败。');
+        return false;
+      }
+      await refreshRecords();
+      setActiveTab('inspectionFeedback');
+      setMessage('检验报告单已驳回，已返回验货反馈页面重新处理。');
+      return true;
+    } catch (error) {
+      console.error('rejectStampReport failed', error);
+      setMessage('检验报告单驳回失败。');
       return false;
     } finally {
       setSavingId('');
@@ -2787,9 +2837,10 @@ function App() {
         )}
         {canAccessPage(user, 'inspectionStamp') && activeTab === 'inspectionStamp' && (
           <InspectionStampPage
-            records={displayRecords.filter((record) => reportHref(record) && !record.report?.stampedAt && !record.report?.stampSkippedAt)}
+            records={displayRecords.filter((record) => reportHref(record) && !record.report?.stampedAt && !record.report?.stampSkippedAt && !record.report?.reportRejectedAt)}
             savingId={savingId}
             onStamp={stampReport}
+            onReject={rejectStampReport}
           />
         )}
         {canAccessPage(user, 'inspectionReportLibrary') && activeTab === 'inspectionReportLibrary' && (

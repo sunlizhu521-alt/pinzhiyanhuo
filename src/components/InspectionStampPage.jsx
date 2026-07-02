@@ -10,7 +10,7 @@ import {
   createStampedImageDataUrl
 } from '../file-utils.js';
 import EmptyState from './EmptyState.jsx';
-function InspectionStampPage({ records, savingId, onStamp }) {
+function InspectionStampPage({ records, savingId, onStamp, onReject }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [rotation, setRotation] = useState(0);
   const [uploadedRecords, setUploadedRecords] = useState([]);
@@ -96,6 +96,17 @@ function InspectionStampPage({ records, savingId, onStamp }) {
       setPreviewError(`保存失败：${error?.message || '请确认报告单图片可以正常打开。'}`);
     } finally {
       setPreviewing(false);
+    }
+  }
+
+  async function rejectCurrentReport() {
+    if (!current || current.isStampUpload || !onReject) return;
+    if (!window.confirm('确认驳回当前检验报告单？驳回后会重新进入验货反馈页面。')) return;
+    setPreviewError('');
+    const rejected = await onReject(current);
+    if (rejected) {
+      setStampPreview(null);
+      setCurrentIndex((index) => Math.max(index - 1, 0));
     }
   }
 
@@ -190,6 +201,14 @@ function InspectionStampPage({ records, savingId, onStamp }) {
         {activePreview && (
           <button type="button" className="ghost compact-button" onClick={() => setStampPreview(null)} disabled={savingId === current?.id}>取消预览</button>
         )}
+        <button
+          type="button"
+          className="danger-button compact-button"
+          disabled={!current || current.isStampUpload || previewing || savingId === current?.id}
+          onClick={rejectCurrentReport}
+        >
+          驳回
+        </button>
       </div>
 
       <label
