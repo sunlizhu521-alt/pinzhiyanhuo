@@ -442,7 +442,7 @@ function FeedbackPage({
               else if (hasResult && resultText !== '返工') { statusText = '已验货'; color = '#047857'; }
               return <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '4px', background: color, color: '#fff', fontSize: '12px', fontWeight: 600 }}>{statusText}</span>;
             })(),
-            <span className="readonly-cell">{record.skuQuantity || ''}</span>,
+            <span className="readonly-cell sku-readonly-cell">{record.skuQuantity || ''}</span>,
             record.totalQuantity,
             record.firstInspection,
             record.businessDepartments,

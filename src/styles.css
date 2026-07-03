@@ -747,6 +747,14 @@ th {
   white-space: normal;
 }
 
+.sku-readonly-cell {
+  min-width: 180px;
+  max-width: 260px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
 .inspection-notice-table table {
   min-width: 1700px;
 }
