@@ -157,6 +157,18 @@ function safeNoticeValue(value, fallback = '-') {
   return text ? text.replace(/\s+/g, ' ').slice(0, 180) : fallback;
 }
 
+function noticeRowsSummary(rows = []) {
+  if (!Array.isArray(rows) || !rows.length) return '';
+  const items = rows.slice(0, 5).map((row) => {
+    const supplier = safeNoticeValue(row.supplierShortName, '供应商未填');
+    const series = safeNoticeValue(row.series, '系列未填');
+    const quantity = safeNoticeValue(row.totalQuantity, '数量未填');
+    return `${supplier} / ${series} / ${quantity}`;
+  });
+  const suffix = rows.length > items.length ? ` 等${rows.length}条` : '';
+  return `${items.join('；')}${suffix}`;
+}
+
 function describeMutation(req) {
   const method = req.method;
   const pathName = String(req.originalUrl || req.path || '').split('?')[0];
@@ -183,7 +195,7 @@ function describeMutation(req) {
     return { action: '上传并应用维度表', detail: `槽位：${safeNoticeValue(req.params?.slotId || targetId)}${fileText ? `；${fileText}` : ''}` };
   }
   if (method === 'DELETE' && /\/api\/quality-inspection\/dimension-library\/[^/]+$/.test(pathName)) return { action: '删除维度表槽位文件', detail: `槽位：${safeNoticeValue(req.params?.slotId || targetId)}` };
-  if (method === 'POST' && pathName === '/api/quality-inspection/notices') return { action: '提交验货通知', detail: `记录数：${rowsCount}` };
+  if (method === 'POST' && pathName === '/api/quality-inspection/notices') return { action: '提交验货通知', detail: `记录数：${rowsCount}`, inspectionInfo: noticeRowsSummary(body.rows) };
   if (method === 'DELETE' && pathName === '/api/quality-inspection/notices') return { action: '清空验货通知和安排', detail: '清空全部验货通知、安排、报告和反馈' };
   if (method === 'DELETE' && /\/api\/quality-inspection\/notices\/[^/]+$/.test(pathName)) return { action: '删除单条验货通知', detail: `记录ID：${safeNoticeValue(targetId)}` };
   if (pathName === '/api/quality-inspection/direct-feedback') return { action: '新增未通知验货反馈', detail: `${safeNoticeValue(body.notice?.supplierShortName || body.supplierShortName)} / ${safeNoticeValue(body.notice?.series || body.series)}` };
@@ -206,14 +218,15 @@ async function notifyDingTalk(req, mutation) {
   const url = dingTalkSignedUrl();
   if (!url || !mutation) return;
   const operator = safeNoticeValue(req.authUser?.name || req.body?.name, '未知用户');
-  const text = [
+  const lines = [
     '### 品质验货变更提醒',
     `- 操作人：${operator}`,
     `- 操作内容：${safeNoticeValue(mutation.action)}`,
     `- 详情：${safeNoticeValue(mutation.detail)}`,
-    `- 时间：${nowText()}`,
-    `- 接口：${req.method} ${String(req.originalUrl || req.path || '').split('?')[0]}`
-  ].join('\n');
+    `- 时间：${nowText()}`
+  ];
+  if (mutation.inspectionInfo) lines.push(`- 验货信息：${safeNoticeValue(mutation.inspectionInfo, '-')}`);
+  const text = lines.join('\n');
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5000);
   try {
