@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { API, STATIC_MODE, DEFAULT_ADMIN_USER, ROLE_ADMIN, ROLE_USER, BUSINESS_DEPARTMENT_OPTIONS, NOTICE_FIELDS, MENU_PAGES, PAGE_OPTIONS, DIMENSION_LIBRARY_SLOTS, PRODUCT_CATEGORY_SLOT_ID, PURCHASE_WORK_DIVISION_SLOT_ID, RECORD_REFRESH_PAGES, DIMENSION_REFRESH_PAGES, REPORT_FILE_REFRESH_PAGES, DIMENSION_PREVIEW_ROW_LIMIT } from '../constants.js';
-import { createId, normalize, formatDate, nowText, fixMojibakeText, splitMultiValue, joinBusinessDepartments, canAccessPage, homeTabForUser, isAdminUser, isPrimaryAdminUser, canReadClientRecord, createNoticeRow, feedbackReportNo, mergeNoticeRowsForImport } from '../utils.js';
+import { createId, normalize, formatDate, nowText, fixMojibakeText, splitMultiValue, joinBusinessDepartments, canAccessPage, homeTabForUser, isAdminUser, isPrimaryAdminUser, isSubmittedScheduleRecord, canReadClientRecord, createNoticeRow, feedbackReportNo, mergeNoticeRowsForImport } from '../utils.js';
 import { readStaticDb, saveStaticDb, readDimensionLibrary, saveDimensionLibrary, readReportFileLibrary, saveReportFileLibrary, readStoredUser, saveStoredUser, clearStoredUser, composedStaticRecords, normalizeStaticDb, normalizeDimensionLibrary } from '../db-utils.js';
 import { getCachedDimensionLibrary, setCachedDimensionLibrary } from '../dimension-cache.js';
 import { loadXlsxModule, parseWorkbookInBrowser, exportFileStamp, recordToMigrationLedgerRow, recordToReportExportRow, parseWorkbookSheetsInBrowser, parseDimensionSheet, importedRowsToNoticeRows, importedRowsToSummaryItems, importedRowsToFeedbackItems } from '../import-utils.js';
@@ -1627,6 +1627,27 @@ function App() {
     const formFile = form.get('reportFile');
     const file = cachedReportFile instanceof File && cachedReportFile.size > 0 ? cachedReportFile : formFile;
     const sourceIds = Array.isArray(record.sourceIds) && record.sourceIds.length ? record.sourceIds : [record.id];
+    const sourceRecords = sourceIds
+      .map((sourceId) => records.find((item) => item.id === sourceId) || (sourceId === record.id ? record : null))
+      .filter(Boolean);
+    const canSubmitFeedbackRecord = (sourceRecord) => {
+      if (isAdminUser(user)) return true;
+      if (!canAccessPage(user, 'inspectionFeedback') && !canAccessPage(user, 'reworkRecords')) return false;
+      if (isSubmittedScheduleRecord(sourceRecord)) return true;
+      if (normalize(sourceRecord.report?.reportRejectedAt)) return true;
+      if (normalize(sourceRecord.importSource) === 'directFeedback') {
+        return [sourceRecord.inspectionApplicant, sourceRecord.inspectionNotifier, sourceRecord.feedback?.actualInspector]
+          .map(normalize)
+          .includes(normalize(user.name));
+      }
+      return false;
+    };
+    const writableSourceRecords = sourceRecords.filter(canSubmitFeedbackRecord);
+    if (!writableSourceRecords.length) {
+      setSavingId('');
+      setMessage('当前记录未安排验货员或无权保存，请先完成验货安排后再提交反馈。');
+      return false;
+    }
     const savedAt = nowText();
     const feedbackPatch = {
       actualInspectionTime: normalize(form.get('actualInspectionTime')),
@@ -1690,6 +1711,7 @@ function App() {
       };
     };
     const reportNo = isRework ? '' : feedbackReportNo(record, feedbackPatch.actualInspectionTime, feedbackPatch.inspectionQuantity);
+    const shouldResubmitRejectedReport = !isRework && reportNo && normalize(record.report?.reportRejectedAt);
     if (!isRework && file instanceof File && file.size > 0 && !reportNo) {
       setSavingId('');
       setMessage('请先填写实际验货时间和实际验货数量，系统会自动生成检验报告单编码后再上传检验报告单。');
@@ -1713,17 +1735,31 @@ function App() {
           reportNo,
           originalName: reportFileName,
           fileDataUrl: await readFileAsDataUrl(file),
-          reportRejectedAt: '',
-          reportRejectedBy: '',
           uploadedAt: nowText(),
           updatedAt: nowText()
         };
+        delete db.qualityInspection.reports[record.id].reportRejectedAt;
+        delete db.qualityInspection.reports[record.id].reportRejectedBy;
+        delete db.qualityInspection.reports[record.id].stampedAt;
+        delete db.qualityInspection.reports[record.id].stampedBy;
+        delete db.qualityInspection.reports[record.id].stampSkippedAt;
+        delete db.qualityInspection.reports[record.id].stampSkippedBy;
+        delete db.qualityInspection.reports[record.id].stampRotation;
       } else if (!isRework && reportNo) {
         db.qualityInspection.reports[record.id] = {
           ...(db.qualityInspection.reports[record.id] || {}),
           reportNo,
           updatedAt: nowText()
         };
+        if (shouldResubmitRejectedReport) {
+          delete db.qualityInspection.reports[record.id].reportRejectedAt;
+          delete db.qualityInspection.reports[record.id].reportRejectedBy;
+          delete db.qualityInspection.reports[record.id].stampedAt;
+          delete db.qualityInspection.reports[record.id].stampedBy;
+          delete db.qualityInspection.reports[record.id].stampSkippedAt;
+          delete db.qualityInspection.reports[record.id].stampSkippedBy;
+          delete db.qualityInspection.reports[record.id].stampRotation;
+        }
       }
       saveStaticDb(db);
       setSavingId('');
@@ -1732,17 +1768,18 @@ function App() {
       setMessage('验货反馈已保存。');
       return true;
     }
-    const feedbackResponses = await Promise.all(sourceIds.map((sourceId) => {
-      const sourceRecord = records.find((item) => item.id === sourceId) || record;
-      return authFetch(`${API}/api/quality-inspection/feedback/${encodeURIComponent(sourceId)}`, {
+    const feedbackResponses = await Promise.all(writableSourceRecords.map((sourceRecord) => {
+      return authFetch(`${API}/api/quality-inspection/feedback/${encodeURIComponent(sourceRecord.id)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...(sourceRecord.feedback || {}), ...feedbackPatchForRecord(sourceRecord) })
       });
     }));
     setSavingId('');
-    if (feedbackResponses.some((res) => !res.ok)) {
-      setMessage('验货反馈保存失败。');
+    const failedFeedbackResponse = feedbackResponses.find((res) => !res.ok);
+    if (failedFeedbackResponse) {
+      const payload = await failedFeedbackResponse.json().catch(() => ({}));
+      setMessage(payload.error || '验货反馈保存失败。');
       return false;
     }
     if (!isRework && file instanceof File && file.size > 0) {
@@ -1758,7 +1795,7 @@ function App() {
         await refreshRecords();
         return false;
       }
-    } else if (!isRework && reportNo && reportNo !== normalize(record.report?.reportNo)) {
+    } else if (!isRework && reportNo && (reportNo !== normalize(record.report?.reportNo) || shouldResubmitRejectedReport)) {
       const reportForm = new FormData();
       reportForm.append('reportNo', reportNo);
       const reportRes = await authFetch(`${API}/api/quality-inspection/reports/${encodeURIComponent(record.id)}`, {

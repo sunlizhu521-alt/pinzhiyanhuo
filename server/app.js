@@ -6,7 +6,7 @@ import xlsx from 'xlsx';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import { format } from 'date-fns';
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import { mkdir, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { initDatabase, getUsers, getUserByName, getUserById, upsertUser, createUser, deleteUser, getSessions, setSession, deleteSession, deleteSessionsByUserId, getNotices, saveNotices, getSchedule, saveSchedule, deleteSchedule, getReport, saveReport, deleteReport, getFeedback, saveFeedback, deleteFeedback, getDimensionLibrary, saveDimensionLibrary, deleteDimensionLibrary, getInitialData, saveInitialData, getSchedulesBatch, getReportsBatch, getFeedbacksBatch, deleteExpiredSessions } from './database.js';
 import path from 'node:path';
@@ -21,6 +21,8 @@ const dimensionUploadDir = path.join(dataDir, 'dimension-uploads');
 const dbPath = path.join(dataDir, 'db.json');
 const port = Number(process.env.PORT || 4002);
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const DINGTALK_WEBHOOK = process.env.DINGTALK_WEBHOOK || '';
+const DINGTALK_SECRET = process.env.DINGTALK_SECRET || '';
 const DEFAULT_ADMIN_USER = { id: 'u-admin', name: '孙立柱', password: ADMIN_PASSWORD, role: '管理员' };
 const ROLE_ADMIN = '管理员';
 const ROLE_USER = '普通用户';
@@ -116,9 +118,125 @@ app.use(helmet({
   crossOriginOpenerPolicy: false
 }));
 app.use('/api/', apiLimiter);
+app.use('/api', (req, res, next) => {
+  const mutatingMethods = new Set(['POST', 'PATCH', 'DELETE']);
+  if (!mutatingMethods.has(req.method)) {
+    next();
+    return;
+  }
+  res.on('finish', () => {
+    if (res.statusCode >= 400) return;
+    const mutation = describeMutation(req);
+    if (!mutation) return;
+    notifyDingTalk(req, mutation).catch((error) => {
+      console.error('[dingtalk] notify middleware error:', error?.message || error);
+    });
+  });
+  next();
+});
 
 function nowText() {
   return format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+}
+
+function dingTalkSignedUrl() {
+  if (!DINGTALK_WEBHOOK) return '';
+  if (!DINGTALK_SECRET) return DINGTALK_WEBHOOK;
+  const timestamp = Date.now();
+  const sign = encodeURIComponent(
+    createHmac('sha256', DINGTALK_SECRET)
+      .update(`${timestamp}\n${DINGTALK_SECRET}`)
+      .digest('base64')
+  );
+  const separator = DINGTALK_WEBHOOK.includes('?') ? '&' : '?';
+  return `${DINGTALK_WEBHOOK}${separator}timestamp=${timestamp}&sign=${sign}`;
+}
+
+function safeNoticeValue(value, fallback = '-') {
+  const text = String(value ?? '').trim();
+  return text ? text.replace(/\s+/g, ' ').slice(0, 180) : fallback;
+}
+
+function describeMutation(req) {
+  const method = req.method;
+  const pathName = String(req.originalUrl || req.path || '').split('?')[0];
+  const body = req.body || {};
+  const fileNames = [
+    ...(req.file ? [req.file.originalname] : []),
+    ...(Array.isArray(req.files) ? req.files.map((file) => file.originalname) : [])
+  ].filter(Boolean).map(fixUploadFileName);
+  const fileText = fileNames.length ? `文件：${fileNames.slice(0, 5).join('、')}${fileNames.length > 5 ? ` 等${fileNames.length}个` : ''}` : '';
+  const idMatch = pathName.match(/\/([^/]+)$/);
+  const targetId = idMatch ? decodeURIComponent(idMatch[1]) : '';
+  const rowsCount = Array.isArray(body.rows) ? body.rows.length : 0;
+  const itemsCount = Array.isArray(body.items) ? body.items.length : 0;
+
+  if (pathName === '/api/auth/login') return null;
+  if (pathName === '/api/auth/register') return { action: '注册账号', detail: `账号：${safeNoticeValue(body.name)}` };
+  if (pathName === '/api/auth/change-password') return { action: '修改登录密码', detail: '当前用户修改了登录密码' };
+  if (/\/api\/auth\/users\/[^/]+\/access$/.test(pathName)) return { action: '调整用户权限', detail: `用户ID：${safeNoticeValue(targetId)}` };
+  if (/\/api\/auth\/users\/[^/]+\/reset-password$/.test(pathName)) return { action: '重置用户密码', detail: `用户ID：${safeNoticeValue(targetId)}` };
+  if (method === 'DELETE' && /\/api\/auth\/users\/[^/]+$/.test(pathName)) return { action: '删除用户账号', detail: `用户ID：${safeNoticeValue(targetId)}` };
+  if (pathName.includes('/initial-data/import')) return { action: '导入验货初始数据', detail: fileText };
+  if (pathName.includes('/dimension-library/sync')) return { action: '更新维度表文件库', detail: '同步服务器最新维度表数据' };
+  if (/\/api\/quality-inspection\/dimension-library\/[^/]+\/apply$/.test(pathName)) {
+    return { action: '上传并应用维度表', detail: `槽位：${safeNoticeValue(req.params?.slotId || targetId)}${fileText ? `；${fileText}` : ''}` };
+  }
+  if (method === 'DELETE' && /\/api\/quality-inspection\/dimension-library\/[^/]+$/.test(pathName)) return { action: '删除维度表槽位文件', detail: `槽位：${safeNoticeValue(req.params?.slotId || targetId)}` };
+  if (method === 'POST' && pathName === '/api/quality-inspection/notices') return { action: '提交验货通知', detail: `记录数：${rowsCount}` };
+  if (method === 'DELETE' && pathName === '/api/quality-inspection/notices') return { action: '清空验货通知和安排', detail: '清空全部验货通知、安排、报告和反馈' };
+  if (method === 'DELETE' && /\/api\/quality-inspection\/notices\/[^/]+$/.test(pathName)) return { action: '删除单条验货通知', detail: `记录ID：${safeNoticeValue(targetId)}` };
+  if (pathName === '/api/quality-inspection/direct-feedback') return { action: '新增未通知验货反馈', detail: `${safeNoticeValue(body.notice?.supplierShortName || body.supplierShortName)} / ${safeNoticeValue(body.notice?.series || body.series)}` };
+  if (pathName === '/api/quality-inspection/summary-import') return { action: '导入历史台账', detail: `记录数：${itemsCount}` };
+  if (/\/api\/quality-inspection\/schedules\/[^/]+$/.test(pathName)) return { action: '安排验货', detail: `验货员：${safeNoticeValue(body.inspector)}；计划时间：${safeNoticeValue(body.scheduledDate)}` };
+  if (method === 'POST' && /\/api\/quality-inspection\/reports\/[^/]+$/.test(pathName)) return { action: '上传检验报告单', detail: `记录ID：${safeNoticeValue(targetId)}${fileText ? `；${fileText}` : ''}` };
+  if (method === 'DELETE' && /\/api\/quality-inspection\/reports\/[^/]+$/.test(pathName)) return { action: '删除检验报告单', detail: `记录ID：${safeNoticeValue(targetId)}` };
+  if (method === 'DELETE' && /\/api\/quality-inspection\/records\/[^/]+$/.test(pathName)) return { action: '删除验货记录', detail: `记录ID：${safeNoticeValue(targetId)}` };
+  if (/\/api\/quality-inspection\/reports\/[^/]+\/stamp$/.test(pathName)) return { action: body.skipStamp && body.skipStamp !== '0' ? '直接保存检验报告单' : '加盖检验章', detail: `记录ID：${safeNoticeValue(req.params?.id || targetId)}${fileText ? `；${fileText}` : ''}` };
+  if (/\/api\/quality-inspection\/reports\/[^/]+\/reject$/.test(pathName)) return { action: '驳回检验报告单', detail: `记录ID：${safeNoticeValue(req.params?.id || targetId)}` };
+  if (method === 'POST' && pathName === '/api/quality-inspection/report-files') return { action: '上传报告单库文件', detail: fileText || `文件数：${Array.isArray(req.files) ? req.files.length : 0}` };
+  if (method === 'PATCH' && /\/api\/quality-inspection\/report-files\/[^/]+$/.test(pathName)) return { action: '修改报告单库文件名', detail: `原文件：${safeNoticeValue(targetId)}；新文件：${safeNoticeValue(body.fileName)}` };
+  if (pathName === '/api/quality-inspection/report-files/batch-delete') return { action: '批量删除报告单库文件', detail: `文件数：${Array.isArray(body.fileNames) ? body.fileNames.length : 0}` };
+  if (method === 'DELETE' && /\/api\/quality-inspection\/report-files\/[^/]+$/.test(pathName)) return { action: '删除报告单库文件', detail: `文件：${safeNoticeValue(targetId)}` };
+  if (/\/api\/quality-inspection\/feedback\/[^/]+$/.test(pathName)) return { action: '提交验货反馈/复验通知', detail: `记录ID：${safeNoticeValue(req.params?.id || targetId)}；结果：${safeNoticeValue(body.result || body.rework?.status)}` };
+  return { action: `${method} ${pathName}`, detail: '业务数据已变更' };
+}
+
+async function notifyDingTalk(req, mutation) {
+  const url = dingTalkSignedUrl();
+  if (!url || !mutation) return;
+  const operator = safeNoticeValue(req.authUser?.name || req.body?.name, '未知用户');
+  const text = [
+    '### 品质验货变更提醒',
+    `- 操作人：${operator}`,
+    `- 操作内容：${safeNoticeValue(mutation.action)}`,
+    `- 详情：${safeNoticeValue(mutation.detail)}`,
+    `- 时间：${nowText()}`,
+    `- 接口：${req.method} ${String(req.originalUrl || req.path || '').split('?')[0]}`
+  ].join('\n');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        msgtype: 'markdown',
+        markdown: {
+          title: '品质验货变更提醒',
+          text
+        }
+      }),
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      console.error('[dingtalk] notify failed:', response.status, await response.text().catch(() => ''));
+    }
+  } catch (error) {
+    console.error('[dingtalk] notify error:', error?.message || error);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 const BCRYPT_ROUNDS = 10;
@@ -691,8 +809,15 @@ function canReadRecord(user, record) {
 function canWriteFeedback(user, record) {
   if (!user || !record) return false;
   if (user.role === ROLE_ADMIN) return true;
-  return (hasPageAccess(user, 'inspectionFeedback') || hasPageAccess(user, 'reworkRecords'))
-    && isSubmittedScheduleRecord(record);
+  if (!hasPageAccess(user, 'inspectionFeedback') && !hasPageAccess(user, 'reworkRecords')) return false;
+  if (isSubmittedScheduleRecord(record)) return true;
+  if (normalizeText(record.report?.reportRejectedAt)) return true;
+  if (normalizeText(record.importSource) === 'directFeedback') {
+    return [record.inspectionApplicant, record.inspectionNotifier, record.feedback?.actualInspector]
+      .map(normalizeText)
+      .includes(normalizeText(user.name));
+  }
+  return false;
 }
 
 function reportFilePath(fileName) {
@@ -1730,10 +1855,15 @@ app.post('/api/quality-inspection/reports/:id', requireAuth, requirePages('inspe
     ...previous,
     reportNo,
     conclusion: String(req.body.conclusion || previous.conclusion || '').trim(),
-    reportRejectedAt: req.file ? '' : (previous.reportRejectedAt || ''),
-    reportRejectedBy: req.file ? '' : (previous.reportRejectedBy || ''),
     updatedAt: nowText()
   };
+  delete next.reportRejectedAt;
+  delete next.reportRejectedBy;
+  delete next.stampedAt;
+  delete next.stampedBy;
+  delete next.stampSkippedAt;
+  delete next.stampSkippedBy;
+  delete next.stampRotation;
   if (req.file) {
     const ext = path.extname(req.file.originalname || '');
     const originalBase = path.basename(req.file.originalname || 'report', ext);
