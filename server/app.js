@@ -219,7 +219,7 @@ async function notifyDingTalk(req, mutation) {
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
       body: JSON.stringify({
         msgtype: 'markdown',
         markdown: {

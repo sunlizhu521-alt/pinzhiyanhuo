@@ -777,6 +777,7 @@ function App() {
       setNoticeSubmission({ ...payload, rows: visibleRows });
       if (clearRows) setNoticeRows([createBlankNoticeRow({ inspectionApplicant: user.name })]);
       setNoticeImportPreview(null);
+      setClearedScheduleSignature('');
       setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
       setMessage(successText || `验货通知已提交：共 ${payload.rows.length} 条。`);
       return true;
@@ -797,6 +798,7 @@ function App() {
     setNoticeSubmission(payload);
     if (clearRows) setNoticeRows([createBlankNoticeRow({ inspectionApplicant: user.name })]);
     setNoticeImportPreview(null);
+    setClearedScheduleSignature('');
     setMessage(successText || `验货通知已提交：共 ${payload.rows.length} 条。`);
     await refreshRecords();
     return true;

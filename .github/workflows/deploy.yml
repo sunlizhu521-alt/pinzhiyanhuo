@@ -78,7 +78,10 @@ jobs:
             npm run build
 
             echo ">>> Restart service"
-            ADMIN_PASSWORD='${{ secrets.ADMIN_PASSWORD }}' pm2 startOrReload ecosystem.config.cjs --update-env
+            ADMIN_PASSWORD='${{ secrets.ADMIN_PASSWORD }}' \
+            DINGTALK_WEBHOOK='${{ secrets.DINGTALK_WEBHOOK }}' \
+            DINGTALK_SECRET='${{ secrets.DINGTALK_SECRET }}' \
+            pm2 startOrReload ecosystem.config.cjs --update-env
             pm2 save
             pm2 list
 

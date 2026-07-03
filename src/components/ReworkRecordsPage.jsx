@@ -73,7 +73,7 @@ function ReworkRecordsPage({
       <DataTable
         rows={filteredRecords}
         columns={[
-          '供应商简称', '产品线', '系列', '数量', '事业部', '验货员', '实际验货时间',
+          '供应商简称', '产品线', '系列', '数量', '事业部', '验货通知人', '验货员', '实际验货时间',
           '验货结果', '问题等级', '问题分类', '问题反馈', '返工完成时间', '复验备注', '操作'
         ]}
         render={(record) => {
@@ -84,6 +84,7 @@ function ReworkRecordsPage({
             record.series,
             record.totalQuantity,
             record.businessDepartments,
+            record.inspectionNotifier || record.inspectionApplicant || '',
             record.schedule?.inspector || '',
             formatDate(record.feedback?.actualInspectionTime),
             record.feedback?.result || '',
