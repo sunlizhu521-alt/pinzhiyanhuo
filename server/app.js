@@ -182,8 +182,13 @@ function describeMutation(req) {
   const targetId = idMatch ? decodeURIComponent(idMatch[1]) : '';
   const rowsCount = Array.isArray(body.rows) ? body.rows.length : 0;
   const itemsCount = Array.isArray(body.items) ? body.items.length : 0;
+  const isNoticeMutation = method === 'POST' && pathName === '/api/quality-inspection/notices';
+  const isScheduleMutation = /\/api\/quality-inspection\/schedules\/[^/]+$/.test(pathName);
+  const isDirectFeedbackMutation = pathName === '/api/quality-inspection/direct-feedback';
+  const isFeedbackMutation = /\/api\/quality-inspection\/feedback\/[^/]+$/.test(pathName);
 
   if (pathName === '/api/auth/login') return null;
+  if (!isNoticeMutation && !isScheduleMutation && !isDirectFeedbackMutation && !isFeedbackMutation) return null;
   if (pathName === '/api/auth/register') return { action: '注册账号', detail: `账号：${safeNoticeValue(body.name)}` };
   if (pathName === '/api/auth/change-password') return { action: '修改登录密码', detail: '当前用户修改了登录密码' };
   if (/\/api\/auth\/users\/[^/]+\/access$/.test(pathName)) return { action: '调整用户权限', detail: `用户ID：${safeNoticeValue(targetId)}` };

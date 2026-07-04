@@ -7,6 +7,9 @@ import { reportHref, reportFileExt } from '../file-utils.js';
 function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImport, onClearImportPreview, canDelete, onDelete, onExport }) {
   const [filters, setFilters] = useState({
     supplierShortName: '',
+    salesProductLine: '',
+    series: '',
+    businessDepartments: '',
     status: '',
     result: '',
     keyword: '',
@@ -74,6 +77,9 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
       const feedback = latestFeedback(record.feedback);
       return (
         (!normalizedFilters.supplierShortName || normalize(record.supplierShortName).toLowerCase().includes(normalizedFilters.supplierShortName))
+        && (!normalizedFilters.salesProductLine || normalize(record.salesProductLine).toLowerCase().includes(normalizedFilters.salesProductLine))
+        && (!normalizedFilters.series || normalize(record.series).toLowerCase().includes(normalizedFilters.series))
+        && (!normalizedFilters.businessDepartments || normalize(record.businessDepartments).toLowerCase().includes(normalizedFilters.businessDepartments))
         && (!normalizedFilters.status || normalize(ledgerStatus(record)).toLowerCase() === normalizedFilters.status)
         && (!normalizedFilters.result || normalize(feedback.result).toLowerCase() === normalizedFilters.result)
         && (!normalizedFilters.keyword
@@ -95,7 +101,7 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
   }
 
   function clearFilters() {
-    setFilters({ supplierShortName: '', status: '', result: '', keyword: '', notifier: '' });
+    setFilters({ supplierShortName: '', salesProductLine: '', series: '', businessDepartments: '', status: '', result: '', keyword: '', notifier: '' });
   }
 
   function reportPreviewCell(record) {
@@ -194,6 +200,21 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
           placeholder="供应商简称"
           value={filters.supplierShortName}
           onChange={(event) => updateFilter('supplierShortName', event.target.value)}
+        />
+        <input
+          placeholder="产品线"
+          value={filters.salesProductLine}
+          onChange={(event) => updateFilter('salesProductLine', event.target.value)}
+        />
+        <input
+          placeholder="系列"
+          value={filters.series}
+          onChange={(event) => updateFilter('series', event.target.value)}
+        />
+        <input
+          placeholder="事业部"
+          value={filters.businessDepartments}
+          onChange={(event) => updateFilter('businessDepartments', event.target.value)}
         />
         <input
           placeholder="验货通知人"
