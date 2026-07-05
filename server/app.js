@@ -1098,6 +1098,39 @@ function normalizeText(value) {
   return String(value ?? '').trim();
 }
 
+function padDatePart(value) {
+  return String(value).padStart(2, '0');
+}
+
+function excelSerialDateToIso(value) {
+  const serial = Number(value);
+  if (!Number.isFinite(serial) || serial <= 0) return '';
+  const utcDays = Math.floor(serial - 25569);
+  const date = new Date(utcDays * 86400 * 1000);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${date.getUTCFullYear()}-${padDatePart(date.getUTCMonth() + 1)}-${padDatePart(date.getUTCDate())}`;
+}
+
+function formatDateText(value) {
+  const text = normalizeText(value);
+  if (!text) return '';
+  const normalizedText = text.replace(/\s+/g, ' ').trim();
+  const compact = normalizedText.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
+  const yearFirst = normalizedText.match(/^(\d{4})[-/.\u5e74](\d{1,2})[-/.\u6708](\d{1,2})/);
+  if (yearFirst) return `${yearFirst[1]}-${padDatePart(yearFirst[2])}-${padDatePart(yearFirst[3])}`;
+  const shortYear = normalizedText.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2})$/);
+  if (shortYear) return `20${padDatePart(shortYear[3])}-${padDatePart(shortYear[1])}-${padDatePart(shortYear[2])}`;
+  const monthFirst = normalizedText.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if (monthFirst) return `${monthFirst[3]}-${padDatePart(monthFirst[1])}-${padDatePart(monthFirst[2])}`;
+  if (/^\d{5}(\.\d+)?$/.test(normalizedText)) return excelSerialDateToIso(normalizedText);
+  const parsed = new Date(normalizedText);
+  if (!Number.isNaN(parsed.getTime())) {
+    return `${parsed.getFullYear()}-${padDatePart(parsed.getMonth() + 1)}-${padDatePart(parsed.getDate())}`;
+  }
+  return normalizedText.slice(0, 10).replace(/\//g, '-');
+}
+
 function pendingReworkForFeedback(feedback = {}, user, timestamp = nowText()) {
   const existing = feedback.rework || {};
   const next = {
@@ -1108,7 +1141,7 @@ function pendingReworkForFeedback(feedback = {}, user, timestamp = nowText()) {
     requestedBy: user?.name || '',
     status: '待复验',
     sourceFeedback: {
-      actualInspectionTime: normalizeText(feedback.actualInspectionTime),
+      actualInspectionTime: formatDateText(feedback.actualInspectionTime),
       result: normalizeText(feedback.result),
       issueLevel: normalizeText(feedback.issueLevel),
       issueCategoryPrimary: normalizeText(feedback.issueCategoryPrimary),
@@ -1832,7 +1865,7 @@ app.post('/api/quality-inspection/direct-feedback', requireAuth, requirePages('i
   const salesProductLine = normalizeText(inputNotice.salesProductLine || req.body?.salesProductLine);
   const series = normalizeText(inputNotice.series || req.body?.series);
   const totalQuantity = normalizeText(inputNotice.totalQuantity || req.body?.totalQuantity);
-  const actualInspectionTime = normalizeText(inputFeedback.actualInspectionTime || req.body?.actualInspectionTime);
+  const actualInspectionTime = formatDateText(inputFeedback.actualInspectionTime || req.body?.actualInspectionTime);
   if (!supplierShortName || !salesProductLine || !series || !totalQuantity || !actualInspectionTime) {
     return res.status(400).json({ error: '供应商简称、产品线、系列、数量、实际验货时间不能为空' });
   }
@@ -2236,6 +2269,9 @@ app.patch('/api/quality-inspection/feedback/:id', requireAuth, requirePages('ins
     ...req.body,
     updatedAt
   };
+  if (nextFeedback.actualInspectionTime) {
+    nextFeedback.actualInspectionTime = formatDateText(nextFeedback.actualInspectionTime);
+  }
   const result = normalizeText(nextFeedback.result);
   const hasCompletedRework = normalizeText(nextFeedback.rework?.reworkCompleteTime) || normalizeText(nextFeedback.rework?.completedAt);
   const reworkDeleted = normalizeText(nextFeedback.rework?.status) === '已删除' || normalizeText(nextFeedback.rework?.deletedAt);

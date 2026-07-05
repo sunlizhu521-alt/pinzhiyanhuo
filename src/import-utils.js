@@ -366,7 +366,7 @@ function importedRowsToSummaryItems(importedRows, currentUserName) {
       };
       const feedback = {
         result: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.feedbackResult),
-        actualInspectionTime: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.actualInspectionTime),
+        actualInspectionTime: formatDate(readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.actualInspectionTime)),
         actualInspector: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.actualInspector),
         inspectionMethod: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.inspectionMethod),
         inspectionQuantity: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.inspectionQuantity),
@@ -431,6 +431,9 @@ function importedRowsToFeedbackItems(importedRows, records) {
           readImportedValue(normalizedSource, [key, ...aliases])
         ])
         .filter(([, value]) => normalize(value)));
+      if (feedback.actualInspectionTime) {
+        feedback.actualInspectionTime = formatDate(feedback.actualInspectionTime);
+      }
       const matchedRecord = recordByMainKey.get(feedbackMatchKey(noticeValues))
         || recordByFallbackKey.get(feedbackFallbackMatchKey(noticeValues));
       return {

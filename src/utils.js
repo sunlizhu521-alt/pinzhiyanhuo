@@ -33,23 +33,25 @@ function formatDate(value) {
   }
   const text = normalize(value);
   if (!text) return '';
-  const iso = text.match(/^(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})/);
-  if (iso) return `${iso[1]}-${padDatePart(iso[2])}-${padDatePart(iso[3])}`;
-  const shortYear = text.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2})$/);
+  const normalizedText = text.replace(/\s+/g, ' ').trim();
+  const compact = normalizedText.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
+  const yearFirst = normalizedText.match(/^(\d{4})[-/.\u5e74](\d{1,2})[-/.\u6708](\d{1,2})/);
+  if (yearFirst) return `${yearFirst[1]}-${padDatePart(yearFirst[2])}-${padDatePart(yearFirst[3])}`;
+  const shortYear = normalizedText.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2})$/);
   if (shortYear) {
     const year = Number(shortYear[3]);
     return `20${padDatePart(year)}-${padDatePart(shortYear[1])}-${padDatePart(shortYear[2])}`;
   }
-  const slash = text.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
-  if (slash) return `${slash[3]}-${padDatePart(slash[1])}-${padDatePart(slash[2])}`;
-  if (/^\d{5}(\.\d+)?$/.test(text)) return excelSerialDateToIso(text);
-  const parsed = new Date(text);
+  const monthFirst = normalizedText.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if (monthFirst) return `${monthFirst[3]}-${padDatePart(monthFirst[1])}-${padDatePart(monthFirst[2])}`;
+  if (/^\d{5}(\.\d+)?$/.test(normalizedText)) return excelSerialDateToIso(normalizedText);
+  const parsed = new Date(normalizedText);
   if (!Number.isNaN(parsed.getTime())) {
     return `${parsed.getFullYear()}-${padDatePart(parsed.getMonth() + 1)}-${padDatePart(parsed.getDate())}`;
   }
-  return text.slice(0, 10);
+  return normalizedText.slice(0, 10).replace(/\//g, '-');
 }
-
 function formatCompactDate(value) {
   return formatDate(value).replace(/-/g, '');
 }
@@ -150,7 +152,6 @@ function normalizeSupplierKey(value) {
   return normalizeHeader(value)
     .replace(/有限责任公司|股份有限公司|有限公司|公司|工厂|厂/g, '');
 }
-
 function normalizePageAccessList(pageAccess = []) {
   const allowedPages = new Set(PAGE_OPTIONS.map((page) => page.tab));
   const normalized = [...new Set((Array.isArray(pageAccess) ? pageAccess : [])
@@ -328,7 +329,6 @@ function mergeFeedbackRecords(records = [], reportHrefFn = () => false) {
     };
   });
 }
-
 function noticeImportMergeKey(row) {
   if (!normalize(row.series)) return `${row.id || createId()}`;
   return NOTICE_IMPORT_MERGE_KEYS.map((key) => normalize(row[key])).join('\u0001');
@@ -378,7 +378,6 @@ function mergeNoticeRowsForImport(rows) {
     };
   });
 }
-
 export {
   createId,
   normalize,

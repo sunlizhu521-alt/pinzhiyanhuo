@@ -1686,7 +1686,7 @@ function App() {
     }
     const savedAt = nowText();
     const feedbackPatch = {
-      actualInspectionTime: normalize(form.get('actualInspectionTime')),
+      actualInspectionTime: formatDate(form.get('actualInspectionTime')),
       inspectionMethod: normalize(form.get('inspectionMethod')),
       inspectionQuantity: normalize(form.get('inspectionQuantity')),
       checkQuantity: normalize(form.get('checkQuantity')),
@@ -1881,7 +1881,7 @@ function App() {
     const form = new FormData(formElement);
     const id = createId();
     const createdAt = nowText();
-    const actualInspectionTime = normalize(form.get('actualInspectionTime'));
+    const actualInspectionTime = formatDate(form.get('actualInspectionTime'));
     const inspectionQuantity = normalize(form.get('inspectionQuantity'));
     const tempRecord = {
       supplierShortName: normalize(form.get('supplierShortName')),
@@ -2330,7 +2330,7 @@ function App() {
           businessDepartments: '',
           schedule: { inspector: file.inspector || '' },
           feedback: {
-            actualInspectionTime: file.actualInspectionTime || '',
+            actualInspectionTime: formatDate(file.actualInspectionTime),
             actualInspector: file.actualInspector || file.inspector || '历史检验单',
             result: file.result || ''
           },
