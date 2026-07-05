@@ -1,0 +1,186 @@
+name: Diagnose ledger import data
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Inspect ledger import rows on Tencent Cloud
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: 129.211.9.242
+          username: ubuntu
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: 22
+          script: |
+            set -e
+            APP_DIR=/home/ubuntu/zhuge-ai-lab/pinzhiyanhuo
+            cd "$APP_DIR"
+
+            cat > .diagnose-ledger-data.mjs <<'NODE'
+            import initSqlJs from 'sql.js';
+            import { existsSync, readFileSync } from 'node:fs';
+            import path from 'node:path';
+
+            const dbPath = path.join(process.cwd(), 'data', 'db.sqlite');
+            if (!existsSync(dbPath)) {
+              console.log(JSON.stringify({ error: 'db.sqlite not found', dbPath }, null, 2));
+              process.exit(1);
+            }
+
+            const normalize = (value) => String(value ?? '').trim();
+            const parseJson = (value) => {
+              try { return JSON.parse(value || '{}'); } catch { return {}; }
+            };
+            const tableRows = (db, table) => {
+              const rows = [];
+              const stmt = db.prepare(`SELECT * FROM ${table}`);
+              while (stmt.step()) rows.push(stmt.getAsObject());
+              stmt.free();
+              return rows;
+            };
+            const timestampFromId = (id) => Number((String(id || '').match(/^(\d{13})-/) || [])[1] || 0);
+            const makeBatches = (rows, gapMs) => {
+              const timestamped = rows
+                .filter((row) => row.timestamp > 0)
+                .sort((a, b) => a.timestamp - b.timestamp);
+              const batches = [];
+              for (const row of timestamped) {
+                const last = batches[batches.length - 1];
+                if (!last || row.timestamp - last.maxTimestamp > gapMs) {
+                  batches.push({ minTimestamp: row.timestamp, maxTimestamp: row.timestamp, rows: [row] });
+                } else {
+                  last.rows.push(row);
+                  last.maxTimestamp = Math.max(last.maxTimestamp, row.timestamp);
+                }
+              }
+              return batches.map((batch, index) => ({
+                index: index + 1,
+                count: batch.rows.length,
+                minTimestamp: batch.minTimestamp,
+                maxTimestamp: batch.maxTimestamp,
+                durationMs: batch.maxTimestamp - batch.minTimestamp,
+                sources: [...new Set(batch.rows.map((row) => row.importSource || '(empty)'))],
+                sample: batch.rows.slice(0, 3).map((row) => ({
+                  id: row.id,
+                  timestamp: row.timestamp,
+                  importSource: row.importSource,
+                  supplierShortName: row.supplierShortName,
+                  salesProductLine: row.salesProductLine,
+                  series: row.series,
+                  totalQuantity: row.totalQuantity
+                }))
+              }));
+            };
+
+            const SQL = await initSqlJs();
+            const db = new SQL.Database(readFileSync(dbPath));
+            const notices = tableRows(db, 'notices').map((row) => ({ id: row.id, data: parseJson(row.data) }));
+            const schedules = new Map(tableRows(db, 'schedules').map((row) => [row.id, parseJson(row.data)]));
+            const feedback = new Map(tableRows(db, 'feedback').map((row) => [row.id, parseJson(row.data)]));
+            const reports = new Map(tableRows(db, 'reports').map((row) => [row.id, parseJson(row.data)]));
+
+            const records = notices.map((row) => {
+              const data = row.data || {};
+              const id = normalize(row.id || data.id);
+              const fb = feedback.get(id) || {};
+              const schedule = schedules.get(id) || {};
+              const report = reports.get(id) || {};
+              return {
+                id,
+                timestamp: timestampFromId(id),
+                importSource: normalize(data.importSource),
+                inspectionApplicant: normalize(data.inspectionApplicant),
+                inspectionNotifier: normalize(data.inspectionNotifier),
+                supplierShortName: normalize(data.supplierShortName),
+                salesProductLine: normalize(data.salesProductLine),
+                series: normalize(data.series),
+                totalQuantity: normalize(data.totalQuantity),
+                businessDepartments: normalize(data.businessDepartments),
+                scheduleStatus: normalize(schedule.status),
+                inspector: normalize(schedule.inspector),
+                actualInspectionTime: normalize(fb.actualInspectionTime),
+                inspectionQuantity: normalize(fb.inspectionQuantity),
+                result: normalize(fb.result),
+                reportNo: normalize(report.reportNo)
+              };
+            });
+
+            const bySource = {};
+            records.forEach((row) => {
+              const key = row.importSource || '(empty)';
+              bySource[key] = (bySource[key] || 0) + 1;
+            });
+
+            const importRows = records.filter((row) => ['summaryImport', 'ledgerImport'].includes(row.importSource));
+            const allTimestamped = records.filter((row) => row.timestamp > 0);
+            const blankRows = records.filter((row) => ![
+              row.supplierShortName,
+              row.salesProductLine,
+              row.series,
+              row.totalQuantity,
+              row.businessDepartments,
+              row.inspector,
+              row.actualInspectionTime,
+              row.result,
+              row.reportNo
+            ].some(Boolean));
+
+            const duplicateMap = new Map();
+            records.forEach((row) => {
+              const key = [
+                row.supplierShortName,
+                row.salesProductLine,
+                row.series,
+                row.totalQuantity,
+                row.actualInspectionTime,
+                row.inspectionQuantity,
+                row.result
+              ].join('|');
+              if (!key.replace(/\|/g, '')) return;
+              const list = duplicateMap.get(key) || [];
+              list.push(row);
+              duplicateMap.set(key, list);
+            });
+            const duplicateGroups = [...duplicateMap.entries()]
+              .filter(([, list]) => list.length > 1)
+              .sort((a, b) => b[1].length - a[1].length)
+              .slice(0, 20)
+              .map(([key, list]) => ({
+                key,
+                count: list.length,
+                sources: [...new Set(list.map((row) => row.importSource || '(empty)'))],
+                minTimestamp: Math.min(...list.map((row) => row.timestamp || Number.MAX_SAFE_INTEGER).filter(Number.isFinite)),
+                maxTimestamp: Math.max(...list.map((row) => row.timestamp || 0)),
+                sampleIds: list.slice(0, 5).map((row) => row.id)
+              }));
+
+            const result = {
+              totals: {
+                notices: notices.length,
+                schedules: schedules.size,
+                feedback: feedback.size,
+                reports: reports.size,
+                importRows: importRows.length,
+                timestampedRows: allTimestamped.length,
+                blankRows: blankRows.length
+              },
+              bySource,
+              importBatchesGap1000: makeBatches(importRows, 1000),
+              allTimestampedBatchesGap1000: makeBatches(allTimestamped, 1000).slice(-10),
+              duplicateGroupCount: [...duplicateMap.values()].filter((list) => list.length > 1).length,
+              duplicateGroups,
+              latestImportSamples: importRows
+                .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+                .slice(0, 10),
+              blankSamples: blankRows.slice(0, 10)
+            };
+            console.log(JSON.stringify(result, null, 2));
+            NODE
+
+            node .diagnose-ledger-data.mjs
+            rm -f .diagnose-ledger-data.mjs
