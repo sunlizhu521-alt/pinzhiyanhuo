@@ -1,0 +1,148 @@
+name: Cleanup keep latest ledger import
+
+on:
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Keep only latest ledger import batch on Tencent Cloud
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: 129.211.9.242
+          username: ubuntu
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: 22
+          script: |
+            set -e
+            APP_DIR=/home/ubuntu/zhuge-ai-lab/pinzhiyanhuo
+            cd "$APP_DIR"
+
+            echo ">>> Backup data before cleanup"
+            mkdir -p ~/backups/pinzhiyanhuo
+            if [ -d data ]; then
+              BACKUP=~/backups/pinzhiyanhuo/data-keep-latest-ledger-import-$(date +%Y%m%d-%H%M%S).tar.gz
+              tar -czf "$BACKUP" data
+              ls -lh "$BACKUP"
+            fi
+
+            echo ">>> Stop service before direct SQLite cleanup"
+            pm2 stop pinzhiyanhuo || true
+
+            cat > .cleanup-keep-latest-ledger-import.mjs <<'NODE'
+            import initSqlJs from 'sql.js';
+            import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+            import path from 'node:path';
+
+            const dbPath = path.join(process.cwd(), 'data', 'db.sqlite');
+            if (!existsSync(dbPath)) {
+              console.log(JSON.stringify({ error: 'db.sqlite not found', dbPath }));
+              process.exit(1);
+            }
+
+            const SQL = await initSqlJs();
+            const db = new SQL.Database(readFileSync(dbPath));
+            const rows = [];
+            const stmt = db.prepare('SELECT id, data FROM notices');
+            while (stmt.step()) {
+              const row = stmt.getAsObject();
+              let data = {};
+              try {
+                data = JSON.parse(row.data || '{}');
+              } catch {
+                data = {};
+              }
+              const importSource = String(data.importSource || '').trim();
+              if (!['summaryImport', 'ledgerImport'].includes(importSource)) continue;
+              const id = String(row.id || data.id || '');
+              const timestamp = Number((id.match(/^(\d{13})-/) || [])[1] || 0);
+              rows.push({
+                id,
+                timestamp,
+                importSource,
+                supplierShortName: data.supplierShortName || '',
+                salesProductLine: data.salesProductLine || '',
+                series: data.series || '',
+                totalQuantity: data.totalQuantity || ''
+              });
+            }
+            stmt.free();
+
+            const timestamped = rows
+              .filter((row) => row.id && row.timestamp > 0)
+              .sort((a, b) => a.timestamp - b.timestamp);
+            const batchGapMs = 2 * 60 * 1000;
+            const batches = [];
+            for (const row of timestamped) {
+              const lastBatch = batches[batches.length - 1];
+              if (!lastBatch || row.timestamp - lastBatch.maxTimestamp > batchGapMs) {
+                batches.push({
+                  minTimestamp: row.timestamp,
+                  maxTimestamp: row.timestamp,
+                  rows: [row]
+                });
+              } else {
+                lastBatch.rows.push(row);
+                lastBatch.maxTimestamp = Math.max(lastBatch.maxTimestamp, row.timestamp);
+              }
+            }
+            const keepBatch = batches[batches.length - 1] || null;
+            const keepIds = new Set((keepBatch?.rows || []).map((row) => row.id));
+            const deleteRows = timestamped.filter((row) => !keepIds.has(row.id));
+            const deleteIds = [...new Set(deleteRows.map((row) => row.id).filter(Boolean))];
+
+            db.run('BEGIN');
+            const deleteNotice = db.prepare('DELETE FROM notices WHERE id = ?');
+            const deleteSchedule = db.prepare('DELETE FROM schedules WHERE id = ?');
+            const deleteReport = db.prepare('DELETE FROM reports WHERE id = ?');
+            const deleteFeedback = db.prepare('DELETE FROM feedback WHERE id = ?');
+            deleteIds.forEach((id) => {
+              [deleteNotice, deleteSchedule, deleteReport, deleteFeedback].forEach((statement) => {
+                statement.bind([id]);
+                statement.step();
+                statement.reset();
+              });
+            });
+            [deleteNotice, deleteSchedule, deleteReport, deleteFeedback].forEach((statement) => statement.free());
+            db.run('COMMIT');
+
+            if (deleteIds.length) {
+              writeFileSync(dbPath, Buffer.from(db.export()));
+            }
+
+            console.log(JSON.stringify({
+              importRowsBefore: rows.length,
+              timestampedRowsBefore: timestamped.length,
+              batchCount: batches.length,
+              batches: batches.map((batch, index) => ({
+                index: index + 1,
+                count: batch.rows.length,
+                minTimestamp: batch.minTimestamp,
+                maxTimestamp: batch.maxTimestamp,
+                sample: batch.rows.slice(0, 3)
+              })),
+              keptLatestBatch: keepBatch ? {
+                count: keepBatch.rows.length,
+                minTimestamp: keepBatch.minTimestamp,
+                maxTimestamp: keepBatch.maxTimestamp,
+                sample: keepBatch.rows.slice(0, 5)
+              } : null,
+              deletedOlderRows: deleteIds.length,
+              deletedSample: deleteRows.slice(0, 10)
+            }, null, 2));
+            NODE
+
+            echo ">>> Run cleanup"
+            node .cleanup-keep-latest-ledger-import.mjs
+            rm -f .cleanup-keep-latest-ledger-import.mjs
+
+            echo ">>> Restart service"
+            ADMIN_PASSWORD='${{ secrets.ADMIN_PASSWORD }}' \
+            DINGTALK_WEBHOOK='${{ secrets.DINGTALK_WEBHOOK }}' \
+            DINGTALK_SECRET='${{ secrets.DINGTALK_SECRET }}' \
+            pm2 restart pinzhiyanhuo --update-env
+            pm2 save
+            pm2 list
