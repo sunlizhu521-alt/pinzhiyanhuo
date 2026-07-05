@@ -1896,9 +1896,9 @@ button.clear-btn:hover {
 }
 
 .dashboard-page{padding:16px}
-.dashboard-filters{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
-.dashboard-filters select,.dashboard-filters input{padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px}
-.btn-reset{padding:6px 14px;border:1px solid #d1d5db;border-radius:6px;background:#fff;cursor:pointer;font-size:13px}
+.dashboard-filters{display:flex;gap:10px;margin-bottom:16px;flex-wrap:nowrap;align-items:center;overflow-x:auto;padding-bottom:2px}
+.dashboard-filters select,.dashboard-filters input{flex:0 0 150px;min-width:150px;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px}
+.btn-reset{flex:0 0 auto;white-space:nowrap;padding:6px 14px;border:1px solid #d1d5db;border-radius:6px;background:#fff;cursor:pointer;font-size:13px}
 .btn-reset:hover{background:#f3f4f6}
 .stats-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
 .stat-card{background:#fff;border-radius:10px;padding:20px;text-align:center;border-left:4px solid #6b7280;box-shadow:0 1px 3px rgba(0,0,0,.06)}

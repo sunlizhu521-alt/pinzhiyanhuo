@@ -11,7 +11,7 @@ import {
   Legend
 } from 'chart.js';
 import { Bar, Line, Pie } from 'react-chartjs-2';
-import { formatDate, latestFeedback, normalize, splitMultiValue } from '../utils.js';
+import { formatDate, latestFeedback, normalize, normalizeHeader, splitMultiValue } from '../utils.js';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, ArcElement, Tooltip, Legend);
 
@@ -61,7 +61,7 @@ function topGroups(rows, keyFn, limit = 8) {
     .slice(0, limit);
 }
 
-function DashboardPage({ records = [], supplierOptions = [], productLineOptions = [], seriesOptions = [] }) {
+function DashboardPage({ records = [], supplierOptions = [], productLineOptions = [], seriesOptions = [], seriesByProductLine = {} }) {
   const [filters, setFilters] = useState({
     supplierShortName: '',
     salesProductLine: '',
@@ -71,13 +71,19 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
     endMonth: ''
   });
 
-  const filterOptions = useMemo(() => ({
-    suppliers: uniqueValues([...supplierOptions, ...records.map((record) => record.supplierShortName)]),
-    productLines: uniqueValues([...productLineOptions, ...records.map((record) => record.salesProductLine)]),
-    series: uniqueValues([...seriesOptions, ...records.map((record) => record.series)]),
-    departments: uniqueValues(records.flatMap((record) => splitMultiValue(record.businessDepartments))),
-    months: uniqueValues(records.map(recordMonth)).sort()
-  }), [records, seriesOptions, productLineOptions, supplierOptions]);
+  const filterOptions = useMemo(() => {
+    const productLineKey = normalizeHeader(filters.salesProductLine);
+    const scopedSeries = productLineKey && Array.isArray(seriesByProductLine[productLineKey])
+      ? seriesByProductLine[productLineKey]
+      : [];
+    return {
+      suppliers: uniqueValues([...supplierOptions, ...records.map((record) => record.supplierShortName)]),
+      productLines: uniqueValues(productLineOptions),
+      series: uniqueValues(scopedSeries.length ? scopedSeries : seriesOptions),
+      departments: uniqueValues(records.flatMap((record) => splitMultiValue(record.businessDepartments))),
+      months: uniqueValues(records.map(recordMonth)).sort()
+    };
+  }, [records, seriesOptions, productLineOptions, supplierOptions, seriesByProductLine, filters.salesProductLine]);
 
   const filteredRecords = useMemo(() => records.filter((record) => {
     const month = recordMonth(record);
@@ -166,7 +172,11 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
   };
 
   function updateFilter(key, value) {
-    setFilters((current) => ({ ...current, [key]: value }));
+    setFilters((current) => ({
+      ...current,
+      [key]: value,
+      ...(key === 'salesProductLine' ? { series: '' } : {})
+    }));
   }
 
   function resetFilters() {

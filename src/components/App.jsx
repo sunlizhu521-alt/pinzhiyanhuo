@@ -3100,6 +3100,7 @@ function App() {
             supplierOptions={supplierOptions}
             productLineOptions={productLineOptions}
             seriesOptions={seriesOptions}
+            seriesByProductLine={seriesByProductLine}
           />
         )}
         {canAccessPage(user, 'backupCenter') && activeTab === 'backupCenter' && (
