@@ -41,6 +41,24 @@ async function loadXlsxModule() {
   return module;
 }
 
+function importHeaderAliases() {
+  return [
+    ...NOTICE_FIELDS.flatMap((field) => [field.label, field.key, ...(NOTICE_IMPORT_ALIASES[field.key] || [])]),
+    ...Object.values(SUMMARY_IMPORT_ALIASES).flat(),
+    ...Object.values(FEEDBACK_IMPORT_ALIASES).flat()
+  ].map(normalizeHeader).filter(Boolean);
+}
+
+function scoreImportHeaderRow(row = []) {
+  const aliases = importHeaderAliases();
+  const cells = row.map(normalize).filter(Boolean);
+  if (!cells.length) return -1;
+  const normalizedCells = cells.map(normalizeHeader);
+  const matchedCount = normalizedCells.filter((cell) => aliases.some((alias) => cell === alias || cell.includes(alias))).length;
+  const uniqueCount = new Set(normalizedCells).size;
+  return matchedCount * 10 + Math.min(uniqueCount, 20);
+}
+
 function normalizedSourceMap(sourceRow = {}) {
   const normalizedSource = new Map();
   Object.entries(sourceRow || {}).forEach(([key, value]) => {
@@ -115,7 +133,11 @@ function parseWorkbookInBrowser(file) {
         const sheetName = workbook.SheetNames[0];
         const sheet = workbook.Sheets[sheetName];
         const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false });
-        const headerIndex = matrix.findIndex((row) => row.some((cell) => normalize(cell)));
+        const scoredRows = matrix
+          .map((row, index) => ({ index, score: scoreImportHeaderRow(row) }))
+          .filter((item) => item.score >= 0)
+          .sort((a, b) => b.score - a.score);
+        const headerIndex = scoredRows[0]?.index ?? -1;
         if (headerIndex === -1) {
           resolve({ sheetName, columns: [], rows: [], importedCount: 0 });
           return;
@@ -289,10 +311,12 @@ function parseDimensionSheet(sheetName, sheet, XLSX) {
 }
 
 function readImportedValue(normalizedSource, aliases) {
-  const match = aliases
-    .map(normalizeHeader)
-    .find((alias) => normalizedSource.has(alias));
-  return match ? normalize(normalizedSource.get(match)) : '';
+  const normalizedAliases = aliases.map(normalizeHeader).filter(Boolean);
+  const exactMatch = normalizedAliases.find((alias) => normalizedSource.has(alias));
+  if (exactMatch) return normalize(normalizedSource.get(exactMatch));
+  const fuzzyMatch = [...normalizedSource.keys()]
+    .find((sourceKey) => normalizedAliases.some((alias) => sourceKey.includes(alias)));
+  return fuzzyMatch ? normalize(normalizedSource.get(fuzzyMatch)) : '';
 }
 
 function importedRowsToNoticeRows(importedRows, currentUserName, dimensionLibrary = {}) {
