@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { API, STATIC_MODE, DEFAULT_ADMIN_USER, ROLE_ADMIN, ROLE_USER, BUSINESS_DEPARTMENT_OPTIONS, NOTICE_FIELDS, MENU_PAGES, PAGE_OPTIONS, DIMENSION_LIBRARY_SLOTS, PRODUCT_CATEGORY_SLOT_ID, PURCHASE_WORK_DIVISION_SLOT_ID, RECORD_REFRESH_PAGES, DIMENSION_REFRESH_PAGES, REPORT_FILE_REFRESH_PAGES, DIMENSION_PREVIEW_ROW_LIMIT } from '../constants.js';
-import { createId, normalize, formatDate, nowText, fixMojibakeText, splitMultiValue, joinBusinessDepartments, canAccessPage, homeTabForUser, isAdminUser, isPrimaryAdminUser, isSubmittedScheduleRecord, canReadClientRecord, createNoticeRow, feedbackReportNo, mergeNoticeRowsForImport } from '../utils.js';
+import { createId, normalize, formatDate, nowText, fixMojibakeText, splitMultiValue, joinBusinessDepartments, uniqueValues, canAccessPage, homeTabForUser, isAdminUser, isPrimaryAdminUser, isSubmittedScheduleRecord, canReadClientRecord, createNoticeRow, feedbackReportNo, mergeNoticeRowsForImport } from '../utils.js';
 import { readStaticDb, saveStaticDb, readDimensionLibrary, saveDimensionLibrary, readReportFileLibrary, saveReportFileLibrary, readStoredUser, saveStoredUser, clearStoredUser, composedStaticRecords, normalizeStaticDb, normalizeDimensionLibrary } from '../db-utils.js';
 import { getCachedDimensionLibrary, setCachedDimensionLibrary } from '../dimension-cache.js';
 import { loadXlsxModule, parseWorkbookInBrowser, exportFileStamp, recordToMigrationLedgerRow, recordToReportExportRow, parseWorkbookSheetsInBrowser, parseDimensionSheet, importedRowsToNoticeRows, importedRowsToSummaryItems, importedRowsToFeedbackItems } from '../import-utils.js';
@@ -123,7 +123,8 @@ function App() {
     supplierShortName: '',
     businessDepartments: '',
     salesProductLine: '',
-    series: ''
+    series: '',
+    inspectionNotifier: ''
   });
   const [savingId, setSavingId] = useState('');
   const accessibleMenuPages = useMemo(
@@ -150,6 +151,27 @@ function App() {
     () => records.map((record) => normalizeRecordDimensions(record, supplierOptions, productLineOptions, seriesOptions, dimensionLibrary)),
     [records, supplierOptions, productLineOptions, seriesOptions, dimensionLibrary]
   );
+  const recordFilterOptions = useMemo(() => ({
+    supplierShortName: uniqueValues([
+      ...supplierOptions,
+      ...displayRecords.map((record) => record.supplierShortName)
+    ]),
+    businessDepartments: uniqueValues([
+      ...BUSINESS_DEPARTMENT_OPTIONS,
+      ...displayRecords.flatMap((record) => splitMultiValue(record.businessDepartments))
+    ]),
+    salesProductLine: uniqueValues([
+      ...productLineOptions,
+      ...displayRecords.map((record) => record.salesProductLine)
+    ]),
+    series: uniqueValues([
+      ...seriesOptions,
+      ...displayRecords.map((record) => record.series)
+    ]),
+    inspectionNotifier: uniqueValues(
+      displayRecords.map((record) => record.inspectionNotifier || record.inspectionApplicant)
+    )
+  }), [displayRecords, productLineOptions, seriesOptions, supplierOptions]);
   const reworkRecords = useMemo(
     () => displayRecords.filter((record) => (
       record.feedback?.result === '返工'
@@ -2404,6 +2426,7 @@ function App() {
           salesProductLine: file.productLine || '',
           series: file.series || '',
           businessDepartments: '',
+          inspectionNotifier: file.inspectionNotifier || file.notifier || '',
           schedule: { inspector: file.inspector || '' },
           feedback: {
             actualInspectionTime: formatDate(file.actualInspectionTime),
@@ -2428,6 +2451,7 @@ function App() {
           record.supplierShortName,
           record.salesProductLine,
           record.series,
+          record.inspectionNotifier,
           record.report?.reportNo,
           record.report?.originalName,
           record.feedback?.result
@@ -2440,7 +2464,9 @@ function App() {
           || normalize(record.salesProductLine).toLowerCase() === normalizedFilters.salesProductLine;
         const matchesSeries = !normalizedFilters.series
           || normalize(record.series).toLowerCase() === normalizedFilters.series;
-        return matchesKeyword && matchesSupplier && matchesBusinessDepartment && matchesProductLine && matchesSeries;
+        const matchesNotifier = !normalizedFilters.inspectionNotifier
+          || normalize(record.inspectionNotifier).toLowerCase() === normalizedFilters.inspectionNotifier;
+        return matchesKeyword && matchesSupplier && matchesBusinessDepartment && matchesProductLine && matchesSeries && matchesNotifier;
       });
   }, [queryableReportLibraryItems, query, statusFilter, recordFilters]);
 
@@ -2756,6 +2782,8 @@ function App() {
         record.supplierShortName,
         record.salesProductLine,
         record.series,
+        record.inspectionNotifier,
+        record.inspectionApplicant,
         record.operation,
         record.report?.reportNo,
         record.feedback?.result,
@@ -2771,7 +2799,9 @@ function App() {
         || normalize(record.salesProductLine).toLowerCase() === normalizedFilters.salesProductLine;
       const matchesSeries = !normalizedFilters.series
         || normalize(record.series).toLowerCase() === normalizedFilters.series;
-      return matchesKeyword && matchesStatus && matchesSupplier && matchesBusinessDepartment && matchesProductLine && matchesSeries;
+      const matchesNotifier = !normalizedFilters.inspectionNotifier
+        || normalize(record.inspectionNotifier || record.inspectionApplicant).toLowerCase() === normalizedFilters.inspectionNotifier;
+      return matchesKeyword && matchesStatus && matchesSupplier && matchesBusinessDepartment && matchesProductLine && matchesSeries && matchesNotifier;
     });
   }, [displayRecords, query, statusFilter, recordFilters]);
   const reportQueryRecords = useMemo(() => (
@@ -3011,9 +3041,11 @@ function App() {
             query={query}
             statusFilter={statusFilter}
             filters={recordFilters}
-            supplierOptions={supplierOptions}
-            productLineOptions={productLineOptions}
-            seriesOptions={seriesOptions}
+            supplierOptions={recordFilterOptions.supplierShortName}
+            productLineOptions={recordFilterOptions.salesProductLine}
+            seriesOptions={recordFilterOptions.series}
+            businessDepartmentOptions={recordFilterOptions.businessDepartments}
+            notifierOptions={recordFilterOptions.inspectionNotifier}
             reportLibraryItems={queryableReportLibraryItems}
             onQuery={setQuery}
             onStatusFilter={setStatusFilter}
@@ -3021,7 +3053,7 @@ function App() {
             onClearFilters={() => {
               setQuery('');
               setStatusFilter('');
-              setRecordFilters({ supplierShortName: '', businessDepartments: '', salesProductLine: '', series: '' });
+              setRecordFilters({ supplierShortName: '', businessDepartments: '', salesProductLine: '', series: '', inspectionNotifier: '' });
             }}
             savingId={savingId}
             canDelete={canDeleteInspectionInfo}

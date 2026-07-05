@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BUSINESS_DEPARTMENT_OPTIONS } from '../constants.js';
 import { canReadClientRecord, formatDate, normalize } from '../utils.js';
 import { reportHref, isImageReport, reportFileExt, formatFileSize } from '../file-utils.js';
 import DataTable from './DataTable.jsx';
@@ -13,6 +12,8 @@ function ReportQueryPage({
   supplierOptions,
   productLineOptions,
   seriesOptions,
+  businessDepartmentOptions = [],
+  notifierOptions = [],
   reportLibraryItems = [],
   onQuery,
   onStatusFilter,
@@ -98,7 +99,7 @@ function ReportQueryPage({
         </select>
         <select value={filters.businessDepartments} onChange={(event) => onFilterChange('businessDepartments', event.target.value)}>
           <option value="">全部事业部</option>
-          {BUSINESS_DEPARTMENT_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+          {businessDepartmentOptions.map((item) => <option key={item} value={item}>{item}</option>)}
         </select>
         <select value={filters.salesProductLine} onChange={(event) => onFilterChange('salesProductLine', event.target.value)}>
           <option value="">全部产品线</option>
@@ -107,6 +108,10 @@ function ReportQueryPage({
         <select value={filters.series} onChange={(event) => onFilterChange('series', event.target.value)}>
           <option value="">全部系列</option>
           {seriesOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+        </select>
+        <select value={filters.inspectionNotifier} onChange={(event) => onFilterChange('inspectionNotifier', event.target.value)}>
+          <option value="">全部验货通知人</option>
+          {notifierOptions.map((item) => <option key={item} value={item}>{item}</option>)}
         </select>
         <select value={statusFilter} onChange={(event) => onStatusFilter(event.target.value)}>
           <option value="">全部状态</option>

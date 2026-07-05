@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import DataTable from './DataTable.jsx';
 import ReportPreviewModal from './ReportPreviewModal.jsx';
-import { normalize, formatDate, latestFeedback } from '../utils.js';
+import { normalize, formatDate, latestFeedback, splitMultiValue, uniqueValues } from '../utils.js';
 import { reportHref, reportFileExt } from '../file-utils.js';
 
 function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImport, onClearImportPreview, canDelete, onDelete, onUndoLatestImport, onDeleteAllImports, onExport }) {
@@ -60,6 +60,13 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
       return true;
     });
   }, [records]);
+  const filterOptions = useMemo(() => ({
+    supplierShortName: uniqueValues(ledgerRecords.map((record) => record.supplierShortName)),
+    salesProductLine: uniqueValues(ledgerRecords.map((record) => record.salesProductLine)),
+    series: uniqueValues(ledgerRecords.map((record) => record.series)),
+    businessDepartments: uniqueValues(ledgerRecords.flatMap((record) => splitMultiValue(record.businessDepartments))),
+    notifier: uniqueValues(ledgerRecords.map((record) => record.inspectionNotifier || record.inspectionApplicant))
+  }), [ledgerRecords]);
 
   function ledgerStatus(record) {
     const result = normalize(latestFeedback(record.feedback).result);
@@ -76,15 +83,16 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
     return ledgerRecords.filter((record) => {
       const feedback = latestFeedback(record.feedback);
       return (
-        (!normalizedFilters.supplierShortName || normalize(record.supplierShortName).toLowerCase().includes(normalizedFilters.supplierShortName))
-        && (!normalizedFilters.salesProductLine || normalize(record.salesProductLine).toLowerCase().includes(normalizedFilters.salesProductLine))
-        && (!normalizedFilters.series || normalize(record.series).toLowerCase().includes(normalizedFilters.series))
-        && (!normalizedFilters.businessDepartments || normalize(record.businessDepartments).toLowerCase().includes(normalizedFilters.businessDepartments))
+        (!normalizedFilters.supplierShortName || normalize(record.supplierShortName).toLowerCase() === normalizedFilters.supplierShortName)
+        && (!normalizedFilters.salesProductLine || normalize(record.salesProductLine).toLowerCase() === normalizedFilters.salesProductLine)
+        && (!normalizedFilters.series || normalize(record.series).toLowerCase() === normalizedFilters.series)
+        && (!normalizedFilters.businessDepartments
+          || splitMultiValue(record.businessDepartments).some((item) => normalize(item).toLowerCase() === normalizedFilters.businessDepartments))
         && (!normalizedFilters.status || normalize(ledgerStatus(record)).toLowerCase() === normalizedFilters.status)
         && (!normalizedFilters.result || normalize(feedback.result).toLowerCase() === normalizedFilters.result)
         && (!normalizedFilters.keyword
           || normalize(`${record.supplierShortName}${record.salesProductLine}${record.series}${record.schedule?.inspector || ''}`).toLowerCase().includes(normalizedFilters.keyword))
-        && (!normalizedFilters.notifier || normalize(record.inspectionNotifier || record.inspectionApplicant || '').toLowerCase().includes(normalizedFilters.notifier))
+        && (!normalizedFilters.notifier || normalize(record.inspectionNotifier || record.inspectionApplicant || '').toLowerCase() === normalizedFilters.notifier)
       );
     });
   }, [ledgerRecords, filters]);
@@ -204,26 +212,31 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
         />
         <input
           placeholder="供应商简称"
+          list="ledger-supplier-options"
           value={filters.supplierShortName}
           onChange={(event) => updateFilter('supplierShortName', event.target.value)}
         />
         <input
           placeholder="产品线"
+          list="ledger-product-line-options"
           value={filters.salesProductLine}
           onChange={(event) => updateFilter('salesProductLine', event.target.value)}
         />
         <input
           placeholder="系列"
+          list="ledger-series-options"
           value={filters.series}
           onChange={(event) => updateFilter('series', event.target.value)}
         />
         <input
           placeholder="事业部"
+          list="ledger-business-department-options"
           value={filters.businessDepartments}
           onChange={(event) => updateFilter('businessDepartments', event.target.value)}
         />
         <input
           placeholder="验货通知人"
+          list="ledger-notifier-options"
           value={filters.notifier || ''}
           onChange={(event) => updateFilter('notifier', event.target.value)}
         />
@@ -237,6 +250,21 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
         </select>
         <button type="button" className="ghost compact-button" onClick={clearFilters}>清除</button>
       </div>
+      <datalist id="ledger-supplier-options">
+        {filterOptions.supplierShortName.map((item) => <option key={item} value={item} />)}
+      </datalist>
+      <datalist id="ledger-product-line-options">
+        {filterOptions.salesProductLine.map((item) => <option key={item} value={item} />)}
+      </datalist>
+      <datalist id="ledger-series-options">
+        {filterOptions.series.map((item) => <option key={item} value={item} />)}
+      </datalist>
+      <datalist id="ledger-business-department-options">
+        {filterOptions.businessDepartments.map((item) => <option key={item} value={item} />)}
+      </datalist>
+      <datalist id="ledger-notifier-options">
+        {filterOptions.notifier.map((item) => <option key={item} value={item} />)}
+      </datalist>
       <DataTable
         className="inspection-ledger-table"
         rows={filteredRecords}
