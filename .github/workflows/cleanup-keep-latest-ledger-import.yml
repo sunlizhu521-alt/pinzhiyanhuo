@@ -46,7 +46,7 @@ jobs:
             const SQL = await initSqlJs();
             const db = new SQL.Database(readFileSync(dbPath));
             const rows = [];
-            const stmt = db.prepare('SELECT id, data FROM notices');
+            const stmt = db.prepare('SELECT rowid, id, data FROM notices');
             while (stmt.step()) {
               const row = stmt.getAsObject();
               let data = {};
@@ -60,6 +60,7 @@ jobs:
               const id = String(row.id || data.id || '');
               const timestamp = Number((id.match(/^(\d{13})-/) || [])[1] || 0);
               rows.push({
+                rowid: row.rowid,
                 id,
                 timestamp,
                 importSource,
@@ -97,17 +98,38 @@ jobs:
               }
             }
             const keepBatch = batches[batches.length - 1] || null;
-            const keepIds = new Set((keepBatch?.rows || []).map((row) => row.id));
-            const deleteRows = timestamped.filter((row) => !keepIds.has(row.id));
-            const deleteIds = [...new Set(deleteRows.map((row) => row.id).filter(Boolean))];
+            const keepRows = keepBatch?.rows || [];
+            const keepIds = new Set(keepRows.map((row) => row.id));
+            const keepRowidById = new Map();
+            keepRows.forEach((row) => {
+              if (!row.id) return;
+              const current = keepRowidById.get(row.id);
+              if (!current || row.rowid > current) keepRowidById.set(row.id, row.rowid);
+            });
+            const deleteRows = rows.filter((row) => {
+              if (!row.id) return false;
+              if (row.timestamp <= 0) return false;
+              if (!keepIds.has(row.id)) return true;
+              return keepRowidById.get(row.id) !== row.rowid;
+            });
+            const deleteNoticeRowids = [...new Set(deleteRows.map((row) => row.rowid).filter(Boolean))];
+            const deleteChildIds = [...new Set(deleteRows
+              .filter((row) => !keepIds.has(row.id))
+              .map((row) => row.id)
+              .filter(Boolean))];
 
             db.run('BEGIN');
-            const deleteNotice = db.prepare('DELETE FROM notices WHERE id = ?');
+            const deleteNotice = db.prepare('DELETE FROM notices WHERE rowid = ?');
             const deleteSchedule = db.prepare('DELETE FROM schedules WHERE id = ?');
             const deleteReport = db.prepare('DELETE FROM reports WHERE id = ?');
             const deleteFeedback = db.prepare('DELETE FROM feedback WHERE id = ?');
-            deleteIds.forEach((id) => {
-              [deleteNotice, deleteSchedule, deleteReport, deleteFeedback].forEach((statement) => {
+            deleteNoticeRowids.forEach((rowid) => {
+              deleteNotice.bind([rowid]);
+              deleteNotice.step();
+              deleteNotice.reset();
+            });
+            deleteChildIds.forEach((id) => {
+              [deleteSchedule, deleteReport, deleteFeedback].forEach((statement) => {
                 statement.bind([id]);
                 statement.step();
                 statement.reset();
@@ -116,12 +138,15 @@ jobs:
             [deleteNotice, deleteSchedule, deleteReport, deleteFeedback].forEach((statement) => statement.free());
             db.run('COMMIT');
 
-            if (deleteIds.length) {
+            if (deleteNoticeRowids.length || deleteChildIds.length) {
               writeFileSync(dbPath, Buffer.from(db.export()));
             }
 
+            const uniqueImportIdsBefore = new Set(rows.map((row) => row.id).filter(Boolean)).size;
+            const keptNoticeRows = keepRowidById.size;
             console.log(JSON.stringify({
               importRowsBefore: rows.length,
+              uniqueImportIdsBefore,
               timestampedRowsBefore: timestamped.length,
               batchGapMs,
               largestGaps: gaps
@@ -137,11 +162,16 @@ jobs:
               })),
               keptLatestBatch: keepBatch ? {
                 count: keepBatch.rows.length,
+                uniqueIds: keepRowidById.size,
                 minTimestamp: keepBatch.minTimestamp,
                 maxTimestamp: keepBatch.maxTimestamp,
                 sample: keepBatch.rows.slice(0, 5)
               } : null,
-              deletedOlderRows: deleteIds.length,
+              keptNoticeRows,
+              deletedNoticeRows: deleteNoticeRowids.length,
+              deletedOlderChildIds: deleteChildIds.length,
+              duplicateNoticeRowsRemoved: deleteRows.filter((row) => keepIds.has(row.id)).length,
+              deletedOlderRows: deleteRows.filter((row) => !keepIds.has(row.id)).length,
               deletedSample: deleteRows.slice(0, 10)
             }, null, 2));
             NODE
