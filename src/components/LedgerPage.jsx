@@ -4,7 +4,7 @@ import ReportPreviewModal from './ReportPreviewModal.jsx';
 import { normalize, formatDate, latestFeedback } from '../utils.js';
 import { reportHref, reportFileExt } from '../file-utils.js';
 
-function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImport, onClearImportPreview, canDelete, onDelete, onExport }) {
+function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImport, onClearImportPreview, canDelete, onDelete, onUndoLatestImport, onDeleteAllImports, onExport }) {
   const [filters, setFilters] = useState({
     supplierShortName: '',
     salesProductLine: '',
@@ -148,6 +148,12 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
         <h2>验货台账</h2>
         <span className="section-count">全部 {ledgerRecords.length} 条 | 通过 {stats.passed} | 返工 {stats.failed} | 待反馈 {stats.pending}</span>
         <button type="button" className="ghost compact-button" disabled={!ledgerRecords.length} onClick={() => onExport(ledgerRecords)}>导出</button>
+        {canImport && (
+          <>
+            <button type="button" className="ghost compact-button" onClick={onUndoLatestImport}>撤销最近导入</button>
+            <button type="button" className="danger-button compact-button" onClick={onDeleteAllImports}>删除全部导入</button>
+          </>
+        )}
       </div>
       {canImport && (
         <label

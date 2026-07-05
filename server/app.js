@@ -1094,6 +1094,42 @@ function isHistoricalLedgerImportRow(row = {}) {
   return ['summaryImport', 'ledgerImport'].includes(normalizeText(row.importSource));
 }
 
+function ledgerImportTimestamp(row = {}) {
+  const createdAt = Date.parse(normalizeText(row.importBatchCreatedAt).replace(' ', 'T'));
+  if (Number.isFinite(createdAt)) return createdAt;
+  const idTimestamp = Number((normalizeText(row.id).match(/^(\d{13})-/) || [])[1] || 0);
+  return Number.isFinite(idTimestamp) ? idTimestamp : 0;
+}
+
+function latestLedgerImportRows(rows = []) {
+  const importRows = rows.filter(isHistoricalLedgerImportRow);
+  const batchedRows = importRows.filter((row) => normalizeText(row.importBatchId));
+  if (batchedRows.length) {
+    const latest = batchedRows.reduce((current, row) => (
+      ledgerImportTimestamp(row) >= ledgerImportTimestamp(current) ? row : current
+    ), batchedRows[0]);
+    const latestBatchId = normalizeText(latest.importBatchId);
+    return importRows.filter((row) => normalizeText(row.importBatchId) === latestBatchId);
+  }
+
+  const timestamped = importRows
+    .map((row) => ({ row, timestamp: ledgerImportTimestamp(row) }))
+    .filter((item) => item.timestamp > 0)
+    .sort((a, b) => a.timestamp - b.timestamp);
+  const batches = [];
+  const batchGapMs = 1000;
+  timestamped.forEach((item) => {
+    const last = batches[batches.length - 1];
+    if (!last || item.timestamp - last.maxTimestamp > batchGapMs) {
+      batches.push({ maxTimestamp: item.timestamp, items: [item] });
+      return;
+    }
+    last.items.push(item);
+    last.maxTimestamp = Math.max(last.maxTimestamp, item.timestamp);
+  });
+  return (batches[batches.length - 1]?.items || []).map((item) => item.row);
+}
+
 function hasObjectValue(value) {
   return Object.values(value || {}).some((item) => String(item || '').trim());
 }
@@ -1938,15 +1974,62 @@ app.post('/api/quality-inspection/direct-feedback', requireAuth, requirePages('i
   });
 });
 
-app.post('/api/quality-inspection/summary-import', requireAuth, requirePages('inspectionSummary'), requireRoles(ROLE_ADMIN), async (req, res) => {
+app.delete('/api/quality-inspection/summary-import', requireAuth, requirePages('inspectionLedger', 'inspectionSummary'), requireRoles(ROLE_ADMIN), requirePrimaryAdmin, async (req, res) => {
+  const db = await readDb();
+  const mode = normalizeText(req.query.mode || req.body?.mode || 'latest');
+  const inspection = db.qualityInspection;
+  const currentRows = inspection.notices.rows || [];
+  const targetRows = mode === 'all'
+    ? currentRows.filter(isHistoricalLedgerImportRow)
+    : latestLedgerImportRows(currentRows);
+  const targetIds = [...new Set(targetRows.map((row) => normalizeText(row.id)).filter(Boolean))];
+  if (!targetIds.length) {
+    return res.json({
+      deleted: 0,
+      mode,
+      notices: inspection.notices,
+      rows: composedRecords(db)
+    });
+  }
+  const targetIdSet = new Set(targetIds);
+  inspection.notices = {
+    rows: currentRows
+      .filter((row) => !(isHistoricalLedgerImportRow(row) && targetIdSet.has(normalizeText(row.id))))
+      .map((row, index) => ({ ...row, rowNumber: index + 1 })),
+    submittedAt: nowText(),
+    submittedBy: req.authUser.name
+  };
+  targetIds.forEach((id) => {
+    delete inspection.schedules[id];
+    delete inspection.reports[id];
+    delete inspection.feedback[id];
+    deleteSchedule(id);
+    deleteReport(id);
+    deleteFeedback(id);
+  });
+  await saveDb(db);
+  const rows = composedRecords(db);
+  res.json({
+    deleted: targetIds.length,
+    mode,
+    notices: inspection.notices,
+    rows: rows.filter((record) => canReadRecord(req.authUser, record))
+  });
+});
+
+app.post('/api/quality-inspection/summary-import', requireAuth, requirePages('inspectionLedger', 'inspectionSummary'), requireRoles(ROLE_ADMIN), async (req, res) => {
   const db = await readDb();
   const user = req.authUser || requestUser(db, req);
   const items = Array.isArray(req.body.items) ? req.body.items : [];
+  const importBatchId = normalizeText(req.body.importBatchId) || randomUUID();
+  const importBatchCreatedAt = normalizeText(req.body.importBatchCreatedAt) || nowText();
   const inspection = db.qualityInspection;
   const currentRows = inspection.notices.rows || [];
   const appendedRows = items.map((item) => ({
     ...(item.notice || {}),
     importSource: 'ledgerImport',
+    importBatchId,
+    importBatchCreatedAt,
     id: item.notice?.id || randomUUID()
   }));
   inspection.notices = {

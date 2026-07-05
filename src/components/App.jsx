@@ -533,11 +533,18 @@ function App() {
       setMessage('暂无可导入的台账预览数据。');
       return;
     }
+    const importBatchId = createId();
+    const importBatchCreatedAt = nowText();
     if (STATIC_MODE) {
       const db = readStaticDb();
       const inspection = db.qualityInspection;
       const currentRows = inspection.notices.rows || [];
-      const appendedRows = items.map((item) => item.notice);
+      const appendedRows = items.map((item) => ({
+        ...item.notice,
+        importSource: item.notice?.importSource || 'ledgerImport',
+        importBatchId,
+        importBatchCreatedAt
+      }));
       const rows = [...currentRows, ...appendedRows].map((row, index) => ({
         ...row,
         id: row.id || createId(),
@@ -580,7 +587,7 @@ function App() {
     const res = await authFetch(`${API}/api/quality-inspection/summary-import?user=${encodeURIComponent(user.name)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items, user: user.name })
+      body: JSON.stringify({ items, user: user.name, importBatchId, importBatchCreatedAt })
     });
     if (!res.ok) {
       setMessage('台账数据导入失败。');
@@ -590,6 +597,84 @@ function App() {
     setRecords(payload.rows || []);
     setLedgerImportPreview(null);
     setMessage(`历史台账数据已导入：新增 ${items.length} 条，原有数据已保留。`);
+  }
+
+  function latestStaticLedgerImportRows(rows = []) {
+    const imported = rows.filter((row) => ['summaryImport', 'ledgerImport'].includes(normalize(row.importSource)));
+    const withBatch = imported.filter((row) => normalize(row.importBatchId));
+    if (withBatch.length) {
+      const latest = withBatch.reduce((current, row) => (
+        String(row.importBatchCreatedAt || row.id).localeCompare(String(current.importBatchCreatedAt || current.id)) >= 0 ? row : current
+      ), withBatch[0]);
+      const latestBatchId = normalize(latest.importBatchId);
+      return imported.filter((row) => normalize(row.importBatchId) === latestBatchId);
+    }
+    const timestamped = imported
+      .map((row) => ({ row, timestamp: Number((normalize(row.id).match(/^(\d{13})-/) || [])[1] || 0) }))
+      .filter((item) => item.timestamp > 0)
+      .sort((a, b) => a.timestamp - b.timestamp);
+    const batches = [];
+    timestamped.forEach((item) => {
+      const last = batches[batches.length - 1];
+      if (!last || item.timestamp - last.maxTimestamp > 1000) {
+        batches.push({ maxTimestamp: item.timestamp, items: [item] });
+        return;
+      }
+      last.items.push(item);
+      last.maxTimestamp = Math.max(last.maxTimestamp, item.timestamp);
+    });
+    return (batches[batches.length - 1]?.items || []).map((item) => item.row);
+  }
+
+  async function deleteLedgerImportData(mode = 'latest') {
+    if (!isPrimaryAdminUser(user)) {
+      setMessage('仅孙立柱管理员可以删除历史台账导入数据。');
+      return;
+    }
+    const isAll = mode === 'all';
+    const label = isAll ? '全部历史台账导入数据' : '最近一次历史台账导入数据';
+    if (!window.confirm(`确认删除${label}？删除后可重新导入。`)) return;
+    setSavingId(`ledger-import-delete-${mode}`);
+    if (STATIC_MODE) {
+      const db = readStaticDb();
+      const rows = db.qualityInspection.notices.rows || [];
+      const targetRows = isAll
+        ? rows.filter((row) => ['summaryImport', 'ledgerImport'].includes(normalize(row.importSource)))
+        : latestStaticLedgerImportRows(rows);
+      const targetIds = new Set(targetRows.map((row) => normalize(row.id)).filter(Boolean));
+      db.qualityInspection.notices = {
+        ...(db.qualityInspection.notices || {}),
+        rows: rows
+          .filter((row) => !(['summaryImport', 'ledgerImport'].includes(normalize(row.importSource)) && targetIds.has(normalize(row.id))))
+          .map((row, index) => ({ ...row, rowNumber: index + 1 })),
+        submittedAt: nowText(),
+        submittedBy: user.name
+      };
+      targetIds.forEach((id) => {
+        delete db.qualityInspection.schedules[id];
+        delete db.qualityInspection.reports[id];
+        delete db.qualityInspection.feedback[id];
+      });
+      saveStaticDb(db);
+      setNoticeSubmission(db.qualityInspection.notices);
+      setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
+      setSavingId('');
+      setMessage(`已删除${label}：${targetIds.size} 条。`);
+      return;
+    }
+    const res = await authFetch(`${API}/api/quality-inspection/summary-import?mode=${encodeURIComponent(mode)}`, {
+      method: 'DELETE'
+    });
+    setSavingId('');
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      setMessage(payload.error || `${label}删除失败。`);
+      return;
+    }
+    const payload = await res.json();
+    if (payload.notices) setNoticeSubmission(payload.notices);
+    if (payload.rows) setRecords(payload.rows || []);
+    setMessage(`已删除${label}：${payload.deleted || 0} 条。`);
   }
 
   function clearLedgerImportPreview() {
@@ -2954,6 +3039,8 @@ function App() {
             onClearImportPreview={clearLedgerImportPreview}
             canDelete={canDeleteInspectionInfo}
             onDelete={deleteInspectionRecord}
+            onUndoLatestImport={() => deleteLedgerImportData('latest')}
+            onDeleteAllImports={() => deleteLedgerImportData('all')}
             onExport={(sourceRecords) => exportSummaryData('验货台账', sourceRecords || displayRecords)}
           />
         )}
