@@ -160,12 +160,14 @@ function normalizePageAccessList(pageAccess = []) {
 
 function canAccessPage(user, tab) {
   if (!user) return false;
-  const access = normalizePageAccessList(Array.isArray(user.pageAccess) ? user.pageAccess : (ROLE_PAGE_ACCESS[user.role] || []));
+  const source = user.role === ROLE_ADMIN ? ROLE_PAGE_ACCESS[ROLE_ADMIN] : (Array.isArray(user.pageAccess) ? user.pageAccess : (ROLE_PAGE_ACCESS[user.role] || []));
+  const access = normalizePageAccessList(source);
   return access.includes(tab);
 }
 
 function homeTabForUser(user) {
-  const access = normalizePageAccessList(Array.isArray(user?.pageAccess) ? user.pageAccess : (ROLE_PAGE_ACCESS[user?.role] || []));
+  const source = user?.role === ROLE_ADMIN ? ROLE_PAGE_ACCESS[ROLE_ADMIN] : (Array.isArray(user?.pageAccess) ? user.pageAccess : (ROLE_PAGE_ACCESS[user?.role] || []));
+  const access = normalizePageAccessList(source);
   return access.find((tab) => MENU_PAGES.some((page) => page.tab === tab)) || '';
 }
 

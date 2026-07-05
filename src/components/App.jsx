@@ -19,6 +19,7 @@ import ReworkRecordsPage from './ReworkRecordsPage.jsx';
 import InspectionNoticePage from './InspectionNoticePage.jsx';
 import LedgerPage from './LedgerPage.jsx';
 import PermissionManagementPage from './PermissionManagementPage.jsx';
+import BackupCenterPage from './BackupCenterPage.jsx';
 
 async function exportRowsToWorkbook(rows, sheetName, fileName) {
   if (!rows.length) return false;
@@ -108,6 +109,8 @@ function App() {
   const [dimensionLibraryLoading, setDimensionLibraryLoading] = useState(false);
   const [dimensionPendingFiles, setDimensionPendingFiles] = useState({});
   const [dimensionUploadProgress, setDimensionUploadProgress] = useState({});
+  const [backupStatus, setBackupStatus] = useState(null);
+  const [backupLoading, setBackupLoading] = useState(false);
   const dimensionLibraryRef = useRef(dimensionLibrary);
   const dimensionPendingFilesRef = useRef(dimensionPendingFiles);
   const [reportFiles, setReportFiles] = useState(() => STATIC_MODE ? readReportFileLibrary() : []);
@@ -854,7 +857,38 @@ function App() {
     if (REPORT_FILE_REFRESH_PAGES.includes(tab)) tasks.push(refreshReportFiles());
     if (tab === 'inspectionNotice' || tab === 'inspectionSchedule') tasks.push(refreshNoticeSubmissionFromServer());
     if (tab === 'permissionManagement') tasks.push(refreshPermissionUsers());
+    if (tab === 'backupCenter') tasks.push(refreshBackupStatus({ silent: options.silent }));
     await Promise.allSettled(tasks);
+  }
+
+  async function refreshBackupStatus(options = {}) {
+    if (STATIC_MODE || !canAccessPage(user, 'backupCenter')) return null;
+    if (!options.silent) setBackupLoading(true);
+    try {
+      const res = await authFetch(`${API}/api/quality-inspection/backup-center`, { cache: 'no-store' });
+      if (res.ok) {
+        const payload = await res.json();
+        setBackupStatus(payload);
+        return payload;
+      }
+    } finally {
+      if (!options.silent) setBackupLoading(false);
+    }
+    return null;
+  }
+
+  async function runBackupNow() {
+    if (STATIC_MODE || !canAccessPage(user, 'backupCenter')) return;
+    setSavingId('backupCenter');
+    const res = await authFetch(`${API}/api/quality-inspection/backup-center/run`, { method: 'POST' });
+    setSavingId('');
+    if (!res.ok) {
+      setMessage('备份失败，请稍后重试。');
+      return;
+    }
+    const payload = await res.json();
+    setBackupStatus(payload);
+    setMessage('备份完成，已覆盖上一份最新备份。');
   }
 
   async function refreshDimensionLibrary(options = {}) {
@@ -2947,6 +2981,15 @@ function App() {
             onUpload={(slotId, files) => uploadDimensionSlot(slotId, files, { autoApply: true })}
             onApply={applyDimensionSlot}
             onDelete={deleteDimensionSlot}
+          />
+        )}
+        {canAccessPage(user, 'backupCenter') && activeTab === 'backupCenter' && (
+          <BackupCenterPage
+            status={backupStatus}
+            loading={backupLoading}
+            savingId={savingId}
+            onRefresh={() => refreshBackupStatus()}
+            onRunBackup={runBackupNow}
           />
         )}
         {canAccessPage(user, 'permissionManagement') && activeTab === 'permissionManagement' && (

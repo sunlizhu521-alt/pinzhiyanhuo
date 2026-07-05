@@ -7,7 +7,7 @@ import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import { format } from 'date-fns';
 import { createHmac, randomUUID } from 'node:crypto';
-import { mkdir, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { initDatabase, getUsers, getUserByName, getUserById, upsertUser, createUser, deleteUser, getSessions, setSession, deleteSession, deleteSessionsByUserId, getNotices, saveNotices, getSchedule, saveSchedule, deleteSchedule, getReport, saveReport, deleteReport, getFeedback, saveFeedback, deleteFeedback, getDimensionLibrary, saveDimensionLibrary, deleteDimensionLibrary, getInitialData, saveInitialData, getSchedulesBatch, getReportsBatch, getFeedbacksBatch, deleteExpiredSessions } from './database.js';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
@@ -40,6 +40,7 @@ const PAGE_KEYS = [
   'inspectionLedger',
   'inspectionInitialData',
   'dimensionLibrary',
+  'backupCenter',
   'permissionManagement'
 ];
 const DEFAULT_PAGE_ACCESS_BY_ROLE = {
@@ -327,6 +328,111 @@ function normalizePageAccess(user) {
 
 let dbReady = false;
 
+const latestBackupDir = path.join(dataDir, 'backups', 'latest');
+const latestBackupManifestPath = path.join(latestBackupDir, 'manifest.json');
+
+async function pathStat(target) {
+  try {
+    return await stat(target);
+  } catch {
+    return null;
+  }
+}
+
+async function directorySize(target) {
+  const info = await pathStat(target);
+  if (!info) return 0;
+  if (!info.isDirectory()) return info.size;
+  const entries = await readdir(target, { withFileTypes: true });
+  const sizes = await Promise.all(entries.map((entry) => directorySize(path.join(target, entry.name))));
+  return sizes.reduce((sum, size) => sum + size, 0);
+}
+
+async function copyBackupSource(sourceName, files) {
+  const source = path.join(dataDir, sourceName);
+  const info = await pathStat(source);
+  if (!info) return;
+  const target = path.join(latestBackupDir, sourceName);
+  if (info.isDirectory()) {
+    await cp(source, target, { recursive: true, force: true });
+  } else {
+    await cp(source, target, { force: true });
+  }
+  files.push({
+    name: sourceName,
+    type: info.isDirectory() ? 'directory' : 'file',
+    bytes: await directorySize(source)
+  });
+}
+
+function nextMidnightText() {
+  const next = new Date();
+  next.setHours(24, 0, 0, 0);
+  return format(next, 'yyyy-MM-dd HH:mm:ss');
+}
+
+async function runLatestDataBackup(source = 'manual') {
+  await mkdir(path.dirname(latestBackupDir), { recursive: true });
+  await rm(latestBackupDir, { recursive: true, force: true });
+  await mkdir(latestBackupDir, { recursive: true });
+  const files = [];
+  await copyBackupSource('db.sqlite', files);
+  await copyBackupSource('db.json', files);
+  await copyBackupSource('uploads', files);
+  await copyBackupSource('dimension-uploads', files);
+  const manifest = {
+    status: 'success',
+    source,
+    backedUpAt: nowText(),
+    backupDir: latestBackupDir,
+    files,
+    totalBytes: files.reduce((sum, item) => sum + Number(item.bytes || 0), 0)
+  };
+  await writeFile(latestBackupManifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+  return manifest;
+}
+
+async function readLatestBackupStatus() {
+  try {
+    const manifest = JSON.parse(await readFile(latestBackupManifestPath, 'utf8'));
+    return {
+      ...manifest,
+      exists: true,
+      nextBackupAt: nextMidnightText()
+    };
+  } catch {
+    return {
+      exists: false,
+      status: 'missing',
+      backedUpAt: '',
+      backupDir: latestBackupDir,
+      files: [],
+      totalBytes: 0,
+      nextBackupAt: nextMidnightText()
+    };
+  }
+}
+
+function msUntilNextMidnight() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(24, 0, 0, 0);
+  return Math.max(1000, next.getTime() - now.getTime());
+}
+
+function scheduleDailyLatestBackup() {
+  setTimeout(async () => {
+    try {
+      await ensureDb();
+      await runLatestDataBackup('daily-midnight');
+    } catch (error) {
+      console.error('[backup-center] daily backup failed:', error?.message || error);
+    } finally {
+      scheduleDailyLatestBackup();
+    }
+  }, msUntilNextMidnight());
+}
+
 async function ensureDb() {
   if (!dbReady) {
     await initDatabase();
@@ -368,6 +474,8 @@ setInterval(async () => {
     // 备份失败不影响服务
   }
 }, 6 * 60 * 60 * 1000);
+
+scheduleDailyLatestBackup();
 
 async function readDb() {
   await ensureDb();
@@ -1304,6 +1412,17 @@ app.get('/api/app-version', async (req, res) => {
   const latest = new Date(Math.max(...mtimes, Date.now()));
   res.setHeader('Cache-Control', 'no-store');
   res.json({ service: 'quality-inspection', versionTime: format(latest, 'yyyy-MM-dd HH:mm') });
+});
+
+app.get('/api/quality-inspection/backup-center', requireAuth, requirePages('backupCenter'), requireRoles(ROLE_ADMIN), async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await readLatestBackupStatus());
+});
+
+app.post('/api/quality-inspection/backup-center/run', requireAuth, requirePages('backupCenter'), requireRoles(ROLE_ADMIN), async (req, res) => {
+  await ensureDb();
+  const manifest = await runLatestDataBackup('manual');
+  res.json({ ...manifest, exists: true, nextBackupAt: nextMidnightText() });
 });
 
 app.post('/api/auth/login', loginLimiter, async (req, res) => {

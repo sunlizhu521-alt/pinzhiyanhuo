@@ -91,6 +91,7 @@ const MENU_PAGES = [
   { tab: 'inspectionLedger', label: '验货台账' },
   { tab: 'dimensionLibrary', label: '维度表库' },
   { tab: 'inspectionReportLibrary', label: '报告单库' },
+  { tab: 'backupCenter', label: '备份中心' },
   { tab: 'permissionManagement', label: '权限管理' }
 ];
 
