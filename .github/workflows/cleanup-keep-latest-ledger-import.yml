@@ -74,7 +74,14 @@ jobs:
             const timestamped = rows
               .filter((row) => row.id && row.timestamp > 0)
               .sort((a, b) => a.timestamp - b.timestamp);
-            const batchGapMs = 2 * 60 * 1000;
+            const gaps = timestamped.slice(1).map((row, index) => ({
+              previousId: timestamped[index].id,
+              currentId: row.id,
+              previousTimestamp: timestamped[index].timestamp,
+              currentTimestamp: row.timestamp,
+              gapMs: row.timestamp - timestamped[index].timestamp
+            }));
+            const batchGapMs = 1000;
             const batches = [];
             for (const row of timestamped) {
               const lastBatch = batches[batches.length - 1];
@@ -116,6 +123,10 @@ jobs:
             console.log(JSON.stringify({
               importRowsBefore: rows.length,
               timestampedRowsBefore: timestamped.length,
+              batchGapMs,
+              largestGaps: gaps
+                .sort((a, b) => b.gapMs - a.gapMs)
+                .slice(0, 20),
               batchCount: batches.length,
               batches: batches.map((batch, index) => ({
                 index: index + 1,
