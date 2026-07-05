@@ -1,0 +1,105 @@
+name: Cleanup bad ledger import
+
+on:
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Cleanup bad summaryImport rows on Tencent Cloud
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: 129.211.9.242
+          username: ubuntu
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: 22
+          script: |
+            set -e
+            APP_DIR=/home/ubuntu/zhuge-ai-lab/pinzhiyanhuo
+            cd "$APP_DIR"
+
+            echo ">>> Backup data before cleanup"
+            mkdir -p ~/backups/pinzhiyanhuo
+            if [ -d data ]; then
+              BACKUP=~/backups/pinzhiyanhuo/data-clean-bad-ledger-$(date +%Y%m%d-%H%M%S).tar.gz
+              tar -czf "$BACKUP" data
+              ls -lh "$BACKUP"
+            fi
+
+            echo ">>> Stop service before direct SQLite cleanup"
+            pm2 stop pinzhiyanhuo || true
+
+            cat > .cleanup-bad-ledger-import.mjs <<'NODE'
+            import initSqlJs from 'sql.js';
+            import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+            import path from 'node:path';
+
+            const dbPath = path.join(process.cwd(), 'data', 'db.sqlite');
+            if (!existsSync(dbPath)) {
+              console.log(JSON.stringify({ error: 'db.sqlite not found', dbPath }));
+              process.exit(1);
+            }
+
+            const SQL = await initSqlJs();
+            const db = new SQL.Database(readFileSync(dbPath));
+            const empty = (value) => String(value ?? '').trim() === '';
+            const targets = [];
+            const stmt = db.prepare('SELECT id, data FROM notices');
+            while (stmt.step()) {
+              const row = stmt.getAsObject();
+              let data = {};
+              try {
+                data = JSON.parse(row.data || '{}');
+              } catch {
+                data = {};
+              }
+              if (
+                String(data.importSource || '').trim() === 'summaryImport'
+                && empty(data.supplierShortName)
+                && empty(data.salesProductLine)
+                && empty(data.series)
+                && empty(data.totalQuantity)
+              ) {
+                targets.push(row.id || data.id);
+              }
+            }
+            stmt.free();
+
+            const cleanIds = [...new Set(targets.filter(Boolean))];
+            db.run('BEGIN');
+            const deleteNotice = db.prepare('DELETE FROM notices WHERE id = ?');
+            const deleteSchedule = db.prepare('DELETE FROM schedules WHERE id = ?');
+            const deleteReport = db.prepare('DELETE FROM reports WHERE id = ?');
+            const deleteFeedback = db.prepare('DELETE FROM feedback WHERE id = ?');
+            cleanIds.forEach((id) => {
+              [deleteNotice, deleteSchedule, deleteReport, deleteFeedback].forEach((statement) => {
+                statement.bind([id]);
+                statement.step();
+                statement.reset();
+              });
+            });
+            [deleteNotice, deleteSchedule, deleteReport, deleteFeedback].forEach((statement) => statement.free());
+            db.run('COMMIT');
+
+            writeFileSync(dbPath, Buffer.from(db.export()));
+            console.log(JSON.stringify({
+              matched: cleanIds.length,
+              deleted: cleanIds.length,
+              sampleIds: cleanIds.slice(0, 10)
+            }, null, 2));
+            NODE
+
+            echo ">>> Run cleanup"
+            node .cleanup-bad-ledger-import.mjs
+            rm -f .cleanup-bad-ledger-import.mjs
+
+            echo ">>> Restart service"
+            ADMIN_PASSWORD='${{ secrets.ADMIN_PASSWORD }}' \
+            DINGTALK_WEBHOOK='${{ secrets.DINGTALK_WEBHOOK }}' \
+            DINGTALK_SECRET='${{ secrets.DINGTALK_SECRET }}' \
+            pm2 restart pinzhiyanhuo --update-env
+            pm2 save
+            pm2 list
