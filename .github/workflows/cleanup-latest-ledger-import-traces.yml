@@ -1,0 +1,117 @@
+name: Cleanup latest ledger import traces
+
+on:
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Cleanup latest summaryImport batch on Tencent Cloud
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: 129.211.9.242
+          username: ubuntu
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: 22
+          script: |
+            set -e
+            APP_DIR=/home/ubuntu/zhuge-ai-lab/pinzhiyanhuo
+            cd "$APP_DIR"
+
+            echo ">>> Backup data before cleanup"
+            mkdir -p ~/backups/pinzhiyanhuo
+            if [ -d data ]; then
+              BACKUP=~/backups/pinzhiyanhuo/data-clean-latest-ledger-traces-$(date +%Y%m%d-%H%M%S).tar.gz
+              tar -czf "$BACKUP" data
+              ls -lh "$BACKUP"
+            fi
+
+            echo ">>> Stop service before direct SQLite cleanup"
+            pm2 stop pinzhiyanhuo || true
+
+            cat > .cleanup-latest-ledger-import-traces.mjs <<'NODE'
+            import initSqlJs from 'sql.js';
+            import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+            import path from 'node:path';
+
+            const dbPath = path.join(process.cwd(), 'data', 'db.sqlite');
+            if (!existsSync(dbPath)) {
+              console.log(JSON.stringify({ error: 'db.sqlite not found', dbPath }));
+              process.exit(1);
+            }
+
+            const SQL = await initSqlJs();
+            const db = new SQL.Database(readFileSync(dbPath));
+            const summaryRows = [];
+            const stmt = db.prepare('SELECT id, data FROM notices');
+            while (stmt.step()) {
+              const row = stmt.getAsObject();
+              let data = {};
+              try {
+                data = JSON.parse(row.data || '{}');
+              } catch {
+                data = {};
+              }
+              if (String(data.importSource || '').trim() !== 'summaryImport') continue;
+              const id = String(row.id || data.id || '');
+              const timestamp = Number((id.match(/^(\d{13})-/) || [])[1] || 0);
+              summaryRows.push({
+                id,
+                timestamp,
+                supplierShortName: data.supplierShortName || '',
+                salesProductLine: data.salesProductLine || '',
+                series: data.series || '',
+                totalQuantity: data.totalQuantity || ''
+              });
+            }
+            stmt.free();
+
+            const timestamped = summaryRows.filter((row) => row.timestamp > 0);
+            const maxTimestamp = timestamped.reduce((max, row) => Math.max(max, row.timestamp), 0);
+            const cutoffTimestamp = maxTimestamp ? maxTimestamp - (10 * 60 * 1000) : 0;
+            const targets = timestamped.filter((row) => row.timestamp >= cutoffTimestamp);
+            const targetIds = [...new Set(targets.map((row) => row.id).filter(Boolean))];
+
+            db.run('BEGIN');
+            const deleteNotice = db.prepare('DELETE FROM notices WHERE id = ?');
+            const deleteSchedule = db.prepare('DELETE FROM schedules WHERE id = ?');
+            const deleteReport = db.prepare('DELETE FROM reports WHERE id = ?');
+            const deleteFeedback = db.prepare('DELETE FROM feedback WHERE id = ?');
+            targetIds.forEach((id) => {
+              [deleteNotice, deleteSchedule, deleteReport, deleteFeedback].forEach((statement) => {
+                statement.bind([id]);
+                statement.step();
+                statement.reset();
+              });
+            });
+            [deleteNotice, deleteSchedule, deleteReport, deleteFeedback].forEach((statement) => statement.free());
+            db.run('COMMIT');
+
+            if (targetIds.length) {
+              writeFileSync(dbPath, Buffer.from(db.export()));
+            }
+            console.log(JSON.stringify({
+              summaryImportTotalBefore: summaryRows.length,
+              timestampedSummaryImportBefore: timestamped.length,
+              maxTimestamp,
+              cutoffTimestamp,
+              matchedLatestBatch: targetIds.length,
+              deleted: targetIds.length,
+              sampleRows: targets.slice(0, 10)
+            }, null, 2));
+            NODE
+
+            echo ">>> Run cleanup"
+            node .cleanup-latest-ledger-import-traces.mjs
+            rm -f .cleanup-latest-ledger-import-traces.mjs
+
+            echo ">>> Restart service"
+            ADMIN_PASSWORD='${{ secrets.ADMIN_PASSWORD }}' \
+            DINGTALK_WEBHOOK='${{ secrets.DINGTALK_WEBHOOK }}' \
+            DINGTALK_SECRET='${{ secrets.DINGTALK_SECRET }}' \
+            pm2 restart pinzhiyanhuo --update-env
+            pm2 save
+            pm2 list
