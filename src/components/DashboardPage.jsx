@@ -145,13 +145,16 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
     ]
   }), [monthlyRows]);
 
+  const hasActiveFilters = Object.values(filters).some((value) => normalize(value));
+  const rankingLimit = hasActiveFilters ? filteredRecords.length : 8;
+
   const supplierRows = useMemo(
-    () => topGroups(filteredRecords, (record) => record.supplierShortName),
-    [filteredRecords]
+    () => topGroups(filteredRecords, (record) => record.supplierShortName, rankingLimit),
+    [filteredRecords, rankingLimit]
   );
   const productRows = useMemo(
-    () => topGroups(filteredRecords, (record) => record.salesProductLine),
-    [filteredRecords]
+    () => topGroups(filteredRecords, (record) => record.salesProductLine, rankingLimit),
+    [filteredRecords, rankingLimit]
   );
   const issueRows = useMemo(
     () => topGroups(filteredRecords, (record) => latestFeedback(record.feedback).issueCategoryPrimary),
@@ -194,6 +197,18 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
     maintainAspectRatio: false,
     plugins: { legend: { position: 'bottom' } }
   };
+  const horizontalRateChartOptions = {
+    ...chartOptions,
+    indexAxis: 'y',
+    scales: {
+      x: {
+        beginAtZero: true,
+        max: 100
+      }
+    }
+  };
+  const supplierChartHeight = Math.max(280, supplierRows.length * 34);
+  const productChartHeight = Math.max(280, productRows.length * 34);
 
   return (
     <section className="dashboard-page">
@@ -262,17 +277,17 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
       <div className="chart-row">
         <section className="chart-section half">
           <h3>供应商通过率排行</h3>
-          <div className="chart-box" style={{ height: 280 }}>
-            {supplierRows.length ? <Bar data={supplierData} options={chartOptions} /> : <div className="no-data">暂无数据</div>}
+          <div className="chart-box" style={{ height: supplierChartHeight }}>
+            {supplierRows.length ? <Bar data={supplierData} options={horizontalRateChartOptions} /> : <div className="no-data">暂无数据</div>}
           </div>
-          <p className="table-hint">按验货次数排序展示前 8 个供应商</p>
+          <p className="table-hint">{hasActiveFilters ? '筛选后展示全部匹配供应商' : '按验货次数排序展示前 8 个供应商'}</p>
         </section>
         <section className="chart-section half">
           <h3>产品线通过率排行</h3>
-          <div className="chart-box" style={{ height: 280 }}>
-            {productRows.length ? <Bar data={productData} options={chartOptions} /> : <div className="no-data">暂无数据</div>}
+          <div className="chart-box" style={{ height: productChartHeight }}>
+            {productRows.length ? <Bar data={productData} options={horizontalRateChartOptions} /> : <div className="no-data">暂无数据</div>}
           </div>
-          <p className="table-hint">按验货次数排序展示前 8 个产品线</p>
+          <p className="table-hint">{hasActiveFilters ? '筛选后展示全部匹配产品线' : '按验货次数排序展示前 8 个产品线'}</p>
         </section>
       </div>
 
