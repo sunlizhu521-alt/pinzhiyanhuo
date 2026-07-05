@@ -20,6 +20,7 @@ import InspectionNoticePage from './InspectionNoticePage.jsx';
 import LedgerPage from './LedgerPage.jsx';
 import PermissionManagementPage from './PermissionManagementPage.jsx';
 import BackupCenterPage from './BackupCenterPage.jsx';
+import DashboardPage from './DashboardPage.jsx';
 
 async function exportRowsToWorkbook(rows, sheetName, fileName) {
   if (!rows.length) return false;
@@ -3091,6 +3092,14 @@ function App() {
             onUpload={(slotId, files) => uploadDimensionSlot(slotId, files, { autoApply: true })}
             onApply={applyDimensionSlot}
             onDelete={deleteDimensionSlot}
+          />
+        )}
+        {canAccessPage(user, 'inspectionDashboard') && activeTab === 'inspectionDashboard' && (
+          <DashboardPage
+            records={displayRecords}
+            supplierOptions={supplierOptions}
+            productLineOptions={productLineOptions}
+            seriesOptions={seriesOptions}
           />
         )}
         {canAccessPage(user, 'backupCenter') && activeTab === 'backupCenter' && (

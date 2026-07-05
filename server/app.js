@@ -41,7 +41,8 @@ const PAGE_KEYS = [
   'inspectionInitialData',
   'dimensionLibrary',
   'backupCenter',
-  'permissionManagement'
+  'permissionManagement',
+  'inspectionDashboard'
 ];
 const DEFAULT_PAGE_ACCESS_BY_ROLE = {
   [ROLE_ADMIN]: PAGE_KEYS,
