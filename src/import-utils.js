@@ -353,7 +353,7 @@ function importedRowsToSummaryItems(importedRows, currentUserName) {
       });
       if (!noticeValues.inspectionApplicant) noticeValues.inspectionApplicant = currentUserName;
       if (!noticeValues.inspectionNotifier) noticeValues.inspectionNotifier = currentUserName;
-      const notice = createNoticeRow({ ...noticeValues, importSource: 'summaryImport' });
+      const notice = createNoticeRow({ ...noticeValues, importSource: 'ledgerImport' });
       const schedule = {
         scheduledDate: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.scheduledDate),
         status: readImportedValue(normalizedSource, SUMMARY_IMPORT_ALIASES.status),

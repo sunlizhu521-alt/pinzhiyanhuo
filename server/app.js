@@ -1090,6 +1090,10 @@ function composedRecords(db) {
   }));
 }
 
+function isHistoricalLedgerImportRow(row = {}) {
+  return ['summaryImport', 'ledgerImport'].includes(normalizeText(row.importSource));
+}
+
 function hasObjectValue(value) {
   return Object.values(value || {}).some((item) => String(item || '').trim());
 }
@@ -1766,13 +1770,14 @@ app.delete('/api/quality-inspection/dimension-library/:slotId', requireAuth, req
 
 app.get('/api/quality-inspection/notices', requireAuth, requirePages('inspectionNotice'), async (req, res) => {
   const db = await readDb();
+  const noticeRows = (db.qualityInspection.notices.rows || []).filter((row) => !isHistoricalLedgerImportRow(row));
   if (req.authUser.role === ROLE_ADMIN) {
-    res.json(db.qualityInspection.notices);
+    res.json({ ...db.qualityInspection.notices, rows: noticeRows });
     return;
   }
   res.json({
     ...db.qualityInspection.notices,
-    rows: (db.qualityInspection.notices.rows || []).filter((row) => row.inspectionApplicant === req.authUser.name)
+    rows: noticeRows.filter((row) => row.inspectionApplicant === req.authUser.name)
   });
 });
 
@@ -1941,6 +1946,7 @@ app.post('/api/quality-inspection/summary-import', requireAuth, requirePages('in
   const currentRows = inspection.notices.rows || [];
   const appendedRows = items.map((item) => ({
     ...(item.notice || {}),
+    importSource: 'ledgerImport',
     id: item.notice?.id || randomUUID()
   }));
   inspection.notices = {
@@ -1973,6 +1979,7 @@ app.post('/api/quality-inspection/summary-import', requireAuth, requirePages('in
       inspection.feedback[recordId] = {
         ...(inspection.feedback[recordId] || {}),
         ...item.feedback,
+        actualInspectionTime: formatDateText(item.feedback?.actualInspectionTime),
         updatedAt: nowText()
       };
     }

@@ -153,6 +153,7 @@ function App() {
   const reworkRecords = useMemo(
     () => displayRecords.filter((record) => (
       record.feedback?.result === '返工'
+      && !['summaryImport', 'ledgerImport'].includes(normalize(record.importSource))
       && !record.rework?.completedAt
       && normalize(record.rework?.status) !== '已删除'
       && !normalize(record.rework?.deletedAt)
@@ -571,14 +572,6 @@ function App() {
         }
       });
       saveStaticDb(db);
-      setNoticeSubmission(inspection.notices);
-      setNoticeRows((currentNoticeRows) => {
-        const currentIds = new Set(currentNoticeRows.map((row) => row.id));
-        const newRows = rows
-          .filter((row) => !currentIds.has(row.id))
-          .map((row) => createNoticeRow(row));
-        return [...currentNoticeRows, ...newRows];
-      });
       setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
       setLedgerImportPreview(null);
       setMessage(`历史台账数据已导入：新增 ${items.length} 条，原有数据已保留。`);
@@ -594,8 +587,6 @@ function App() {
       return;
     }
     const payload = await res.json();
-    setNoticeSubmission(payload.notices);
-    setNoticeRows(payload.notices.rows.map((row) => createNoticeRow(row)));
     setRecords(payload.rows || []);
     setLedgerImportPreview(null);
     setMessage(`历史台账数据已导入：新增 ${items.length} 条，原有数据已保留。`);
