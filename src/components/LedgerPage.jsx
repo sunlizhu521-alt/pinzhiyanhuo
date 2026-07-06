@@ -10,6 +10,7 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
     salesProductLine: '',
     series: '',
     businessDepartments: '',
+    issueLevel: '',
     status: '',
     result: '',
     keyword: '',
@@ -65,6 +66,7 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
     salesProductLine: uniqueValues(ledgerRecords.map((record) => record.salesProductLine)),
     series: uniqueValues(ledgerRecords.map((record) => record.series)),
     businessDepartments: uniqueValues(ledgerRecords.flatMap((record) => splitMultiValue(record.businessDepartments))),
+    issueLevel: uniqueValues(ledgerRecords.map((record) => latestFeedback(record.feedback).issueLevel)),
     notifier: uniqueValues(ledgerRecords.map((record) => record.inspectionNotifier || record.inspectionApplicant))
   }), [ledgerRecords]);
 
@@ -88,6 +90,7 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
         && (!normalizedFilters.series || normalize(record.series).toLowerCase() === normalizedFilters.series)
         && (!normalizedFilters.businessDepartments
           || splitMultiValue(record.businessDepartments).some((item) => normalize(item).toLowerCase() === normalizedFilters.businessDepartments))
+        && (!normalizedFilters.issueLevel || normalize(feedback.issueLevel).toLowerCase() === normalizedFilters.issueLevel)
         && (!normalizedFilters.status || normalize(ledgerStatus(record)).toLowerCase() === normalizedFilters.status)
         && (!normalizedFilters.result || normalize(feedback.result).toLowerCase() === normalizedFilters.result)
         && (!normalizedFilters.keyword
@@ -109,7 +112,7 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
   }
 
   function clearFilters() {
-    setFilters({ supplierShortName: '', salesProductLine: '', series: '', businessDepartments: '', status: '', result: '', keyword: '', notifier: '' });
+    setFilters({ supplierShortName: '', salesProductLine: '', series: '', businessDepartments: '', issueLevel: '', status: '', result: '', keyword: '', notifier: '' });
   }
 
   function reportPreviewCell(record) {
@@ -247,6 +250,10 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
         <select value={filters.result} onChange={(event) => updateFilter('result', event.target.value)}>
           <option value="">全部结果</option>
           {['通过', '让步', '返工'].map((result) => <option key={result} value={result}>{result}</option>)}
+        </select>
+        <select value={filters.issueLevel} onChange={(event) => updateFilter('issueLevel', event.target.value)}>
+          <option value="">全部问题等级</option>
+          {filterOptions.issueLevel.map((level) => <option key={level} value={level}>{level}</option>)}
         </select>
         <button type="button" className="ghost compact-button" onClick={clearFilters}>清除</button>
       </div>
