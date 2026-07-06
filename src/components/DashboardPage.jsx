@@ -61,6 +61,20 @@ function topGroups(rows, keyFn, limit = 8) {
     .slice(0, limit);
 }
 
+function buildProductLineBySeries(productLineOptions = [], seriesByProductLine = {}) {
+  const productLineByKey = new Map(productLineOptions.map((item) => [normalizeHeader(item), item]));
+  const result = new Map();
+  Object.entries(seriesByProductLine || {}).forEach(([productLineKey, seriesList]) => {
+    const productLine = productLineByKey.get(productLineKey) || productLineKey;
+    if (!productLine || !Array.isArray(seriesList)) return;
+    seriesList.forEach((series) => {
+      const seriesKey = normalizeHeader(series);
+      if (seriesKey && !result.has(seriesKey)) result.set(seriesKey, productLine);
+    });
+  });
+  return result;
+}
+
 function DashboardPage({ records = [], supplierOptions = [], productLineOptions = [], seriesOptions = [], seriesByProductLine = {} }) {
   const [filters, setFilters] = useState({
     supplierShortName: '',
@@ -70,6 +84,12 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
     startMonth: '',
     endMonth: ''
   });
+
+  const productLineBySeries = useMemo(
+    () => buildProductLineBySeries(productLineOptions, seriesByProductLine),
+    [productLineOptions, seriesByProductLine]
+  );
+  const productLineForRecord = (record) => productLineBySeries.get(normalizeHeader(record.series)) || '';
 
   const filterOptions = useMemo(() => {
     const productLineKey = normalizeHeader(filters.salesProductLine);
@@ -87,15 +107,16 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
 
   const filteredRecords = useMemo(() => records.filter((record) => {
     const month = recordMonth(record);
+    const dimensionProductLine = productLineForRecord(record);
     const matchesSupplier = !filters.supplierShortName || normalize(record.supplierShortName) === filters.supplierShortName;
-    const matchesLine = !filters.salesProductLine || normalize(record.salesProductLine) === filters.salesProductLine;
+    const matchesLine = !filters.salesProductLine || normalize(dimensionProductLine) === filters.salesProductLine;
     const matchesSeries = !filters.series || normalize(record.series) === filters.series;
     const matchesDepartment = !filters.businessDepartment
       || splitMultiValue(record.businessDepartments).some((item) => item === filters.businessDepartment);
     const matchesStart = !filters.startMonth || (month && month >= filters.startMonth);
     const matchesEnd = !filters.endMonth || (month && month <= filters.endMonth);
     return matchesSupplier && matchesLine && matchesSeries && matchesDepartment && matchesStart && matchesEnd;
-  }), [records, filters]);
+  }), [records, filters, productLineBySeries]);
 
   const stats = useMemo(() => {
     const total = filteredRecords.length;
@@ -153,8 +174,8 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
     [filteredRecords, rankingLimit]
   );
   const productRows = useMemo(
-    () => topGroups(filteredRecords, (record) => record.salesProductLine, rankingLimit),
-    [filteredRecords, rankingLimit]
+    () => topGroups(filteredRecords, productLineForRecord, rankingLimit),
+    [filteredRecords, rankingLimit, productLineBySeries]
   );
   const issueRows = useMemo(
     () => topGroups(filteredRecords, (record) => latestFeedback(record.feedback).issueCategoryPrimary),
@@ -312,7 +333,7 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
                 return (
                   <tr key={record.id}>
                     <td>{record.supplierShortName || ''}</td>
-                    <td>{record.salesProductLine || ''}</td>
+                    <td>{productLineForRecord(record)}</td>
                     <td>{record.series || ''}</td>
                     <td>{record.businessDepartments || ''}</td>
                     <td>{formatDate(feedback.actualInspectionTime || record.schedule?.scheduledDate)}</td>
