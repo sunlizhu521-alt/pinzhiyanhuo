@@ -284,6 +284,16 @@ function findDimensionOption(value, options = []) {
   return options.find((option) => normalizeHeader(option) === key) || '';
 }
 
+function findProductLineForSeries(series, productLineOptions = [], seriesByProductLine = {}) {
+  const seriesKey = normalizeHeader(series);
+  if (!seriesKey) return '';
+  const productLineEntry = Object.entries(seriesByProductLine || {})
+    .find(([, seriesList]) => Array.isArray(seriesList) && seriesList.some((item) => normalizeHeader(item) === seriesKey));
+  if (!productLineEntry) return '';
+  const [productLineKey] = productLineEntry;
+  return findDimensionOption(productLineKey, productLineOptions) || productLineKey;
+}
+
 function normalizeRecordDimensions(record, supplierOptions = [], productLineOptions = [], seriesOptions = [], dimensionLibrary = {}) {
   const supplierShortName = findSupplierShortNameOption(record.supplierShortName, supplierOptions) || record.supplierShortName;
   const salesProductLine = findDimensionOption(record.salesProductLine, productLineOptions) || record.salesProductLine;
@@ -300,16 +310,17 @@ function normalizeRecordDimensions(record, supplierOptions = [], productLineOpti
 
 function normalizeNoticeDimensions(row, supplierOptions, productLineOptions, seriesOptions, dimensionLibrary, seriesByProductLine = {}) {
   const supplierShortName = findSupplierShortNameOption(row.supplierShortName, supplierOptions) || normalize(row.supplierShortName);
-  const salesProductLine = findDimensionOption(row.salesProductLine, productLineOptions) || normalize(row.salesProductLine);
-  const scopedSeriesOptions = seriesOptionsForProductLine(salesProductLine, seriesOptions, seriesByProductLine);
+  const matchedProductLine = findDimensionOption(row.salesProductLine, productLineOptions) || normalize(row.salesProductLine);
+  const scopedSeriesOptions = seriesOptionsForProductLine(matchedProductLine, seriesOptions, seriesByProductLine);
   const series = findDimensionOption(row.series, scopedSeriesOptions) || normalize(row.series);
+  const salesProductLine = matchedProductLine || findProductLineForSeries(series, productLineOptions, seriesByProductLine);
   return {
     ...row,
     supplierShortName,
     businessDepartments: joinBusinessDepartments(splitMultiValue(row.businessDepartments)),
     salesProductLine,
     series,
-    supplierAddress: supplierProvinceCityForName(supplierShortName, dimensionLibrary)
+    supplierAddress: supplierProvinceCityForName(supplierShortName, dimensionLibrary) || normalize(row.supplierAddress)
   };
 }
 
@@ -388,6 +399,7 @@ export {
   buildSalesProductLineOptions,
   buildSalesSeriesOptions,
   findDimensionOption,
+  findProductLineForSeries,
   normalizeRecordDimensions,
   normalizeNoticeDimensions,
   validateNoticeRows,

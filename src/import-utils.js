@@ -336,7 +336,9 @@ function importedRowsToNoticeRows(importedRows, currentUserName, dimensionLibrar
       values.inspectionApplicant = currentUserName;
       if (!values.inspectionNotifier) values.inspectionNotifier = currentUserName;
       const supplierKey = normalizeSupplierKey(values.supplierShortName) || normalizeHeader(values.supplierShortName);
-      values.supplierAddress = supplierProvinceCityLookup.get(supplierKey) || supplierProvinceCityLookup.get(normalizeHeader(values.supplierShortName)) || '';
+      values.supplierAddress = supplierProvinceCityLookup.get(supplierKey)
+        || supplierProvinceCityLookup.get(normalizeHeader(values.supplierShortName))
+        || values.supplierAddress;
       return createNoticeRow({ ...values, importSource: 'noticeImport' });
     })
     .filter((row) => NOTICE_FIELDS.some((field) => !field.readonly && normalize(row[field.key])));

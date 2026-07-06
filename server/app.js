@@ -67,7 +67,6 @@ const NOTICE_REQUIRED_FIELDS = [
   { key: 'supplierFinishTime', label: '供应商完工时间' },
   { key: 'shipmentTime', label: '可验货时间' },
   { key: 'supplierShortName', label: '供应商简称' },
-  { key: 'supplierAddress', label: '供应商地址' },
   { key: 'businessDepartments', label: '事业部' },
   { key: 'operation', label: '运营' },
   { key: 'firstInspection', label: '是否首批验货' },
@@ -1412,6 +1411,17 @@ function findSeriesValue(series, productLine, categoryMaps) {
   return findDimensionValue(series, categoryMaps.salesSeries);
 }
 
+function findProductLineBySeries(series, categoryMaps) {
+  const seriesKey = normalizeHeader(series);
+  if (!seriesKey) return '';
+  for (const [productLineKey, seriesMap] of categoryMaps.seriesByProductLine?.entries?.() || []) {
+    if (seriesMap?.has(seriesKey)) {
+      return categoryMaps.salesProductLines.get(productLineKey) || productLineKey;
+    }
+  }
+  return '';
+}
+
 function findSupplierRecord(value, supplierMap) {
   const text = normalizeText(value);
   if (!text) return null;
@@ -1423,8 +1433,9 @@ function findSupplierRecord(value, supplierMap) {
 function prepareNoticeRows(rows, user, supplierMap, categoryMaps) {
   return rows.map((row) => {
     const supplierRecord = findSupplierRecord(row.supplierShortName, supplierMap);
-    const salesProductLine = findDimensionValue(row.salesProductLine, categoryMaps.salesProductLines) || normalizeText(row.salesProductLine);
-    const series = findSeriesValue(row.series, salesProductLine, categoryMaps) || normalizeText(row.series);
+    const matchedProductLine = findDimensionValue(row.salesProductLine, categoryMaps.salesProductLines) || normalizeText(row.salesProductLine);
+    const series = findSeriesValue(row.series, matchedProductLine, categoryMaps) || normalizeText(row.series);
+    const salesProductLine = matchedProductLine || findProductLineBySeries(series, categoryMaps);
     return {
       id: row.id || randomUUID(),
       ...row,

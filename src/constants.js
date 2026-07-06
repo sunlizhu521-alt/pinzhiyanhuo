@@ -20,7 +20,7 @@ const NOTICE_FIELDS = [
   { key: 'supplierFinishTime', label: '供应商完工时间', type: 'date', required: true },
   { key: 'shipmentTime', label: '可验货时间', type: 'date', required: true },
   { key: 'supplierShortName', label: '供应商简称', required: true },
-  { key: 'supplierAddress', label: '地址', required: true },
+  { key: 'supplierAddress', label: '地址' },
   { key: 'businessDepartments', label: '事业部', options: BUSINESS_DEPARTMENT_OPTIONS, required: true },
   { key: 'operation', label: '运营', required: true },
   { key: 'firstInspection', label: '是否首批验货', options: ['是', '否'], required: true },
@@ -121,7 +121,7 @@ const DIMENSION_CITY_ALIASES = ['市', '城市', '所在市', '地市'];
 const SALES_PRODUCT_LINE_ALIASES = ['销售产品线', '产品线', '一级产品线'];
 const SALES_SERIES_ALIASES = ['销售系列', '系列', '产品系列'];
 const NOTICE_IMPORT_MERGE_KEYS = ['inspectionApplicant', 'inspectionNotifier', 'inspectionFillTime', 'supplierFinishTime', 'shipmentTime', 'kingdeeOrderNo', 'supplierShortName', 'supplierAddress', 'operation', 'firstInspection', 'salesProductLine', 'series', 'skuQuantity'];
-const NOTICE_OPTIONAL_KEYS = new Set(['skuQuantity', 'remark']);
+const NOTICE_OPTIONAL_KEYS = new Set(['supplierAddress', 'skuQuantity', 'remark']);
 const REPORT_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp']);
 const REPORT_LIBRARY_EXTENSIONS = new Set(['.pdf', ...REPORT_IMAGE_EXTENSIONS, '.xlsx', '.xls', '.doc', '.docx']);
 const RECORD_REFRESH_PAGES = ['inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'inspectionLedger', 'inspectionReportQuery', 'inspectionStamp', 'inspectionReportLibrary', 'inspectionDashboard'];
