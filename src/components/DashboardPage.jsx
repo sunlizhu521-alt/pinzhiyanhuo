@@ -13,7 +13,46 @@ import {
 import { Bar, Line, Pie } from 'react-chartjs-2';
 import { formatDate, latestFeedback, normalize, normalizeHeader, splitMultiValue } from '../utils.js';
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, ArcElement, Tooltip, Legend);
+const chartValueLabelsPlugin = {
+  id: 'chartValueLabels',
+  afterDatasetsDraw(chart, args, pluginOptions = {}) {
+    if (pluginOptions.display === false) return;
+    const { ctx } = chart;
+    const chartArea = chart.chartArea || {};
+    ctx.save();
+    ctx.font = pluginOptions.font || '600 11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    chart.data.datasets.forEach((dataset, datasetIndex) => {
+      const meta = chart.getDatasetMeta(datasetIndex);
+      if (meta.hidden) return;
+      const total = (dataset.data || []).reduce((sum, value) => sum + (Number(value) || 0), 0);
+      meta.data.forEach((element, index) => {
+        const rawValue = dataset.data[index];
+        const value = Number(rawValue) || 0;
+        if (!value && pluginOptions.hideZero !== false) return;
+        const point = element.tooltipPosition();
+        const label = chart.config.type === 'pie'
+          ? `${value} (${total ? Math.round((value / total) * 100) : 0}%)`
+          : `${value}${pluginOptions.suffix || ''}`;
+        ctx.fillStyle = pluginOptions.color || (chart.config.type === 'pie' ? '#fff' : '#374151');
+        let x = point.x;
+        let y = point.y;
+        if (chart.config.type === 'line') y -= 12;
+        if (chart.config.type === 'bar') {
+          const isHorizontal = chart.options.indexAxis === 'y';
+          x = isHorizontal ? Math.min(point.x + 24, chartArea.right - 12) : point.x;
+          y = isHorizontal ? point.y : Math.max(point.y - 12, chartArea.top + 10);
+        }
+        ctx.fillText(label, x, y);
+      });
+    });
+    ctx.restore();
+  }
+};
+
+ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, ArcElement, Tooltip, Legend, chartValueLabelsPlugin);
 
 const PASS_RESULTS = new Set(['通过', '合格']);
 const REWORK_RESULTS = new Set(['返工', '不合格']);
@@ -75,6 +114,26 @@ function buildProductLineBySeries(productLineOptions = [], seriesByProductLine =
   return result;
 }
 
+function recordMatchesFilters(record, filters, productLineForRecord, ignoreKey = '') {
+  const month = recordMonth(record);
+  const dimensionProductLine = productLineForRecord(record);
+  const matchesSupplier = ignoreKey === 'supplierShortName'
+    || !filters.supplierShortName
+    || normalize(record.supplierShortName) === filters.supplierShortName;
+  const matchesLine = ignoreKey === 'salesProductLine'
+    || !filters.salesProductLine
+    || normalize(dimensionProductLine) === filters.salesProductLine;
+  const matchesSeries = ignoreKey === 'series'
+    || !filters.series
+    || normalize(record.series) === filters.series;
+  const matchesDepartment = ignoreKey === 'businessDepartment'
+    || !filters.businessDepartment
+    || splitMultiValue(record.businessDepartments).some((item) => item === filters.businessDepartment);
+  const matchesStart = ignoreKey === 'startMonth' || !filters.startMonth || (month && month >= filters.startMonth);
+  const matchesEnd = ignoreKey === 'endMonth' || !filters.endMonth || (month && month <= filters.endMonth);
+  return matchesSupplier && matchesLine && matchesSeries && matchesDepartment && matchesStart && matchesEnd;
+}
+
 function DashboardPage({ records = [], supplierOptions = [], productLineOptions = [], seriesOptions = [], seriesByProductLine = {} }) {
   const [filters, setFilters] = useState({
     supplierShortName: '',
@@ -93,30 +152,34 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
 
   const filterOptions = useMemo(() => {
     const productLineKey = normalizeHeader(filters.salesProductLine);
-    const scopedSeries = productLineKey && Array.isArray(seriesByProductLine[productLineKey])
-      ? seriesByProductLine[productLineKey]
-      : [];
+    const recordsForOption = (key) => records.filter((record) => recordMatchesFilters(record, filters, productLineForRecord, key));
+    const productLineSet = new Set(productLineOptions.map((item) => normalizeHeader(item)));
     return {
-      suppliers: uniqueValues([...supplierOptions, ...records.map((record) => record.supplierShortName)]),
-      productLines: uniqueValues(productLineOptions),
-      series: uniqueValues(scopedSeries.length ? scopedSeries : seriesOptions),
-      departments: uniqueValues(records.flatMap((record) => splitMultiValue(record.businessDepartments))),
-      months: uniqueValues(records.map(recordMonth)).sort()
+      suppliers: uniqueValues(recordsForOption('supplierShortName').map((record) => record.supplierShortName)),
+      productLines: uniqueValues(
+        recordsForOption('salesProductLine')
+          .map(productLineForRecord)
+          .filter((item) => productLineSet.has(normalizeHeader(item)))
+      ),
+      series: uniqueValues(
+        recordsForOption('series')
+          .map((record) => record.series)
+          .filter((series) => {
+            if (!productLineKey) return true;
+            const mappedProductLine = productLineForRecord({ series });
+            return normalizeHeader(mappedProductLine) === productLineKey;
+          })
+      ),
+      departments: uniqueValues(recordsForOption('businessDepartment').flatMap((record) => splitMultiValue(record.businessDepartments))),
+      startMonths: uniqueValues(recordsForOption('startMonth').map(recordMonth)).sort(),
+      endMonths: uniqueValues(recordsForOption('endMonth').map(recordMonth)).sort()
     };
-  }, [records, seriesOptions, productLineOptions, supplierOptions, seriesByProductLine, filters.salesProductLine]);
+  }, [records, productLineOptions, filters, productLineBySeries]);
 
-  const filteredRecords = useMemo(() => records.filter((record) => {
-    const month = recordMonth(record);
-    const dimensionProductLine = productLineForRecord(record);
-    const matchesSupplier = !filters.supplierShortName || normalize(record.supplierShortName) === filters.supplierShortName;
-    const matchesLine = !filters.salesProductLine || normalize(dimensionProductLine) === filters.salesProductLine;
-    const matchesSeries = !filters.series || normalize(record.series) === filters.series;
-    const matchesDepartment = !filters.businessDepartment
-      || splitMultiValue(record.businessDepartments).some((item) => item === filters.businessDepartment);
-    const matchesStart = !filters.startMonth || (month && month >= filters.startMonth);
-    const matchesEnd = !filters.endMonth || (month && month <= filters.endMonth);
-    return matchesSupplier && matchesLine && matchesSeries && matchesDepartment && matchesStart && matchesEnd;
-  }), [records, filters, productLineBySeries]);
+  const filteredRecords = useMemo(
+    () => records.filter((record) => recordMatchesFilters(record, filters, productLineForRecord)),
+    [records, filters, productLineBySeries]
+  );
 
   const stats = useMemo(() => {
     const total = filteredRecords.length;
@@ -216,11 +279,28 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
-    plugins: { legend: { position: 'bottom' } }
+    layout: { padding: { top: 18, right: 28 } },
+    plugins: {
+      legend: { position: 'bottom' },
+      chartValueLabels: { display: true }
+    }
+  };
+  const pieChartOptions = {
+    ...chartOptions,
+    layout: { padding: 18 },
+    plugins: {
+      ...chartOptions.plugins,
+      chartValueLabels: { display: true, color: '#fff' }
+    }
   };
   const horizontalRateChartOptions = {
     ...chartOptions,
     indexAxis: 'y',
+    layout: { padding: { top: 8, right: 36 } },
+    plugins: {
+      ...chartOptions.plugins,
+      chartValueLabels: { display: true, suffix: '%' }
+    },
     scales: {
       x: {
         beginAtZero: true,
@@ -257,11 +337,11 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
         </select>
         <select value={filters.startMonth} onChange={(event) => updateFilter('startMonth', event.target.value)}>
           <option value="">起始月份</option>
-          {filterOptions.months.map((item) => <option key={item} value={item}>{item}</option>)}
+          {filterOptions.startMonths.map((item) => <option key={item} value={item}>{item}</option>)}
         </select>
         <select value={filters.endMonth} onChange={(event) => updateFilter('endMonth', event.target.value)}>
           <option value="">截止月份</option>
-          {filterOptions.months.map((item) => <option key={item} value={item}>{item}</option>)}
+          {filterOptions.endMonths.map((item) => <option key={item} value={item}>{item}</option>)}
         </select>
         <button type="button" className="btn-reset" onClick={resetFilters}>重置筛选</button>
       </div>
@@ -284,7 +364,7 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
         <section className="chart-section half">
           <h3>验货结果分布</h3>
           <div className="chart-box" style={{ height: 260 }}>
-            {filteredRecords.length ? <Pie data={resultData} options={chartOptions} /> : <div className="no-data">暂无数据</div>}
+            {filteredRecords.length ? <Pie data={resultData} options={pieChartOptions} /> : <div className="no-data">暂无数据</div>}
           </div>
         </section>
         <section className="chart-section half">
