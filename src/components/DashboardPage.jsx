@@ -33,12 +33,32 @@ const chartValueLabelsPlugin = {
         const value = Number(rawValue) || 0;
         if (!value && pluginOptions.hideZero !== false) return;
         const point = element.tooltipPosition();
+        const isPie = chart.config.type === 'pie';
         const label = chart.config.type === 'pie'
           ? `${value} (${total ? Math.round((value / total) * 100) : 0}%)`
           : `${value}${pluginOptions.suffix || ''}`;
-        ctx.fillStyle = pluginOptions.color || (chart.config.type === 'pie' ? '#fff' : '#374151');
+        ctx.fillStyle = pluginOptions.color || (isPie ? '#374151' : '#374151');
         let x = point.x;
         let y = point.y;
+        if (isPie && pluginOptions.outside) {
+          const { startAngle = 0, endAngle = 0, outerRadius = 0, x: centerX = point.x, y: centerY = point.y } = element;
+          const angle = (startAngle + endAngle) / 2;
+          const edgeX = centerX + Math.cos(angle) * outerRadius;
+          const edgeY = centerY + Math.sin(angle) * outerRadius;
+          const elbowX = centerX + Math.cos(angle) * (outerRadius + 14);
+          const elbowY = centerY + Math.sin(angle) * (outerRadius + 14);
+          const isRight = Math.cos(angle) >= 0;
+          x = elbowX + (isRight ? 36 : -36);
+          y = elbowY;
+          ctx.strokeStyle = pluginOptions.lineColor || '#9ca3af';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(edgeX, edgeY);
+          ctx.lineTo(elbowX, elbowY);
+          ctx.lineTo(x + (isRight ? -6 : 6), y);
+          ctx.stroke();
+          ctx.textAlign = isRight ? 'left' : 'right';
+        }
         if (chart.config.type === 'line') y -= 12;
         if (chart.config.type === 'bar') {
           const isHorizontal = chart.options.indexAxis === 'y';
@@ -287,10 +307,10 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
   };
   const pieChartOptions = {
     ...chartOptions,
-    layout: { padding: 18 },
+    layout: { padding: { top: 28, right: 78, bottom: 28, left: 78 } },
     plugins: {
       ...chartOptions.plugins,
-      chartValueLabels: { display: true, color: '#fff' }
+      chartValueLabels: { display: true, outside: true, color: '#374151', lineColor: '#9ca3af' }
     }
   };
   const horizontalRateChartOptions = {
