@@ -368,6 +368,18 @@ th {
   white-space: nowrap;
 }
 
+.inspection-ledger-table {
+  max-height: calc(100vh - 280px);
+  overflow-x: auto;
+  overflow-y: auto;
+  scrollbar-gutter: stable both-edges;
+}
+
+.inspection-ledger-table table {
+  width: max-content;
+  min-width: 2600px;
+}
+
 .inspection-ledger-table td.ledger-wrap-cell {
   min-width: 220px;
   max-width: 340px;
