@@ -28,6 +28,63 @@ const chartValueLabelsPlugin = {
       const meta = chart.getDatasetMeta(datasetIndex);
       if (meta.hidden) return;
       const total = (dataset.data || []).reduce((sum, value) => sum + (Number(value) || 0), 0);
+      if (chart.config.type === 'pie' && pluginOptions.outside) {
+        const labels = meta.data.map((element, index) => {
+          const rawValue = dataset.data[index];
+          const value = Number(rawValue) || 0;
+          if (!value && pluginOptions.hideZero !== false) return null;
+          const { startAngle = 0, endAngle = 0, outerRadius = 0, x: centerX, y: centerY } = element;
+          const angle = (startAngle + endAngle) / 2;
+          const isRight = Math.cos(angle) >= 0;
+          const elbowRadius = outerRadius + (pluginOptions.elbowOffset || 14);
+          const edgeX = centerX + Math.cos(angle) * outerRadius;
+          const edgeY = centerY + Math.sin(angle) * outerRadius;
+          const elbowX = centerX + Math.cos(angle) * elbowRadius;
+          const preferredY = centerY + Math.sin(angle) * elbowRadius;
+          const x = isRight ? chartArea.right - 4 : chartArea.left + 4;
+          return {
+            text: `${value} (${total ? Math.round((value / total) * 100) : 0}%)`,
+            edgeX,
+            edgeY,
+            elbowX,
+            preferredY,
+            x,
+            y: preferredY,
+            isRight
+          };
+        }).filter(Boolean);
+        const minGap = pluginOptions.minGap || 16;
+        const topLimit = chartArea.top + 8;
+        const bottomLimit = chartArea.bottom - 8;
+        [true, false].forEach((side) => {
+          const sideLabels = labels.filter((item) => item.isRight === side).sort((a, b) => a.preferredY - b.preferredY);
+          sideLabels.forEach((item, index) => {
+            const previous = sideLabels[index - 1];
+            item.y = previous ? Math.max(item.preferredY, previous.y + minGap) : Math.max(item.preferredY, topLimit);
+          });
+          for (let index = sideLabels.length - 1; index >= 0; index -= 1) {
+            const next = sideLabels[index + 1];
+            sideLabels[index].y = next ? Math.min(sideLabels[index].y, next.y - minGap) : Math.min(sideLabels[index].y, bottomLimit);
+          }
+          sideLabels.forEach((item, index) => {
+            const previous = sideLabels[index - 1];
+            item.y = previous ? Math.max(item.y, previous.y + minGap) : Math.max(item.y, topLimit);
+          });
+        });
+        labels.forEach((item) => {
+          ctx.strokeStyle = pluginOptions.lineColor || '#9ca3af';
+          ctx.fillStyle = pluginOptions.color || '#374151';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(item.edgeX, item.edgeY);
+          ctx.lineTo(item.elbowX, item.preferredY);
+          ctx.lineTo(item.x + (item.isRight ? -6 : 6), item.y);
+          ctx.stroke();
+          ctx.textAlign = item.isRight ? 'left' : 'right';
+          ctx.fillText(item.text, item.x, item.y);
+        });
+        return;
+      }
       meta.data.forEach((element, index) => {
         const rawValue = dataset.data[index];
         const value = Number(rawValue) || 0;
@@ -307,10 +364,10 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
   };
   const pieChartOptions = {
     ...chartOptions,
-    layout: { padding: { top: 28, right: 78, bottom: 28, left: 78 } },
+    layout: { padding: { top: 34, right: 92, bottom: 34, left: 92 } },
     plugins: {
       ...chartOptions.plugins,
-      chartValueLabels: { display: true, outside: true, color: '#374151', lineColor: '#9ca3af' }
+      chartValueLabels: { display: true, outside: true, color: '#374151', lineColor: '#9ca3af', minGap: 18 }
     }
   };
   const horizontalRateChartOptions = {
