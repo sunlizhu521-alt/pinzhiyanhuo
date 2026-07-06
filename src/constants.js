@@ -19,6 +19,8 @@ const NOTICE_FIELDS = [
   { key: 'inspectionFillTime', label: '验货填写时间', type: 'date', required: true },
   { key: 'supplierFinishTime', label: '供应商完工时间', type: 'date', required: true },
   { key: 'shipmentTime', label: '可验货时间', type: 'date', required: true },
+  { key: 'stockOaNo', label: '备货OA号' },
+  { key: 'shippingOaNo', label: '发货OA号' },
   { key: 'supplierShortName', label: '供应商简称', required: true },
   { key: 'supplierAddress', label: '地址' },
   { key: 'businessDepartments', label: '事业部', options: BUSINESS_DEPARTMENT_OPTIONS, required: true },
@@ -37,6 +39,8 @@ const NOTICE_IMPORT_ALIASES = {
   inspectionFillTime: ['验货填写时间', '填写时间', '申请时间', '提报时间', '通知时间'],
   supplierFinishTime: ['供应商完工时间', '完工时间', '供应商完成时间'],
   shipmentTime: ['可验货时间', '发货时间', '出货时间', '计划发货时间'],
+  stockOaNo: ['备货OA号', '备货OA', '备货OA编号', '备货OA单号'],
+  shippingOaNo: ['发货OA号', '发货OA', '发货OA编号', '发货OA单号'],
   kingdeeOrderNo: ['金蝶采购订单', '采购订单', '采购订单号', '金蝶订单', '订单号', 'PO', 'PO号'],
   supplierShortName: ['供应商简称', '供应商', '供应商名称', '厂家简称', '厂商', '厂家'],
   supplierAddress: ['供应商地址', '地址', '验货地址', '工厂地址', '地点', '地区'],
@@ -120,8 +124,8 @@ const DIMENSION_PROVINCE_ALIASES = ['省', '省份', '所在省', '省区'];
 const DIMENSION_CITY_ALIASES = ['市', '城市', '所在市', '地市'];
 const SALES_PRODUCT_LINE_ALIASES = ['销售产品线', '产品线', '一级产品线'];
 const SALES_SERIES_ALIASES = ['销售系列', '系列', '产品系列'];
-const NOTICE_IMPORT_MERGE_KEYS = ['inspectionApplicant', 'inspectionNotifier', 'inspectionFillTime', 'supplierFinishTime', 'shipmentTime', 'kingdeeOrderNo', 'supplierShortName', 'supplierAddress', 'operation', 'firstInspection', 'salesProductLine', 'series', 'skuQuantity'];
-const NOTICE_OPTIONAL_KEYS = new Set(['supplierAddress', 'skuQuantity', 'remark']);
+const NOTICE_IMPORT_MERGE_KEYS = ['inspectionApplicant', 'inspectionNotifier', 'inspectionFillTime', 'supplierFinishTime', 'shipmentTime', 'stockOaNo', 'shippingOaNo', 'kingdeeOrderNo', 'supplierShortName', 'supplierAddress', 'operation', 'firstInspection', 'salesProductLine', 'series', 'skuQuantity'];
+const NOTICE_OPTIONAL_KEYS = new Set(['supplierAddress', 'stockOaNo', 'shippingOaNo', 'skuQuantity', 'remark']);
 const REPORT_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp']);
 const REPORT_LIBRARY_EXTENSIONS = new Set(['.pdf', ...REPORT_IMAGE_EXTENSIONS, '.xlsx', '.xls', '.doc', '.docx']);
 const RECORD_REFRESH_PAGES = ['inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'inspectionLedger', 'inspectionReportQuery', 'inspectionStamp', 'inspectionReportLibrary', 'inspectionDashboard'];

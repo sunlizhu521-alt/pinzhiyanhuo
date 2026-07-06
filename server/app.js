@@ -1932,6 +1932,8 @@ app.post('/api/quality-inspection/direct-feedback', requireAuth, requirePages('i
     inspectionFillTime: inputNotice.inspectionFillTime || now,
     supplierFinishTime: normalizeText(inputNotice.supplierFinishTime),
     shipmentTime: normalizeText(inputNotice.shipmentTime) || actualInspectionTime,
+    stockOaNo: normalizeText(inputNotice.stockOaNo),
+    shippingOaNo: normalizeText(inputNotice.shippingOaNo),
     supplierShortName,
     supplierAddress: normalizeText(inputNotice.supplierAddress),
     businessDepartments: normalizeText(inputNotice.businessDepartments),

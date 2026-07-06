@@ -509,7 +509,7 @@ function App() {
       );
       const combined = [...activeRows, ...mergedRows];
       const userFillableKeys = [
-        'supplierFinishTime', 'shipmentTime',
+        'supplierFinishTime', 'shipmentTime', 'stockOaNo', 'shippingOaNo',
         'supplierShortName', 'supplierAddress', 'businessDepartments',
         'operation', 'firstInspection', 'salesProductLine', 'series',
         'totalQuantity', 'skuQuantity', 'remark'
@@ -829,7 +829,7 @@ function App() {
 
   async function submitNoticesRows(sourceRows, { append = false, clearRows = true, successText = '' } = {}) {
     const userFillableKeys = [
-      'supplierFinishTime', 'shipmentTime',
+      'supplierFinishTime', 'shipmentTime', 'stockOaNo', 'shippingOaNo',
       'supplierShortName', 'supplierAddress', 'businessDepartments',
       'operation', 'firstInspection', 'salesProductLine', 'series',
       'totalQuantity', 'skuQuantity', 'remark'
@@ -2001,6 +2001,8 @@ function App() {
       inspectionFillTime: createdAt,
       supplierFinishTime: '',
       shipmentTime: actualInspectionTime,
+      stockOaNo: '',
+      shippingOaNo: '',
       supplierShortName: normalize(form.get('supplierShortName')),
       supplierAddress: '',
       businessDepartments: '',

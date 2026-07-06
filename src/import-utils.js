@@ -175,6 +175,8 @@ function recordToMigrationLedgerRow(record, index = 0, reportHrefFn = () => '') 
     '验货填写时间': formatDate(record.inspectionFillTime),
     '供应商完工时间': formatDate(record.supplierFinishTime),
     '可验货时间': formatDate(record.shipmentTime),
+    '备货OA号': record.stockOaNo || '',
+    '发货OA号': record.shippingOaNo || '',
     '金蝶采购订单': record.kingdeeOrderNo || '',
     '供应商简称': record.supplierShortName || '',
     '供应商地址': record.supplierAddress || '',
@@ -221,6 +223,8 @@ function recordToReportExportRow(record, index = 0, reportHrefFn = () => '') {
     '验货结果': record.feedback?.result || '',
     '事业部': record.businessDepartments || '',
     '金蝶采购订单': record.kingdeeOrderNo || '',
+    '备货OA号': record.stockOaNo || '',
+    '发货OA号': record.shippingOaNo || '',
     '数量': record.totalQuantity || '',
     '来源': record.reportLibrarySource ? '报告单文件库历史检验单' : '验货流程记录'
   };
