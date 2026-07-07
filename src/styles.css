@@ -1933,3 +1933,9 @@ button.clear-btn:hover {
 .result-rework{color:#f59e0b;font-weight:600}
 .result-other{color:#6b7280}
 @media(max-width:768px){.stats-cards{grid-template-columns:repeat(2,1fr)}.chart-row{flex-direction:column}}
+
+@keyframes submitProgress {
+  0% { margin-left: 0; width: 30%; }
+  50% { margin-left: 35%; width: 30%; }
+  100% { margin-left: 70%; width: 30%; }
+}

@@ -907,20 +907,30 @@ function App() {
   }
 
   async function submitNotices() {
-    await submitNoticesRows(noticeRows);
+    setSavingId('notice-submit');
+    try {
+      await submitNoticesRows(noticeRows);
+    } finally {
+      setSavingId('');
+    }
   }
 
   async function submitNoticeRow(row) {
-    const saved = await submitNoticesRows([row], {
-      append: true,
-      clearRows: false,
-      successText: '已提交 1 条验货通知。'
-    });
-    if (!saved) return;
-    setNoticeRows((rows) => {
-      const nextRows = rows.filter((item) => item.id !== row.id);
-      return nextRows.length ? nextRows : [createBlankNoticeRow({ inspectionApplicant: user.name })];
-    });
+    setSavingId('notice-' + row.id);
+    try {
+      const saved = await submitNoticesRows([row], {
+        append: true,
+        clearRows: false,
+        successText: '已提交 1 条验货通知。'
+      });
+      if (!saved) return;
+      setNoticeRows((rows) => {
+        const nextRows = rows.filter((item) => item.id !== row.id);
+        return nextRows.length ? nextRows : [createBlankNoticeRow({ inspectionApplicant: user.name })];
+      });
+    } finally {
+      setSavingId('');
+    }
   }
 
   async function refreshRecords() {
@@ -2975,6 +2985,7 @@ function App() {
             onClearImportPreview={clearNoticeImportPreview}
             onSubmit={submitNotices}
             onSubmitRow={submitNoticeRow}
+            savingId={savingId}
           />
         )}
         {canAccessPage(user, 'inspectionSchedule') && activeTab === 'inspectionSchedule' && (

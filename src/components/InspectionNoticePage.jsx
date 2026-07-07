@@ -33,7 +33,8 @@ function InspectionNoticePage({
   onConfirmImport,
   onClearImportPreview,
   onSubmit,
-  onSubmitRow
+  onSubmitRow,
+  savingId
 }) {
   const productLineBySeries = Object.fromEntries(
     Object.entries(seriesByProductLine).flatMap(([productLine, seriesList]) =>
@@ -126,8 +127,15 @@ function InspectionNoticePage({
           />
         </label>
         <button type="button" className="ghost compact-button" onClick={onClearRows}>清除填写内容</button>
-        <button type="button" onClick={onSubmit}>确认提交</button>
+        <button type="button" onClick={onSubmit} disabled={!!savingId}>
+          {savingId === 'notice-submit' ? '提交中...' : '确认提交'}
+        </button>
       </div>
+      {savingId && (
+        <div style={{ height: 3, background: '#e2e8f0', marginBottom: 16, borderRadius: 2, overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: '30%', background: '#3b82f6', borderRadius: 2, animation: 'submitProgress 1.5s ease-in-out infinite' }} />
+        </div>
+      )}
       <label
         className="notice-upload-zone"
         onDragOver={(event) => event.preventDefault()}
@@ -384,7 +392,9 @@ function InspectionNoticePage({
             );
           }),
           <div className="table-action-row">
-            <button type="button" className="compact-button" onClick={() => onSubmitRow(row)}>提交</button>
+            <button type="button" className="compact-button" onClick={() => onSubmitRow(row)} disabled={!!savingId}>
+              {savingId === 'notice-' + row.id ? '提交中...' : '提交'}
+            </button>
             <button type="button" className="danger-button compact-button" onClick={() => onDelete(row.id)}>删除</button>
           </div>
         ]}
