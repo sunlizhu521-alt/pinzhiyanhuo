@@ -49,11 +49,12 @@ function FeedbackPage({
     return isReinspectionFeedback(record) ? {} : (record.feedback || {});
   }
   const mergedRecords = useMemo(() => mergeFeedbackRecords(records, reportHref), [records]);
+  const detailRecords = records;
   const filteredRecords = useMemo(() => {
     const normalizedFilters = Object.fromEntries(
       Object.entries(filters).map(([key, value]) => [key, normalize(value).toLowerCase()])
     );
-    return mergedRecords.filter((record) => {
+    return detailRecords.filter((record) => {
       const feedback = activeFeedback(record);
       const values = {
         supplierShortName: record.supplierShortName,
@@ -78,7 +79,7 @@ function FeedbackPage({
         return normalize(values[key]).toLowerCase().includes(value);
       });
     });
-  }, [mergedRecords, filters]);
+  }, [detailRecords, filters]);
   function updateFilter(key, value) {
     setFilters((current) => ({ ...current, [key]: value }));
   }
@@ -140,7 +141,7 @@ function FeedbackPage({
     <>
       <div className="section-heading-row">
         <h2>验货反馈</h2>
-        <span className="section-count">筛选 {filteredRecords.length} 条 / 合并后 {mergedRecords.length} 条 / 待反馈 {records.length} 条</span>
+        <span className="section-count">筛选 {filteredRecords.length} 条 / 待反馈 {records.length} 条 / 合并参考 {mergedRecords.length} 条</span>
         <button type="button" className="compact-button" onClick={() => setShowAddForm(true)}>新增反馈</button>
         {canImport && (
           <label className="upload-button">
