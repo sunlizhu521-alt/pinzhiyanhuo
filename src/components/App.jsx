@@ -556,6 +556,8 @@ function App() {
       setMessage('暂无可导入的台账预览数据。');
       return;
     }
+    setSavingId('ledger-import');
+    try {
     const importBatchId = createId();
     const importBatchCreatedAt = nowText();
     if (STATIC_MODE) {
@@ -620,6 +622,9 @@ function App() {
     setRecords(payload.rows || []);
     setLedgerImportPreview(null);
     setMessage(`历史台账数据已导入：新增 ${items.length} 条，原有数据已保留。`);
+    } finally {
+      setSavingId('');
+    }
   }
 
   function latestStaticLedgerImportRows(rows = []) {
@@ -3087,6 +3092,7 @@ function App() {
             onDelete={deleteInspectionRecord}
             onUndoLatestImport={() => deleteLedgerImportData('latest')}
             onDeleteAllImports={() => deleteLedgerImportData('all')}
+            savingId={savingId}
             onExport={(sourceRecords) => exportSummaryData('验货台账', sourceRecords || displayRecords)}
           />
         )}

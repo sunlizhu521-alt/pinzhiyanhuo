@@ -4,7 +4,7 @@ import ReportPreviewModal from './ReportPreviewModal.jsx';
 import { normalize, formatDate, latestFeedback, splitMultiValue, uniqueValues } from '../utils.js';
 import { reportHref, reportFileExt } from '../file-utils.js';
 
-function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImport, onClearImportPreview, canDelete, onDelete, onUndoLatestImport, onDeleteAllImports, onExport }) {
+function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImport, onClearImportPreview, canDelete, onDelete, onUndoLatestImport, onDeleteAllImports, onExport, savingId }) {
   const [filters, setFilters] = useState({
     supplierShortName: '',
     salesProductLine: '',
@@ -161,11 +161,20 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
         <button type="button" className="ghost compact-button" disabled={!ledgerRecords.length} onClick={() => onExport(ledgerRecords)}>导出</button>
         {canImport && (
           <>
-            <button type="button" className="ghost compact-button" onClick={onUndoLatestImport}>撤销最近导入</button>
-            <button type="button" className="danger-button compact-button" onClick={onDeleteAllImports}>删除全部导入</button>
+            <button type="button" className="ghost compact-button" onClick={onUndoLatestImport} disabled={!!savingId && savingId.startsWith('ledger-import-delete')}>
+              {savingId === 'ledger-import-delete-latest' ? '撤销中...' : '撤销最近导入'}
+            </button>
+            <button type="button" className="danger-button compact-button" onClick={onDeleteAllImports} disabled={!!savingId && savingId.startsWith('ledger-import-delete')}>
+              {savingId === 'ledger-import-delete-all' ? '删除中...' : '删除全部导入'}
+            </button>
           </>
         )}
       </div>
+      {savingId && (
+        <div style={{ height: 3, background: '#e2e8f0', marginBottom: 16, borderRadius: 2, overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: '30%', background: '#3b82f6', borderRadius: 2, animation: 'submitProgress 1.5s ease-in-out infinite' }} />
+        </div>
+      )}
       {canImport && (
         <label
           className="summary-upload-zone"
@@ -184,7 +193,9 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
             <span className="section-count">
               {importPreview.fileName}，工作表 {importPreview.sheetName || '未识别'}，共 {importPreview.items.length} 条
             </span>
-            <button type="button" className="compact-button" onClick={onConfirmImport}>确认导入</button>
+            <button type="button" className="compact-button" onClick={onConfirmImport} disabled={savingId === 'ledger-import'}>
+              {savingId === 'ledger-import' ? '导入中...' : '确认导入'}
+            </button>
             <button type="button" className="ghost compact-button" onClick={onClearImportPreview}>清空预览</button>
           </div>
           <DataTable
@@ -315,6 +326,7 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
                 type="button"
                 className="danger-button compact-button"
                 onClick={() => onDelete(record)}
+                disabled={savingId === record.id}
               >
                 删除
               </button>
