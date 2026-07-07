@@ -6,7 +6,7 @@ import xlsx from 'xlsx';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import { format } from 'date-fns';
-import { createHmac, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { cp, mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { initDatabase, getUsers, getUserByName, getUserById, upsertUser, createUser, deleteUser, getSessions, setSession, deleteSession, deleteSessionsByUserId, getNotices, saveNotices, getSchedule, saveSchedule, deleteSchedule, getReport, saveReport, deleteReport, getFeedback, saveFeedback, deleteFeedback, getDimensionLibrary, saveDimensionLibrary, deleteDimensionLibrary, getInitialData, saveInitialData, addOperationLog, getOperationLogs, getSchedulesBatch, getReportsBatch, getFeedbacksBatch, deleteExpiredSessions } from './database.js';
 import path from 'node:path';
@@ -174,6 +174,34 @@ function noticeRowsSummary(rows = []) {
   return `${items.join('；')}${suffix}`;
 }
 
+function textDateValue(...values) {
+  return values.map((value) => String(value ?? '').trim()).find(Boolean) || '';
+}
+
+function parseOperationTime(value) {
+  const text = textDateValue(value);
+  if (!text) return null;
+  const normalized = text.length <= 10 ? `${text} 00:00:00` : text;
+  const date = new Date(normalized.replace(' ', 'T'));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isRecentOperationTime(value, cutoffTime) {
+  const date = parseOperationTime(value);
+  return !!date && date.getTime() >= cutoffTime;
+}
+
+function operationLogId(prefix, recordId, createdAt) {
+  return `backfill-${prefix}-${createHash('sha1').update(`${recordId}|${createdAt}`).digest('hex').slice(0, 24)}`;
+}
+
+function inspectionInfoForRecord(record = {}) {
+  const supplier = safeNoticeValue(record.supplierShortName, '供应商未填');
+  const series = safeNoticeValue(record.series, '系列未填');
+  const quantity = safeNoticeValue(record.totalQuantity, '数量未填');
+  return `${supplier} / ${series} / ${quantity}`;
+}
+
 function describeMutation(req) {
   const method = req.method;
   const pathName = String(req.originalUrl || req.path || '').split('?')[0];
@@ -232,6 +260,90 @@ async function recordOperationLog(req, mutation) {
     method: req.method,
     path: pathName
   });
+}
+
+function addBackfillOperationLog(log) {
+  addOperationLog({
+    userRole: '历史回填',
+    method: 'BACKFILL',
+    path: '/api/quality-inspection/history-backfill',
+    inspectionInfo: '',
+    ...log
+  });
+}
+
+async function backfillRecentBusinessOperationLogs(days = 10) {
+  const cutoffTime = Date.now() - days * 24 * 60 * 60 * 1000;
+  const notices = getNotices();
+  const rows = Array.isArray(notices.rows) ? notices.rows : [];
+  const ids = rows.map((row) => row.id).filter(Boolean);
+  const schedules = getSchedulesBatch(ids);
+  const feedbacks = getFeedbacksBatch(ids);
+  let count = 0;
+
+  rows.forEach((row) => {
+    const recordId = safeNoticeValue(row.id, '');
+    if (!recordId) return;
+    const inspectionInfo = inspectionInfoForRecord(row);
+
+    const noticeTime = textDateValue(row.inspectionFillTime, row.createdAt, notices.submittedAt);
+    if (isRecentOperationTime(noticeTime, cutoffTime)) {
+      addBackfillOperationLog({
+        id: operationLogId('notice', recordId, noticeTime),
+        createdAt: noticeTime.length <= 10 ? `${noticeTime} 00:00:00` : noticeTime,
+        userName: safeNoticeValue(row.inspectionApplicant || row.inspectionNotifier, '历史回填'),
+        action: '提交验货通知',
+        detail: `记录ID：${recordId}`,
+        inspectionInfo
+      });
+      count += 1;
+    }
+
+    const schedule = schedules[recordId] || {};
+    const scheduleTime = textDateValue(schedule.updatedAt, schedule.scheduledAt, schedule.scheduledDate);
+    if ((schedule.inspector || schedule.scheduledDate || schedule.status) && isRecentOperationTime(scheduleTime, cutoffTime)) {
+      addBackfillOperationLog({
+        id: operationLogId('schedule', recordId, scheduleTime),
+        createdAt: scheduleTime.length <= 10 ? `${scheduleTime} 00:00:00` : scheduleTime,
+        userName: safeNoticeValue(schedule.updatedBy, '历史回填'),
+        action: '安排验货',
+        detail: `验货员：${safeNoticeValue(schedule.inspector)}；计划时间：${safeNoticeValue(schedule.scheduledDate)}`,
+        inspectionInfo
+      });
+      count += 1;
+    }
+
+    const feedback = feedbacks[recordId] || {};
+    const feedbackTime = textDateValue(feedback.updatedAt, feedback.actualInspectionTime);
+    if ((feedback.result || feedback.actualInspectionTime || feedback.feedbackText) && isRecentOperationTime(feedbackTime, cutoffTime)) {
+      addBackfillOperationLog({
+        id: operationLogId('feedback', recordId, feedbackTime),
+        createdAt: feedbackTime.length <= 10 ? `${feedbackTime} 00:00:00` : feedbackTime,
+        userName: safeNoticeValue(feedback.updatedBy || feedback.actualInspector, '历史回填'),
+        action: '提交验货反馈',
+        detail: `记录ID：${recordId}；结果：${safeNoticeValue(feedback.result)}`,
+        inspectionInfo
+      });
+      count += 1;
+    }
+
+    const rework = feedback.rework || {};
+    const reworkTime = textDateValue(rework.updatedAt, rework.reworkRequestedAt, rework.completedAt, rework.scheduledAt, rework.reinspectedAt);
+    if ((rework.status || rework.reworkCompleteTime || rework.reworkRemark) && isRecentOperationTime(reworkTime, cutoffTime)) {
+      addBackfillOperationLog({
+        id: operationLogId('rework', recordId, reworkTime),
+        createdAt: reworkTime.length <= 10 ? `${reworkTime} 00:00:00` : reworkTime,
+        userName: safeNoticeValue(rework.updatedBy || rework.completedBy || rework.reinspectedBy, '历史回填'),
+        action: '复验通知',
+        detail: `记录ID：${recordId}；状态：${safeNoticeValue(rework.status)}；返工完成时间：${safeNoticeValue(rework.reworkCompleteTime)}`,
+        inspectionInfo
+      });
+      count += 1;
+    }
+  });
+
+  if (count) console.log(`[operation-log] backfilled ${count} recent business operation logs`);
+  return count;
 }
 
 async function notifyDingTalk(req, mutation) {
@@ -463,6 +575,7 @@ async function ensureDb() {
     }
     dbReady = true;
     deleteExpiredSessions();
+    await backfillRecentBusinessOperationLogs(10);
   }
 }
 
