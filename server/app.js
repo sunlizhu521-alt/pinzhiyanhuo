@@ -8,7 +8,7 @@ import rateLimit from 'express-rate-limit';
 import { format } from 'date-fns';
 import { createHmac, randomUUID } from 'node:crypto';
 import { cp, mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
-import { initDatabase, getUsers, getUserByName, getUserById, upsertUser, createUser, deleteUser, getSessions, setSession, deleteSession, deleteSessionsByUserId, getNotices, saveNotices, getSchedule, saveSchedule, deleteSchedule, getReport, saveReport, deleteReport, getFeedback, saveFeedback, deleteFeedback, getDimensionLibrary, saveDimensionLibrary, deleteDimensionLibrary, getInitialData, saveInitialData, getSchedulesBatch, getReportsBatch, getFeedbacksBatch, deleteExpiredSessions } from './database.js';
+import { initDatabase, getUsers, getUserByName, getUserById, upsertUser, createUser, deleteUser, getSessions, setSession, deleteSession, deleteSessionsByUserId, getNotices, saveNotices, getSchedule, saveSchedule, deleteSchedule, getReport, saveReport, deleteReport, getFeedback, saveFeedback, deleteFeedback, getDimensionLibrary, saveDimensionLibrary, deleteDimensionLibrary, getInitialData, saveInitialData, addOperationLog, getOperationLogs, getSchedulesBatch, getReportsBatch, getFeedbacksBatch, deleteExpiredSessions } from './database.js';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
 import { fileURLToPath } from 'node:url';
@@ -42,7 +42,8 @@ const PAGE_KEYS = [
   'dimensionLibrary',
   'backupCenter',
   'permissionManagement',
-  'inspectionDashboard'
+  'inspectionDashboard',
+  'operationRecords'
 ];
 const DEFAULT_PAGE_ACCESS_BY_ROLE = {
   [ROLE_ADMIN]: PAGE_KEYS,
@@ -129,6 +130,9 @@ app.use('/api', (req, res, next) => {
     if (res.statusCode >= 400) return;
     const mutation = describeMutation(req);
     if (!mutation) return;
+    recordOperationLog(req, mutation).catch((error) => {
+      console.error('[operation-log] write error:', error?.message || error);
+    });
     notifyDingTalk(req, mutation).catch((error) => {
       console.error('[dingtalk] notify middleware error:', error?.message || error);
     });
@@ -183,13 +187,7 @@ function describeMutation(req) {
   const targetId = idMatch ? decodeURIComponent(idMatch[1]) : '';
   const rowsCount = Array.isArray(body.rows) ? body.rows.length : 0;
   const itemsCount = Array.isArray(body.items) ? body.items.length : 0;
-  const isNoticeMutation = method === 'POST' && pathName === '/api/quality-inspection/notices';
-  const isScheduleMutation = /\/api\/quality-inspection\/schedules\/[^/]+$/.test(pathName);
-  const isDirectFeedbackMutation = pathName === '/api/quality-inspection/direct-feedback';
-  const isFeedbackMutation = /\/api\/quality-inspection\/feedback\/[^/]+$/.test(pathName);
-
   if (pathName === '/api/auth/login') return null;
-  if (!isNoticeMutation && !isScheduleMutation && !isDirectFeedbackMutation && !isFeedbackMutation) return null;
   if (pathName === '/api/auth/register') return { action: '注册账号', detail: `账号：${safeNoticeValue(body.name)}` };
   if (pathName === '/api/auth/change-password') return { action: '修改登录密码', detail: '当前用户修改了登录密码' };
   if (/\/api\/auth\/users\/[^/]+\/access$/.test(pathName)) return { action: '调整用户权限', detail: `用户ID：${safeNoticeValue(targetId)}` };
@@ -218,6 +216,22 @@ function describeMutation(req) {
   if (method === 'DELETE' && /\/api\/quality-inspection\/report-files\/[^/]+$/.test(pathName)) return { action: '删除报告单库文件', detail: `文件：${safeNoticeValue(targetId)}` };
   if (/\/api\/quality-inspection\/feedback\/[^/]+$/.test(pathName)) return { action: '提交验货反馈/复验通知', detail: `记录ID：${safeNoticeValue(req.params?.id || targetId)}；结果：${safeNoticeValue(body.result || body.rework?.status)}` };
   return { action: `${method} ${pathName}`, detail: '业务数据已变更' };
+}
+
+async function recordOperationLog(req, mutation) {
+  await ensureDb();
+  const pathName = String(req.originalUrl || req.path || '').split('?')[0];
+  addOperationLog({
+    id: randomUUID(),
+    createdAt: nowText(),
+    userName: safeNoticeValue(req.authUser?.name || req.body?.name, '未知用户'),
+    userRole: safeNoticeValue(req.authUser?.role, '-'),
+    action: safeNoticeValue(mutation.action),
+    detail: safeNoticeValue(mutation.detail),
+    inspectionInfo: mutation.inspectionInfo ? safeNoticeValue(mutation.inspectionInfo, '-') : '',
+    method: req.method,
+    path: pathName
+  });
 }
 
 async function notifyDingTalk(req, mutation) {
@@ -1508,6 +1522,12 @@ app.post('/api/quality-inspection/backup-center/run', requireAuth, requirePages(
   await ensureDb();
   const manifest = await runLatestDataBackup('manual');
   res.json({ ...manifest, exists: true, nextBackupAt: nextMidnightText() });
+});
+
+app.get('/api/quality-inspection/operation-records', requireAuth, requirePages('operationRecords'), requireRoles(ROLE_ADMIN), async (req, res) => {
+  await ensureDb();
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ rows: getOperationLogs(req.query.limit) });
 });
 
 app.post('/api/auth/login', loginLimiter, async (req, res) => {

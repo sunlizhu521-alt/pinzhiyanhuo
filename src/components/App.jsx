@@ -21,6 +21,7 @@ import LedgerPage from './LedgerPage.jsx';
 import PermissionManagementPage from './PermissionManagementPage.jsx';
 import BackupCenterPage from './BackupCenterPage.jsx';
 import DashboardPage from './DashboardPage.jsx';
+import OperationRecordsPage from './OperationRecordsPage.jsx';
 
 async function exportRowsToWorkbook(rows, sheetName, fileName) {
   if (!rows.length) return false;
@@ -112,6 +113,8 @@ function App() {
   const [dimensionUploadProgress, setDimensionUploadProgress] = useState({});
   const [backupStatus, setBackupStatus] = useState(null);
   const [backupLoading, setBackupLoading] = useState(false);
+  const [operationRecords, setOperationRecords] = useState([]);
+  const [operationRecordsLoading, setOperationRecordsLoading] = useState(false);
   const dimensionLibraryRef = useRef(dimensionLibrary);
   const dimensionPendingFilesRef = useRef(dimensionPendingFiles);
   const [reportFiles, setReportFiles] = useState(() => STATIC_MODE ? readReportFileLibrary() : []);
@@ -972,7 +975,25 @@ function App() {
     if (tab === 'inspectionNotice' || tab === 'inspectionSchedule') tasks.push(refreshNoticeSubmissionFromServer());
     if (tab === 'permissionManagement') tasks.push(refreshPermissionUsers());
     if (tab === 'backupCenter') tasks.push(refreshBackupStatus({ silent: options.silent }));
+    if (tab === 'operationRecords') tasks.push(refreshOperationRecords({ silent: options.silent }));
     await Promise.allSettled(tasks);
+  }
+
+  async function refreshOperationRecords(options = {}) {
+    if (STATIC_MODE || !canAccessPage(user, 'operationRecords')) return [];
+    if (!options.silent) setOperationRecordsLoading(true);
+    try {
+      const res = await authFetch(`${API}/api/quality-inspection/operation-records`, { cache: 'no-store' });
+      if (res.ok) {
+        const payload = await res.json();
+        const rows = payload.rows || [];
+        setOperationRecords(rows);
+        return rows;
+      }
+    } finally {
+      if (!options.silent) setOperationRecordsLoading(false);
+    }
+    return [];
   }
 
   async function refreshBackupStatus(options = {}) {
@@ -3129,6 +3150,13 @@ function App() {
             savingId={savingId}
             onRefresh={() => refreshBackupStatus()}
             onRunBackup={runBackupNow}
+          />
+        )}
+        {canAccessPage(user, 'operationRecords') && activeTab === 'operationRecords' && (
+          <OperationRecordsPage
+            rows={operationRecords}
+            loading={operationRecordsLoading}
+            onRefresh={() => refreshOperationRecords()}
           />
         )}
         {canAccessPage(user, 'permissionManagement') && activeTab === 'permissionManagement' && (

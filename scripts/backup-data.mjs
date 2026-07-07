@@ -47,15 +47,18 @@ await mkdir(backupRoot, { recursive: true });
 const targetDir = path.join(backupRoot, stamp());
 await mkdir(targetDir, { recursive: true });
 
-const dbFile = path.join(dataDir, 'db.json');
-const uploadsDir = path.join(dataDir, 'uploads');
+const backupSources = [
+  { source: path.join(dataDir, 'db.sqlite'), target: path.join(targetDir, 'db.sqlite') },
+  { source: path.join(dataDir, 'db.backup.sqlite'), target: path.join(targetDir, 'db.backup.sqlite') },
+  { source: path.join(dataDir, 'db.json'), target: path.join(targetDir, 'db.json') },
+  { source: path.join(dataDir, 'uploads'), target: path.join(targetDir, 'uploads'), recursive: true },
+  { source: path.join(dataDir, 'dimension-uploads'), target: path.join(targetDir, 'dimension-uploads'), recursive: true }
+];
 
-if (await exists(dbFile)) {
-  await cp(dbFile, path.join(targetDir, 'db.json'));
-}
-
-if (await exists(uploadsDir)) {
-  await cp(uploadsDir, path.join(targetDir, 'uploads'), { recursive: true });
+for (const item of backupSources) {
+  if (await exists(item.source)) {
+    await cp(item.source, item.target, item.recursive ? { recursive: true } : undefined);
+  }
 }
 
 await pruneBackups();

@@ -97,7 +97,8 @@ const MENU_PAGES = [
   { tab: 'inspectionReportLibrary', label: '报告单库' },
   { tab: 'backupCenter', label: '备份中心' },
   { tab: 'permissionManagement', label: '权限管理' },
-  { tab: 'inspectionDashboard', label: '品质看板' }
+  { tab: 'inspectionDashboard', label: '品质看板' },
+  { tab: 'operationRecords', label: '操作记录' }
 ];
 
 const PAGE_OPTIONS = [

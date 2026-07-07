@@ -48,6 +48,17 @@ export async function initDatabase() {
   db.run(`CREATE TABLE IF NOT EXISTS dimension_library (slot_id TEXT PRIMARY KEY, data TEXT NOT NULL)`);
   db.run(`CREATE TABLE IF NOT EXISTS initial_data (id INTEGER PRIMARY KEY DEFAULT 1, data TEXT NOT NULL)`);
   db.run(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+  db.run(`CREATE TABLE IF NOT EXISTS operation_logs (
+    id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    user_name TEXT NOT NULL,
+    user_role TEXT NOT NULL,
+    action TEXT NOT NULL,
+    detail TEXT NOT NULL,
+    inspection_info TEXT NOT NULL,
+    method TEXT NOT NULL,
+    path TEXT NOT NULL
+  )`);
 
   saveDb();
 }
@@ -281,6 +292,36 @@ export function getInitialData() {
 export function saveInitialData(data) {
   db.run('INSERT OR REPLACE INTO initial_data (id, data) VALUES (1, ?)', [JSON.stringify(data)]);
   saveDb();
+}
+
+export function addOperationLog(log) {
+  db.run('INSERT OR REPLACE INTO operation_logs (id, created_at, user_name, user_role, action, detail, inspection_info, method, path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [
+    log.id,
+    log.createdAt,
+    log.userName || '',
+    log.userRole || '',
+    log.action || '',
+    log.detail || '',
+    log.inspectionInfo || '',
+    log.method || '',
+    log.path || ''
+  ]);
+  saveDb();
+}
+
+export function getOperationLogs(limit = 500) {
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 500, 2000));
+  return queryAll(`SELECT * FROM operation_logs ORDER BY created_at DESC LIMIT ${safeLimit}`).map((row) => ({
+    id: row.id,
+    createdAt: row.created_at,
+    userName: row.user_name,
+    userRole: row.user_role,
+    action: row.action,
+    detail: row.detail,
+    inspectionInfo: row.inspection_info,
+    method: row.method,
+    path: row.path
+  }));
 }
 
 function setMeta(key, value) {

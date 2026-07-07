@@ -1932,6 +1932,8 @@ button.clear-btn:hover {
 .result-pass{color:#22c55e;font-weight:600}
 .result-rework{color:#f59e0b;font-weight:600}
 .result-other{color:#6b7280}
+.operation-records-table table{min-width:1180px}
+.operation-records-table td{max-width:280px;white-space:normal;word-break:break-word}
 @media(max-width:768px){.stats-cards{grid-template-columns:repeat(2,1fr)}.chart-row{flex-direction:column}}
 
 @keyframes submitProgress {
