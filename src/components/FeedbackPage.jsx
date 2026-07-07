@@ -141,7 +141,7 @@ function FeedbackPage({
     <>
       <div className="section-heading-row">
         <h2>验货反馈</h2>
-        <span className="section-count">筛选 {filteredRecords.length} 条 / 待反馈 {records.length} 条 / 合并参考 {mergedRecords.length} 条</span>
+        <span className="section-count">筛选 {filteredRecords.length} 条 / 待反馈 {records.length} 条</span>
         <button type="button" className="compact-button" onClick={() => setShowAddForm(true)}>新增反馈</button>
         {canImport && (
           <label className="upload-button">
