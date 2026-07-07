@@ -61,14 +61,19 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
       return true;
     });
   }, [records]);
-  const filterOptions = useMemo(() => ({
-    supplierShortName: uniqueValues(ledgerRecords.map((record) => record.supplierShortName)),
-    salesProductLine: uniqueValues(ledgerRecords.map((record) => record.salesProductLine)),
-    series: uniqueValues(ledgerRecords.map((record) => record.series)),
-    businessDepartments: uniqueValues(ledgerRecords.flatMap((record) => splitMultiValue(record.businessDepartments))),
-    issueLevel: uniqueValues(ledgerRecords.map((record) => latestFeedback(record.feedback).issueLevel)),
-    notifier: uniqueValues(ledgerRecords.map((record) => record.inspectionNotifier || record.inspectionApplicant))
-  }), [ledgerRecords]);
+  const filterOptions = useMemo(() => {
+    const recordsForOption = (key) => ledgerRecords.filter((record) => ledgerRecordMatchesFilters(record, filters, key));
+    return {
+      supplierShortName: uniqueValues(recordsForOption('supplierShortName').map((record) => record.supplierShortName)),
+      salesProductLine: uniqueValues(recordsForOption('salesProductLine').map((record) => record.salesProductLine)),
+      series: uniqueValues(recordsForOption('series').map((record) => record.series)),
+      businessDepartments: uniqueValues(recordsForOption('businessDepartments').flatMap((record) => splitMultiValue(record.businessDepartments))),
+      notifier: uniqueValues(recordsForOption('notifier').map((record) => record.inspectionNotifier || record.inspectionApplicant)),
+      status: uniqueValues(recordsForOption('status').map((record) => ledgerStatus(record))),
+      result: uniqueValues(recordsForOption('result').map((record) => latestFeedback(record.feedback).result)),
+      issueLevel: uniqueValues(recordsForOption('issueLevel').map((record) => latestFeedback(record.feedback).issueLevel))
+    };
+  }, [ledgerRecords, filters]);
 
   function ledgerStatus(record) {
     const result = normalize(latestFeedback(record.feedback).result);
@@ -78,26 +83,28 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
     return '验货中';
   }
 
-  const filteredRecords = useMemo(() => {
+  function ledgerRecordMatchesFilters(record, sourceFilters, ignoreKey = '') {
     const normalizedFilters = Object.fromEntries(
-      Object.entries(filters).map(([key, value]) => [key, normalize(value).toLowerCase()])
+      Object.entries(sourceFilters).map(([key, value]) => [key, normalize(value).toLowerCase()])
     );
-    return ledgerRecords.filter((record) => {
-      const feedback = latestFeedback(record.feedback);
-      return (
-        (!normalizedFilters.supplierShortName || normalize(record.supplierShortName).toLowerCase() === normalizedFilters.supplierShortName)
-        && (!normalizedFilters.salesProductLine || normalize(record.salesProductLine).toLowerCase() === normalizedFilters.salesProductLine)
-        && (!normalizedFilters.series || normalize(record.series).toLowerCase() === normalizedFilters.series)
-        && (!normalizedFilters.businessDepartments
-          || splitMultiValue(record.businessDepartments).some((item) => normalize(item).toLowerCase() === normalizedFilters.businessDepartments))
-        && (!normalizedFilters.issueLevel || normalize(feedback.issueLevel).toLowerCase() === normalizedFilters.issueLevel)
-        && (!normalizedFilters.status || normalize(ledgerStatus(record)).toLowerCase() === normalizedFilters.status)
-        && (!normalizedFilters.result || normalize(feedback.result).toLowerCase() === normalizedFilters.result)
-        && (!normalizedFilters.keyword
-          || normalize(`${record.supplierShortName}${record.salesProductLine}${record.series}${record.schedule?.inspector || ''}`).toLowerCase().includes(normalizedFilters.keyword))
-        && (!normalizedFilters.notifier || normalize(record.inspectionNotifier || record.inspectionApplicant || '').toLowerCase() === normalizedFilters.notifier)
-      );
-    });
+    const feedback = latestFeedback(record.feedback);
+    return (
+      (ignoreKey === 'supplierShortName' || !normalizedFilters.supplierShortName || normalize(record.supplierShortName).toLowerCase() === normalizedFilters.supplierShortName)
+      && (ignoreKey === 'salesProductLine' || !normalizedFilters.salesProductLine || normalize(record.salesProductLine).toLowerCase() === normalizedFilters.salesProductLine)
+      && (ignoreKey === 'series' || !normalizedFilters.series || normalize(record.series).toLowerCase() === normalizedFilters.series)
+      && (ignoreKey === 'businessDepartments' || !normalizedFilters.businessDepartments
+        || splitMultiValue(record.businessDepartments).some((item) => normalize(item).toLowerCase() === normalizedFilters.businessDepartments))
+      && (ignoreKey === 'issueLevel' || !normalizedFilters.issueLevel || normalize(feedback.issueLevel).toLowerCase() === normalizedFilters.issueLevel)
+      && (ignoreKey === 'status' || !normalizedFilters.status || normalize(ledgerStatus(record)).toLowerCase() === normalizedFilters.status)
+      && (ignoreKey === 'result' || !normalizedFilters.result || normalize(feedback.result).toLowerCase() === normalizedFilters.result)
+      && (ignoreKey === 'keyword' || !normalizedFilters.keyword
+        || normalize(`${record.supplierShortName}${record.salesProductLine}${record.series}${record.schedule?.inspector || ''}`).toLowerCase().includes(normalizedFilters.keyword))
+      && (ignoreKey === 'notifier' || !normalizedFilters.notifier || normalize(record.inspectionNotifier || record.inspectionApplicant || '').toLowerCase() === normalizedFilters.notifier)
+    );
+  }
+
+  const filteredRecords = useMemo(() => {
+    return ledgerRecords.filter((record) => ledgerRecordMatchesFilters(record, filters));
   }, [ledgerRecords, filters]);
 
   const stats = useMemo(() => ({
@@ -256,11 +263,11 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
         />
         <select value={filters.status} onChange={(event) => updateFilter('status', event.target.value)}>
           <option value="">全部状态</option>
-          {['未安排', '验货中', '已完成', '需返工'].map((status) => <option key={status} value={status}>{status}</option>)}
+          {filterOptions.status.map((status) => <option key={status} value={status}>{status}</option>)}
         </select>
         <select value={filters.result} onChange={(event) => updateFilter('result', event.target.value)}>
           <option value="">全部结果</option>
-          {['通过', '让步', '返工'].map((result) => <option key={result} value={result}>{result}</option>)}
+          {filterOptions.result.map((result) => <option key={result} value={result}>{result}</option>)}
         </select>
         <select value={filters.issueLevel} onChange={(event) => updateFilter('issueLevel', event.target.value)}>
           <option value="">全部问题等级</option>
