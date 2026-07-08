@@ -133,6 +133,7 @@ app.use('/api', (req, res, next) => {
     recordOperationLog(req, mutation).catch((error) => {
       console.error('[operation-log] write error:', error?.message || error);
     });
+    if (!shouldNotifyDingTalk(req, mutation)) return;
     notifyDingTalk(req, mutation).catch((error) => {
       console.error('[dingtalk] notify middleware error:', error?.message || error);
     });
@@ -244,6 +245,31 @@ function describeMutation(req) {
   if (method === 'DELETE' && /\/api\/quality-inspection\/report-files\/[^/]+$/.test(pathName)) return { action: '删除报告单库文件', detail: `文件：${safeNoticeValue(targetId)}` };
   if (/\/api\/quality-inspection\/feedback\/[^/]+$/.test(pathName)) return { action: '提交验货反馈/复验通知', detail: `记录ID：${safeNoticeValue(req.params?.id || targetId)}；结果：${safeNoticeValue(body.result || body.rework?.status)}` };
   return { action: `${method} ${pathName}`, detail: '业务数据已变更' };
+}
+
+function shouldNotifyDingTalk(req, mutation) {
+  const method = req.method;
+  const pathName = String(req.originalUrl || req.path || '').split('?')[0];
+  const body = req.body || {};
+  if (method === 'POST' && pathName === '/api/quality-inspection/notices') return true;
+  if (method === 'PATCH' && /\/api\/quality-inspection\/schedules\/[^/]+$/.test(pathName)) return true;
+  if (method === 'POST' && pathName === '/api/quality-inspection/direct-feedback') return true;
+  if (method === 'PATCH' && /\/api\/quality-inspection\/feedback\/[^/]+$/.test(pathName)) {
+    const feedbackKeys = [
+      'actualInspectionTime',
+      'inspectionMethod',
+      'inspectionQuantity',
+      'checkQuantity',
+      'qualifiedQuantity',
+      'result',
+      'issueLevel',
+      'issueCategoryPrimary',
+      'feedbackText',
+      'actualInspector'
+    ];
+    return feedbackKeys.some((key) => normalizeText(body[key]));
+  }
+  return false;
 }
 
 async function recordOperationLog(req, mutation) {
