@@ -1036,7 +1036,7 @@ async function requireAuth(req, res, next) {
 
 function requireRoles(...roles) {
   return (req, res, next) => {
-    if (req.authUser?.role === ROLE_ADMIN || roles.includes(req.authUser?.role)) return next();
+    if (isPrimaryAdminUser(req.authUser) || req.authUser?.role === ROLE_ADMIN || roles.includes(req.authUser?.role)) return next();
     return res.status(403).json({ error: '无权操作' });
   };
 }
@@ -1051,6 +1051,7 @@ function requirePrimaryAdmin(req, res, next) {
 }
 
 function hasPageAccess(user, page) {
+  if ((isPrimaryAdminUser(user) || user?.role === ROLE_ADMIN) && PAGE_KEYS.includes(page)) return true;
   return Array.isArray(user?.pageAccess) && user.pageAccess.includes(page);
 }
 
