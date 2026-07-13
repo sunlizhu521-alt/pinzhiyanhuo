@@ -203,6 +203,24 @@ function inspectionInfoForRecord(record = {}) {
   return `${supplier} / ${series} / ${quantity}`;
 }
 
+function feedbackOperationDescription(body = {}, targetId = '') {
+  const recordDetail = `记录ID：${safeNoticeValue(targetId)}`;
+  const rework = body.rework || {};
+  if (normalizeText(rework.status) === '已删除' || normalizeText(rework.deletedAt)) {
+    return { action: '删除复验通知', detail: recordDetail };
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'reworkSchedule')) {
+    return {
+      action: '保存复验通知',
+      detail: `${recordDetail}；状态：${safeNoticeValue(rework.status)}；返工完成时间：${safeNoticeValue(rework.reworkCompleteTime)}`
+    };
+  }
+  return {
+    action: '提交验货反馈',
+    detail: `${recordDetail}；结果：${safeNoticeValue(body.result)}`
+  };
+}
+
 function describeMutation(req) {
   const method = req.method;
   const pathName = String(req.originalUrl || req.path || '').split('?')[0];
@@ -243,7 +261,7 @@ function describeMutation(req) {
   if (method === 'PATCH' && /\/api\/quality-inspection\/report-files\/[^/]+$/.test(pathName)) return { action: '修改报告单库文件名', detail: `原文件：${safeNoticeValue(targetId)}；新文件：${safeNoticeValue(body.fileName)}` };
   if (pathName === '/api/quality-inspection/report-files/batch-delete') return { action: '批量删除报告单库文件', detail: `文件数：${Array.isArray(body.fileNames) ? body.fileNames.length : 0}` };
   if (method === 'DELETE' && /\/api\/quality-inspection\/report-files\/[^/]+$/.test(pathName)) return { action: '删除报告单库文件', detail: `文件：${safeNoticeValue(targetId)}` };
-  if (/\/api\/quality-inspection\/feedback\/[^/]+$/.test(pathName)) return { action: '提交验货反馈/复验通知', detail: `记录ID：${safeNoticeValue(req.params?.id || targetId)}；结果：${safeNoticeValue(body.result || body.rework?.status)}` };
+  if (/\/api\/quality-inspection\/feedback\/[^/]+$/.test(pathName)) return feedbackOperationDescription(body, req.params?.id || targetId);
   return { action: `${method} ${pathName}`, detail: '业务数据已变更' };
 }
 
