@@ -47,7 +47,13 @@ function normalizeStaticDb(db = {}) {
   return {
     users: users.map((user) => {
       if (user.id === DEFAULT_ADMIN_USER.id || user.name === DEFAULT_ADMIN_USER.name || user.role === ROLE_ADMIN) {
-        return { ...user, ...DEFAULT_ADMIN_USER, pageAccess: ROLE_PAGE_ACCESS[ROLE_ADMIN] };
+        return {
+          ...DEFAULT_ADMIN_USER,
+          ...user,
+          password: user.password || DEFAULT_ADMIN_USER.password,
+          role: ROLE_ADMIN,
+          pageAccess: ROLE_PAGE_ACCESS[ROLE_ADMIN]
+        };
       }
       const role = user.role === ROLE_ADMIN ? ROLE_ADMIN : ROLE_USER;
       const pageAccess = normalizePageAccessList(Array.isArray(user.pageAccess) ? user.pageAccess : (ROLE_PAGE_ACCESS[role] || []));
