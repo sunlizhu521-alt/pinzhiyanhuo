@@ -184,11 +184,13 @@ function buildInspectionSummaryRows(rows, productLineForRecord) {
     const supplierShortName = normalize(record.supplierShortName) || '未填写';
     const productLine = normalize(productLineForRecord(record)) || '未填写';
     const series = normalize(record.series) || '未填写';
-    const key = [supplierShortName, productLine, series].join('\u0001');
+    const result = normalize(feedback.result) || '未填写';
+    const key = [supplierShortName, productLine, series, result].join('\u0001');
     const current = groups.get(key) || {
       supplierShortName,
       productLine,
       series,
+      result,
       inspectionQuantity: 0,
       checkQuantity: 0,
       qualifiedQuantity: 0
@@ -525,6 +527,7 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
                 <th>供应商简称</th>
                 <th>产品线</th>
                 <th>系列</th>
+                <th>验货结果</th>
                 <th>实际验货数量</th>
                 <th>检验数量</th>
                 <th>验货合格数量</th>
@@ -533,10 +536,11 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
             </thead>
             <tbody>
               {inspectionSummaryRows.map((row) => (
-                <tr key={`${row.supplierShortName}-${row.productLine}-${row.series}`}>
+                <tr key={`${row.supplierShortName}-${row.productLine}-${row.series}-${row.result}`}>
                   <td>{row.supplierShortName}</td>
                   <td>{row.productLine}</td>
                   <td>{row.series}</td>
+                  <td><span className={resultClass(row.result)}>{row.result}</span></td>
                   <td>{formatQuantity(row.inspectionQuantity)}</td>
                   <td>{formatQuantity(row.checkQuantity)}</td>
                   <td>{formatQuantity(row.qualifiedQuantity)}</td>

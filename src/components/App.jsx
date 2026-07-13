@@ -2776,6 +2776,7 @@ function App() {
       供应商简称: row.supplierShortName,
       产品线: row.productLine,
       系列: row.series,
+      验货结果: row.result,
       实际验货数量: row.inspectionQuantity,
       检验数量: row.checkQuantity,
       验货合格数量: row.qualifiedQuantity,
