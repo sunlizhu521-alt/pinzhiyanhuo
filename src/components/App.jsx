@@ -6,6 +6,7 @@ import { getCachedDimensionLibrary, setCachedDimensionLibrary } from '../dimensi
 import { loadXlsxModule, parseWorkbookInBrowser, exportFileStamp, recordToMigrationLedgerRow, recordToReportExportRow, parseWorkbookSheetsInBrowser, parseDimensionSheet, importedRowsToNoticeRows, importedRowsToSummaryItems, importedRowsToFeedbackItems } from '../import-utils.js';
 import { buildSupplierShortNameOptions, buildSupplierShortNameOptionsFromSheets, buildSalesProductLineOptions, buildSalesSeriesOptions, buildSeriesByProductLineOptions, buildCategoryDimensionOptions, buildSupplierAddressLookupRows, normalizeRecordDimensions, normalizeNoticeDimensions, validateNoticeRows, findSupplierShortNameOption, supplierProvinceCityForName } from '../dimension-utils.js';
 import { readFileAsDataUrl, dataUrlToFile, reportHref, reportFileNameFromCode, isImageReport, isReportLibraryFile, normalizeStampUploadFileName, createRotatedReportImageDataUrl, createStampedImageDataUrl, scoreOcrResult, shouldShowFeedbackRecord, shouldShowScheduleRecord, shouldShowSummaryRecord, recordIdSignature } from '../file-utils.js';
+import { mergeNoticeRowsById } from '../../shared/notice-rows.js';
 import SecurityWatermark from './SecurityWatermark.jsx';
 import InitialDataPage from './InitialDataPage.jsx';
 import DimensionLibraryPage from './DimensionLibraryPage.jsx';
@@ -796,7 +797,7 @@ function App() {
     setMessage('已清除当前验货通知填写内容。');
   }
 
-  async function submitNoticesRows(sourceRows, { append = false, clearRows = true, successText = '' } = {}) {
+  async function submitNoticesRows(sourceRows, { clearRows = true, successText = '' } = {}) {
     const userFillableKeys = [
       'supplierFinishTime', 'shipmentTime', 'stockOaNo', 'shippingOaNo',
       'supplierShortName', 'supplierAddress', 'businessDepartments',
@@ -821,20 +822,10 @@ function App() {
       setMessage(validationMessage);
       return;
     }
-    const effectiveAppend = append || rows.some((row) => normalize(row.importSource) === 'noticeImport');
     if (STATIC_MODE) {
       const db = readStaticDb();
       const existingRows = db.qualityInspection.notices.rows || [];
-      const rowIds = new Set(rows.map((row) => row.id).filter(Boolean));
-      const nextRows = effectiveAppend
-        ? [
-            ...existingRows.filter((row) => !rowIds.has(row.id)),
-            ...rows
-          ]
-        : [
-            ...existingRows.filter((row) => row.inspectionApplicant !== user.name),
-            ...rows
-          ];
+      const nextRows = mergeNoticeRowsById(existingRows, rows);
       const payload = {
         rows: nextRows.map((row, index) => ({ ...row, id: row.id || createId(), rowNumber: index + 1 })),
         submittedAt: nowText(),
@@ -854,11 +845,10 @@ function App() {
       return true;
     }
     const params = new URLSearchParams({ user: user.name });
-    if (effectiveAppend) params.set('append', '1');
     const res = await authFetch(`${API}/api/quality-inspection/notices?${params.toString()}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rows, user: user.name, append: effectiveAppend })
+      body: JSON.stringify({ rows, user: user.name })
     });
     if (!res.ok) {
       const payload = await res.json().catch(() => ({}));
@@ -888,7 +878,6 @@ function App() {
     setSavingId('notice-' + row.id);
     try {
       const saved = await submitNoticesRows([row], {
-        append: true,
         clearRows: false,
         successText: '已提交 1 条验货通知。'
       });

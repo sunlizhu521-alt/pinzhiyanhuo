@@ -12,6 +12,7 @@ import { initDatabase, getUsers, getUserByName, getUserById, upsertUser, createU
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
 import { fileURLToPath } from 'node:url';
+import { mergeNoticeRowsById } from '../shared/notice-rows.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
@@ -2018,17 +2019,7 @@ app.post('/api/quality-inspection/notices', requireAuth, requirePages('inspectio
   const validationMessage = validateNoticeRows(preparedRows, supplierMap, categoryMaps);
   if (validationMessage) return res.status(400).json({ error: validationMessage });
   const existingRows = db.qualityInspection.notices.rows || [];
-  const appendMode = req.query.append === '1' || req.body.append === true;
-  const preparedIds = new Set(preparedRows.map((row) => row.id).filter(Boolean));
-  const nextRows = appendMode
-    ? [
-        ...existingRows.filter((row) => !preparedIds.has(row.id)),
-        ...preparedRows
-      ]
-    : [
-        ...existingRows.filter((row) => row.inspectionApplicant !== user.name),
-        ...preparedRows
-      ];
+  const nextRows = mergeNoticeRowsById(existingRows, preparedRows);
   db.qualityInspection.notices = {
     rows: nextRows.map((row, index) => ({
       rowNumber: index + 1,

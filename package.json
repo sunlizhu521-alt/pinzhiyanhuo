@@ -9,6 +9,7 @@
     "server": "node server/app.js",
     "start": "node server/app.js",
     "build": "vite build",
+    "test": "node --test",
     "backup": "node scripts/backup-data.mjs"
   },
   "dependencies": {
