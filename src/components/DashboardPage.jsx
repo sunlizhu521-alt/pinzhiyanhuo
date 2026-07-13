@@ -189,9 +189,11 @@ function buildInspectionSummaryRows(rows, productLineForRecord) {
       supplierShortName,
       productLine,
       series,
+      inspectionQuantity: 0,
       checkQuantity: 0,
       qualifiedQuantity: 0
     };
+    current.inspectionQuantity += parseQuantity(feedback.inspectionQuantity) || 0;
     current.checkQuantity += parseQuantity(feedback.checkQuantity) || 0;
     current.qualifiedQuantity += parseQuantity(feedback.qualifiedQuantity) || 0;
     groups.set(key, current);
@@ -523,6 +525,7 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
                 <th>供应商简称</th>
                 <th>产品线</th>
                 <th>系列</th>
+                <th>实际验货数量</th>
                 <th>检验数量</th>
                 <th>验货合格数量</th>
                 <th>验货合格率</th>
@@ -534,6 +537,7 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
                   <td>{row.supplierShortName}</td>
                   <td>{row.productLine}</td>
                   <td>{row.series}</td>
+                  <td>{formatQuantity(row.inspectionQuantity)}</td>
                   <td>{formatQuantity(row.checkQuantity)}</td>
                   <td>{formatQuantity(row.qualifiedQuantity)}</td>
                   <td>{formatRate(row.passRate)}</td>

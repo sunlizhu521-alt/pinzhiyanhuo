@@ -1919,7 +1919,7 @@ button.clear-btn:hover {
 .chart-box{position:relative}
 .no-data{display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;font-size:14px}
 .table-hint{color:#9ca3af;font-size:12px;margin:8px 0 0;text-align:center}
-.dashboard-summary-table table{min-width:780px}
+.dashboard-summary-table table{min-width:900px}
 .dashboard-summary-table th,.dashboard-summary-table td{text-align:center}
 .dashboard-table-empty{height:96px}
 .dashboard-table-heading h3{margin:0}
