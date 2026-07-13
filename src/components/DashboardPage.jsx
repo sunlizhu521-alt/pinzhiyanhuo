@@ -11,7 +11,7 @@ import {
   Legend
 } from 'chart.js';
 import { Bar, Line, Pie } from 'react-chartjs-2';
-import { formatDate, latestFeedback, normalize, normalizeHeader, splitMultiValue } from '../utils.js';
+import { formatDate, formatQuantity, latestFeedback, normalize, normalizeHeader, parseQuantity, splitMultiValue } from '../utils.js';
 
 const chartValueLabelsPlugin = {
   id: 'chartValueLabels',
@@ -177,6 +177,37 @@ function topGroups(rows, keyFn, limit = 8) {
     .slice(0, limit);
 }
 
+function buildInspectionSummaryRows(rows, productLineForRecord) {
+  const groups = new Map();
+  for (const record of rows) {
+    const feedback = latestFeedback(record.feedback);
+    const supplierShortName = normalize(record.supplierShortName) || '未填写';
+    const productLine = normalize(productLineForRecord(record)) || '未填写';
+    const series = normalize(record.series) || '未填写';
+    const key = [supplierShortName, productLine, series].join('\u0001');
+    const current = groups.get(key) || {
+      supplierShortName,
+      productLine,
+      series,
+      checkQuantity: 0,
+      qualifiedQuantity: 0
+    };
+    current.checkQuantity += parseQuantity(feedback.checkQuantity) || 0;
+    current.qualifiedQuantity += parseQuantity(feedback.qualifiedQuantity) || 0;
+    groups.set(key, current);
+  }
+  return [...groups.values()]
+    .map((row) => ({
+      ...row,
+      passRate: row.checkQuantity > 0 ? Math.round((row.qualifiedQuantity / row.checkQuantity) * 1000) / 10 : null
+    }))
+    .sort((a, b) => b.checkQuantity - a.checkQuantity || a.supplierShortName.localeCompare(b.supplierShortName, 'zh-CN'));
+}
+
+function formatRate(value) {
+  return value === null ? '' : `${Number.isInteger(value) ? value : value.toFixed(1)}%`;
+}
+
 function buildProductLineBySeries(productLineOptions = [], seriesByProductLine = {}) {
   const productLineByKey = new Map(productLineOptions.map((item) => [normalizeHeader(item), item]));
   const result = new Map();
@@ -320,6 +351,10 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
   const issueRows = useMemo(
     () => topGroups(filteredRecords, (record) => latestFeedback(record.feedback).issueCategoryPrimary),
     [filteredRecords]
+  );
+  const inspectionSummaryRows = useMemo(
+    () => buildInspectionSummaryRows(filteredRecords, productLineForRecord),
+    [filteredRecords, productLineBySeries]
   );
 
   const supplierData = {
@@ -468,6 +503,37 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
           <p className="table-hint">{hasActiveFilters ? '筛选后展示全部匹配产品线' : '按验货次数排序展示前 8 个产品线'}</p>
         </section>
       </div>
+
+      <section className="chart-section">
+        <h3>验货数量汇总</h3>
+        <div className="table-wrap dashboard-summary-table">
+          <table>
+            <thead>
+              <tr>
+                <th>供应商简称</th>
+                <th>产品线</th>
+                <th>系列</th>
+                <th>检验数量</th>
+                <th>验货合格数量</th>
+                <th>验货合格率</th>
+              </tr>
+            </thead>
+            <tbody>
+              {inspectionSummaryRows.map((row) => (
+                <tr key={`${row.supplierShortName}-${row.productLine}-${row.series}`}>
+                  <td>{row.supplierShortName}</td>
+                  <td>{row.productLine}</td>
+                  <td>{row.series}</td>
+                  <td>{formatQuantity(row.checkQuantity)}</td>
+                  <td>{formatQuantity(row.qualifiedQuantity)}</td>
+                  <td>{formatRate(row.passRate)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!inspectionSummaryRows.length && <div className="no-data dashboard-table-empty">暂无数据</div>}
+        </div>
+      </section>
 
       <section className="chart-section">
         <h3>最近验货记录</h3>
