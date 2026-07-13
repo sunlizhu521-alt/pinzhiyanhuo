@@ -2771,6 +2771,23 @@ function App() {
     setMessage(`${title}已导出：${rows.length} 条，可用于后续批量上传迁移。`);
   }
 
+  async function exportInspectionSummaryData(sourceRows = []) {
+    const rows = sourceRows.map((row) => ({
+      供应商简称: row.supplierShortName,
+      产品线: row.productLine,
+      系列: row.series,
+      检验数量: row.checkQuantity,
+      验货合格数量: row.qualifiedQuantity,
+      验货合格率: row.passRate === null ? '' : `${Number.isInteger(row.passRate) ? row.passRate : row.passRate.toFixed(1)}%`
+    }));
+    if (!rows.length) {
+      setMessage('暂无可导出的验货数量汇总数据。');
+      return;
+    }
+    await exportRowsToWorkbook(rows, '验货数量汇总', `验货数量汇总导出-${exportFileStamp()}.xlsx`);
+    setMessage(`验货数量汇总已导出：${rows.length} 条。`);
+  }
+
   const filteredRecords = useMemo(() => {
     const keyword = normalize(query).toLowerCase();
     const normalizedFilters = Object.fromEntries(
@@ -3079,6 +3096,7 @@ function App() {
             productLineOptions={productLineOptions}
             seriesOptions={seriesOptions}
             seriesByProductLine={seriesByProductLine}
+            onExportInspectionSummary={exportInspectionSummaryData}
           />
         )}
         {canAccessPage(user, 'backupCenter') && activeTab === 'backupCenter' && (

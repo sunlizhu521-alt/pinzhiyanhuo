@@ -242,7 +242,7 @@ function recordMatchesFilters(record, filters, productLineForRecord, ignoreKey =
   return matchesSupplier && matchesLine && matchesSeries && matchesDepartment && matchesStart && matchesEnd;
 }
 
-function DashboardPage({ records = [], supplierOptions = [], productLineOptions = [], seriesOptions = [], seriesByProductLine = {} }) {
+function DashboardPage({ records = [], supplierOptions = [], productLineOptions = [], seriesOptions = [], seriesByProductLine = {}, onExportInspectionSummary }) {
   const [filters, setFilters] = useState({
     supplierShortName: '',
     salesProductLine: '',
@@ -505,7 +505,17 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
       </div>
 
       <section className="chart-section">
-        <h3>验货数量汇总</h3>
+        <div className="section-heading-row dashboard-table-heading">
+          <h3>验货数量汇总</h3>
+          <button
+            type="button"
+            className="ghost compact-button"
+            disabled={!inspectionSummaryRows.length}
+            onClick={() => onExportInspectionSummary?.(inspectionSummaryRows)}
+          >
+            导出
+          </button>
+        </div>
         <div className="table-wrap dashboard-summary-table">
           <table>
             <thead>
