@@ -1,5 +1,5 @@
 import initSqlJs from 'sql.js';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { copyFileSync, readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -12,6 +12,68 @@ mkdirSync(dataDir, { recursive: true });
 
 let SQL = null;
 let db = null;
+
+const DATABASE_TABLES = [
+  'users',
+  'sessions',
+  'notices',
+  'schedules',
+  'reports',
+  'feedback',
+  'dimension_library',
+  'initial_data',
+  'operation_logs'
+];
+
+function scalar(database, sql) {
+  const result = database.exec(sql);
+  return result[0]?.values?.[0]?.[0];
+}
+
+function inspectDatabase(database) {
+  const integrity = String(scalar(database, 'PRAGMA integrity_check') || '');
+  const counts = {};
+  DATABASE_TABLES.forEach((table) => {
+    counts[table] = Number(scalar(database, `SELECT COUNT(*) FROM ${table}`) || 0);
+  });
+  return {
+    valid: integrity.toLowerCase() === 'ok',
+    integrity,
+    counts,
+    businessRows: counts.notices + counts.schedules + counts.reports + counts.feedback
+      + counts.dimension_library + counts.initial_data + counts.operation_logs
+  };
+}
+
+function validateDatabaseBuffer(buffer) {
+  const candidate = new SQL.Database(buffer);
+  try {
+    const inspection = inspectDatabase(candidate);
+    if (!inspection.valid) throw new Error(`SQLite integrity check failed: ${inspection.integrity}`);
+    return inspection;
+  } finally {
+    candidate.close();
+  }
+}
+
+function atomicWriteDatabase(buffer, preservePrevious = true) {
+  validateDatabaseBuffer(buffer);
+  const nonce = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const tempPath = `${dbPath}.tmp-${nonce}`;
+  writeFileSync(tempPath, Buffer.from(buffer));
+  try {
+    if (preservePrevious && existsSync(dbPath)) {
+      const previousPath = path.join(dataDir, 'db.previous.sqlite');
+      const previousTempPath = `${previousPath}.tmp-${nonce}`;
+      copyFileSync(dbPath, previousTempPath);
+      rmSync(previousPath, { force: true });
+      renameSync(previousTempPath, previousPath);
+    }
+    renameSync(tempPath, dbPath);
+  } finally {
+    rmSync(tempPath, { force: true });
+  }
+}
 
 // Initialize the SQLite database and create the first version schema.
 export async function initDatabase() {
@@ -65,7 +127,39 @@ export async function initDatabase() {
 
 function saveDb() {
   const buffer = db.export();
-  writeFileSync(dbPath, Buffer.from(buffer));
+  atomicWriteDatabase(buffer);
+}
+
+export function inspectDatabaseFile(filePath) {
+  if (!existsSync(filePath)) return { exists: false, valid: false, filePath };
+  try {
+    const inspection = validateDatabaseBuffer(readFileSync(filePath));
+    const fileInfo = statSync(filePath);
+    return {
+      exists: true,
+      ...inspection,
+      bytes: fileInfo.size,
+      modifiedAt: fileInfo.mtime.toISOString()
+    };
+  } catch (error) {
+    return {
+      exists: true,
+      valid: false,
+      error: error?.message || String(error),
+      bytes: statSync(filePath).size
+    };
+  }
+}
+
+export function restoreDatabaseFromFile(filePath) {
+  const buffer = readFileSync(filePath);
+  const inspection = validateDatabaseBuffer(buffer);
+  atomicWriteDatabase(buffer);
+  const restored = new SQL.Database(buffer);
+  const previous = db;
+  db = restored;
+  previous?.close();
+  return inspection;
 }
 
 function queryOne(sql, params = []) {

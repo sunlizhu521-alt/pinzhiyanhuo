@@ -8,7 +8,7 @@ import rateLimit from 'express-rate-limit';
 import { format } from 'date-fns';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { cp, mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
-import { initDatabase, getUsers, getUserByName, getUserById, upsertUser, createUser, deleteUser, getSessions, setSession, deleteSession, deleteSessionsByUserId, getNotices, saveNotices, getSchedule, saveSchedule, saveQualityInspectionBatch, deleteSchedule, getReport, saveReport, deleteReport, getFeedback, saveFeedback, deleteFeedback, getDimensionLibrary, saveDimensionLibrary, deleteDimensionLibrary, getInitialData, saveInitialData, addOperationLog, getOperationLogs, getSchedulesBatch, getReportsBatch, getFeedbacksBatch, deleteExpiredSessions } from './database.js';
+import { initDatabase, inspectDatabaseFile, restoreDatabaseFromFile, getUsers, getUserByName, getUserById, upsertUser, createUser, deleteUser, getSessions, setSession, deleteSession, deleteSessionsByUserId, getNotices, saveNotices, getSchedule, saveSchedule, saveQualityInspectionBatch, deleteSchedule, getReport, saveReport, deleteReport, getFeedback, saveFeedback, deleteFeedback, getDimensionLibrary, saveDimensionLibrary, deleteDimensionLibrary, getInitialData, saveInitialData, addOperationLog, getOperationLogs, getSchedulesBatch, getReportsBatch, getFeedbacksBatch, deleteExpiredSessions } from './database.js';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +20,8 @@ const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path
 const uploadDir = path.join(dataDir, 'uploads');
 const dimensionUploadDir = path.join(dataDir, 'dimension-uploads');
 const dbPath = path.join(dataDir, 'db.json');
+const sqliteDbPath = path.join(dataDir, 'db.sqlite');
+const deploymentBackupDir = process.env.BACKUP_DIR ? path.resolve(process.env.BACKUP_DIR) : path.join(rootDir, 'backups');
 const port = Number(process.env.PORT || 4002);
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const DINGTALK_WEBHOOK = process.env.DINGTALK_WEBHOOK || '';
@@ -528,6 +530,8 @@ let dbReady = false;
 
 const latestBackupDir = path.join(dataDir, 'backups', 'latest');
 const latestBackupManifestPath = path.join(latestBackupDir, 'manifest.json');
+const backupHistoryDir = path.join(dataDir, 'backups', 'history');
+const BACKUP_HISTORY_LIMIT = 30;
 
 async function pathStat(target) {
   try {
@@ -546,11 +550,11 @@ async function directorySize(target) {
   return sizes.reduce((sum, size) => sum + size, 0);
 }
 
-async function copyBackupSource(sourceName, files) {
+async function copyBackupSource(sourceName, targetDir, files) {
   const source = path.join(dataDir, sourceName);
   const info = await pathStat(source);
   if (!info) return;
-  const target = path.join(latestBackupDir, sourceName);
+  const target = path.join(targetDir, sourceName);
   if (info.isDirectory()) {
     await cp(source, target, { recursive: true, force: true });
   } else {
@@ -563,6 +567,18 @@ async function copyBackupSource(sourceName, files) {
   });
 }
 
+function backupStamp() {
+  return format(new Date(), 'yyyy-MM-dd-HHmmss');
+}
+
+async function pruneBackupHistory() {
+  const entries = await readdir(backupHistoryDir, { withFileTypes: true }).catch(() => []);
+  const names = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort().reverse();
+  await Promise.all(names.slice(BACKUP_HISTORY_LIMIT).map((name) => (
+    rm(path.join(backupHistoryDir, name), { recursive: true, force: true })
+  )));
+}
+
 function nextMidnightText() {
   const next = new Date();
   next.setHours(24, 0, 0, 0);
@@ -570,24 +586,55 @@ function nextMidnightText() {
 }
 
 async function runLatestDataBackup(source = 'manual') {
-  await mkdir(path.dirname(latestBackupDir), { recursive: true });
-  await rm(latestBackupDir, { recursive: true, force: true });
-  await mkdir(latestBackupDir, { recursive: true });
+  const databaseInspection = inspectDatabaseFile(sqliteDbPath);
+  if (!databaseInspection.valid) throw new Error(`数据库完整性校验失败：${databaseInspection.error || databaseInspection.integrity}`);
+  await mkdir(backupHistoryDir, { recursive: true });
+  const snapshotDir = path.join(backupHistoryDir, backupStamp());
+  await mkdir(snapshotDir, { recursive: true });
   const files = [];
-  await copyBackupSource('db.sqlite', files);
-  await copyBackupSource('db.json', files);
-  await copyBackupSource('uploads', files);
-  await copyBackupSource('dimension-uploads', files);
+  await copyBackupSource('db.sqlite', snapshotDir, files);
+  await copyBackupSource('db.json', snapshotDir, files);
+  await copyBackupSource('uploads', snapshotDir, files);
+  await copyBackupSource('dimension-uploads', snapshotDir, files);
   const manifest = {
     status: 'success',
     source,
     backedUpAt: nowText(),
-    backupDir: latestBackupDir,
+    backupDir: snapshotDir,
     files,
+    database: databaseInspection,
     totalBytes: files.reduce((sum, item) => sum + Number(item.bytes || 0), 0)
   };
-  await writeFile(latestBackupManifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+  await writeFile(path.join(snapshotDir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
+  await rm(latestBackupDir, { recursive: true, force: true });
+  await cp(snapshotDir, latestBackupDir, { recursive: true, force: true });
+  await pruneBackupHistory();
   return manifest;
+}
+
+async function databaseBackupCandidates() {
+  const candidates = [
+    { id: 'daily-latest', label: '每日最新备份', filePath: path.join(latestBackupDir, 'db.sqlite') },
+    { id: 'startup-copy', label: '启动前备份', filePath: path.join(dataDir, 'db.backup.sqlite') },
+    { id: 'previous-write', label: '上一次写入版本', filePath: path.join(dataDir, 'db.previous.sqlite') }
+  ];
+  const deploymentEntries = await readdir(deploymentBackupDir, { withFileTypes: true }).catch(() => []);
+  deploymentEntries.filter((entry) => entry.isDirectory()).forEach((entry) => {
+    candidates.push({
+      id: `deployment-${entry.name}`,
+      label: `部署备份 ${entry.name}`,
+      filePath: path.join(deploymentBackupDir, entry.name, 'db.sqlite')
+    });
+  });
+  const historyEntries = await readdir(backupHistoryDir, { withFileTypes: true }).catch(() => []);
+  historyEntries.filter((entry) => entry.isDirectory()).forEach((entry) => {
+    candidates.push({
+      id: `history-${entry.name}`,
+      label: `历史备份 ${entry.name}`,
+      filePath: path.join(backupHistoryDir, entry.name, 'db.sqlite')
+    });
+  });
+  return candidates.map((candidate) => ({ ...candidate, inspection: inspectDatabaseFile(candidate.filePath) }));
 }
 
 async function readLatestBackupStatus() {
@@ -1709,6 +1756,43 @@ app.post('/api/quality-inspection/backup-center/run', requireAuth, requirePages(
   await ensureDb();
   const manifest = await runLatestDataBackup('manual');
   res.json({ ...manifest, exists: true, nextBackupAt: nextMidnightText() });
+});
+
+app.get('/api/quality-inspection/backup-center/audit', requireAuth, requirePages('backupCenter'), requirePrimaryAdmin, async (req, res) => {
+  await ensureDb();
+  const candidates = await databaseBackupCandidates();
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({
+    current: inspectDatabaseFile(sqliteDbPath),
+    backups: candidates
+      .filter((candidate) => candidate.inspection.exists)
+      .map(({ id, label, inspection }) => ({ id, label, ...inspection }))
+      .sort((a, b) => String(b.modifiedAt || '').localeCompare(String(a.modifiedAt || '')))
+  });
+});
+
+app.post('/api/quality-inspection/backup-center/restore', requireAuth, requirePages('backupCenter'), requirePrimaryAdmin, async (req, res) => {
+  await ensureDb();
+  if (String(req.body?.confirmation || '') !== '确认恢复') {
+    return res.status(400).json({ error: '恢复确认文字不正确。' });
+  }
+  const candidates = await databaseBackupCandidates();
+  const selected = candidates.find((candidate) => candidate.id === String(req.body?.backupId || ''));
+  if (!selected?.inspection?.valid) return res.status(400).json({ error: '备份不存在或完整性校验失败。' });
+  if (selected.inspection.businessRows <= 0) return res.status(400).json({ error: '该备份没有业务数据，禁止恢复。' });
+
+  const emergencyDir = path.join(deploymentBackupDir, `pre-restore-${backupStamp()}`);
+  await mkdir(emergencyDir, { recursive: true });
+  await cp(sqliteDbPath, path.join(emergencyDir, 'db.sqlite'), { force: true });
+  const restored = restoreDatabaseFromFile(selected.filePath);
+  res.json({
+    success: true,
+    backupId: selected.id,
+    restored,
+    emergencyBackup: path.basename(emergencyDir),
+    restarting: true
+  });
+  setTimeout(() => process.exit(0), 500).unref();
 });
 
 app.get('/api/quality-inspection/operation-records', requireAuth, requirePages('operationRecords'), requireRoles(ROLE_ADMIN), async (req, res) => {
