@@ -1,10 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import DataTable from './DataTable.jsx';
-import { canReadClientRecord, hasObjectValue, normalize, formatDate, feedbackReportNo, supplierInitials, formatCompactDate, mergeFeedbackRecords } from '../utils.js';
+import { canReadClientRecord, hasObjectValue, normalize, formatDate, feedbackReportNo, supplierInitials, formatCompactDate, mergeFeedbackRecords, uniqueValues } from '../utils.js';
 import { reportHref, reportFileExt, isImageReport, shouldShowFeedbackRecord, feedbackMatchKey } from '../file-utils.js';
 import { NOTICE_FIELDS } from '../constants.js';
 import ReportPreviewModal from './ReportPreviewModal.jsx';
+
+const FEEDBACK_STATUS_OPTIONS = ['待安排验货员', '待验货', '需返工', '已验货'];
+
+function feedbackStatus(record, feedback = {}) {
+  const hasInspector = !!normalize(record.schedule?.inspector);
+  const result = normalize(feedback.result);
+  if (!hasInspector) return '待安排验货员';
+  if (!result) return '待验货';
+  if (result === '返工') return '需返工';
+  return '已验货';
+}
 
 function FeedbackPage({
   records,
@@ -50,6 +61,15 @@ function FeedbackPage({
   }
   const mergedRecords = useMemo(() => mergeFeedbackRecords(records, reportHref), [records]);
   const detailRecords = records;
+  const filterOptions = useMemo(() => ({
+    supplierShortName: uniqueValues(detailRecords.map((record) => record.supplierShortName)),
+    salesProductLine: uniqueValues(detailRecords.map((record) => record.salesProductLine)),
+    series: uniqueValues(detailRecords.map((record) => record.series)),
+    inspector: uniqueValues(detailRecords.map((record) => record.schedule?.inspector)),
+    status: uniqueValues(detailRecords.map((record) => feedbackStatus(record, activeFeedback(record))))
+      .sort((left, right) => FEEDBACK_STATUS_OPTIONS.indexOf(left) - FEEDBACK_STATUS_OPTIONS.indexOf(right))
+  }), [detailRecords]);
+  const hasFilterOptions = Object.values(filterOptions).some((options) => options.length > 0);
   const filteredRecords = useMemo(() => {
     const normalizedFilters = Object.fromEntries(
       Object.entries(filters).map(([key, value]) => [key, normalize(value).toLowerCase()])
@@ -62,19 +82,11 @@ function FeedbackPage({
         series: record.series,
         inspector: record.schedule?.inspector,
         result: feedback.result,
-        status: ''
+        status: feedbackStatus(record, feedback)
       };
       return Object.entries(normalizedFilters).every(([key, value]) => {
         if (!value) return true;
-        if (key === 'status') {
-          const hasInspector = !!normalize(values.inspector);
-          const hasFeedbackResult = !!normalize(values.result);
-          if (value === '待安排验货员') return !hasInspector;
-          if (value === '待验货') return hasInspector && !hasFeedbackResult;
-          if (value === '需返工') return normalize(values.result) === '返工';
-          if (value === '已验货') return hasFeedbackResult && normalize(values.result) !== '返工';
-          return true;
-        }
+        if (key === 'status') return normalize(values.status).toLowerCase() === value;
         if (key === 'result') return normalize(values[key]).toLowerCase() === value;
         return normalize(values[key]).toLowerCase().includes(value);
       });
@@ -95,6 +107,22 @@ function FeedbackPage({
   useEffect(() => {
     if (freshlySubmitted.size > 0) setFreshlySubmitted(new Set());
   }, [records]);
+  useEffect(() => {
+    setFilters((current) => {
+      let changed = false;
+      const next = { ...current };
+      Object.entries(filterOptions).forEach(([key, options]) => {
+        if (!current[key]) return;
+        const selected = normalize(current[key]).toLowerCase();
+        const remainsAvailable = options.some((option) => normalize(option).toLowerCase() === selected);
+        if (!remainsAvailable) {
+          next[key] = '';
+          changed = true;
+        }
+      });
+      return changed ? next : current;
+    });
+  }, [filterOptions]);
 
   function feedbackDraft(record) {
     const feedback = activeFeedback(record);
@@ -178,33 +206,41 @@ function FeedbackPage({
           <span>支持 .xlsx / .xls / .csv，解析后先预览，确认后写入已匹配的验货反馈</span>
         </label>
       )}
-      <div className="toolbar feedback-filter-toolbar">
-        <select value={filters.supplierShortName} onChange={(event) => updateFilter('supplierShortName', event.target.value)}>
-          <option value="">全部供应商简称</option>
-          {supplierOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-        </select>
-        <select value={filters.salesProductLine} onChange={(event) => updateFilter('salesProductLine', event.target.value)}>
-          <option value="">全部产品线</option>
-          {productLineOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-        </select>
-        <select value={filters.series} onChange={(event) => updateFilter('series', event.target.value)}>
-          <option value="">全部系列</option>
-          {seriesOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-        </select>
-        <input
-          placeholder="筛选验货员"
-          value={filters.inspector}
-          onChange={(event) => updateFilter('inspector', event.target.value)}
-        />
-        <select value={filters.status} onChange={(event) => updateFilter('status', event.target.value)}>
-          <option value="">全部状态</option>
-          <option value="待安排验货员">待安排验货员</option>
-          <option value="待验货">待验货</option>
-          <option value="需返工">需返工</option>
-          <option value="已验货">已验货</option>
-        </select>
-        <button type="button" className="ghost compact-button" onClick={clearFilters}>清除筛选</button>
-      </div>
+      {hasFilterOptions && (
+        <div className="toolbar feedback-filter-toolbar">
+          {filterOptions.supplierShortName.length > 0 && (
+            <select value={filters.supplierShortName} onChange={(event) => updateFilter('supplierShortName', event.target.value)}>
+              <option value="">全部供应商简称</option>
+              {filterOptions.supplierShortName.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          )}
+          {filterOptions.salesProductLine.length > 0 && (
+            <select value={filters.salesProductLine} onChange={(event) => updateFilter('salesProductLine', event.target.value)}>
+              <option value="">全部产品线</option>
+              {filterOptions.salesProductLine.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          )}
+          {filterOptions.series.length > 0 && (
+            <select value={filters.series} onChange={(event) => updateFilter('series', event.target.value)}>
+              <option value="">全部系列</option>
+              {filterOptions.series.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          )}
+          {filterOptions.inspector.length > 0 && (
+            <select value={filters.inspector} onChange={(event) => updateFilter('inspector', event.target.value)}>
+              <option value="">全部验货员</option>
+              {filterOptions.inspector.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          )}
+          {filterOptions.status.length > 0 && (
+            <select value={filters.status} onChange={(event) => updateFilter('status', event.target.value)}>
+              <option value="">全部状态</option>
+              {filterOptions.status.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          )}
+          <button type="button" className="ghost compact-button" onClick={clearFilters}>清除筛选</button>
+        </div>
+      )}
       {canImport && importPreview && (
         <section className="feedback-import-preview">
           <div className="section-heading-row">
@@ -434,14 +470,13 @@ function FeedbackPage({
             record.salesProductLine,
             record.series,
             (() => {
-              const hasInspector = !!normalize(record.schedule?.inspector);
-              const hasResult = !!normalize(feedback.result);
-              const resultText = normalize(feedback.result);
-              let statusText = '待安排验货员';
-              let color = '#c2410c';
-              if (hasInspector && !hasResult) { statusText = '待验货'; color = '#1d4ed8'; }
-              else if (resultText === '返工') { statusText = '需返工'; color = '#dc2626'; }
-              else if (hasResult && resultText !== '返工') { statusText = '已验货'; color = '#047857'; }
+              const statusText = feedbackStatus(record, feedback);
+              const color = {
+                待安排验货员: '#c2410c',
+                待验货: '#1d4ed8',
+                需返工: '#dc2626',
+                已验货: '#047857'
+              }[statusText];
               return <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '4px', background: color, color: '#fff', fontSize: '12px', fontWeight: 600 }}>{statusText}</span>;
             })(),
             <span className="readonly-cell sku-readonly-cell">{record.skuQuantity || ''}</span>,
