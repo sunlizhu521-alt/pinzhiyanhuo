@@ -88,7 +88,7 @@ function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete
           { key: 'supplierShortName', label: '供应商简称', className: 'schedule-nowrap-cell' },
           { key: 'supplierAddress', label: '地址', className: 'schedule-nowrap-cell' },
           { key: 'salesProductLine', label: '产品线', className: 'schedule-nowrap-cell' },
-          '系列',
+          { key: 'series', label: '系列', className: 'schedule-nowrap-cell' },
           'SKU及数量',
           '数量',
           '事业部',
