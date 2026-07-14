@@ -8,7 +8,7 @@ import rateLimit from 'express-rate-limit';
 import { format } from 'date-fns';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { cp, mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
-import { initDatabase, inspectDatabaseFile, restoreDatabaseFromFile, getUsers, getUserByName, getUserById, upsertUser, createUser, deleteUser, getSessions, setSession, deleteSession, deleteSessionsByUserId, getNotices, saveNotices, getSchedule, saveSchedule, saveQualityInspectionBatch, deleteSchedule, getReport, saveReport, deleteReport, getFeedback, saveFeedback, deleteFeedback, getDimensionLibrary, saveDimensionLibrary, deleteDimensionLibrary, getInitialData, saveInitialData, addOperationLog, getOperationLogs, getSchedulesBatch, getReportsBatch, getFeedbacksBatch, deleteExpiredSessions } from './database.js';
+import { initDatabase, inspectDatabaseFile, restoreDatabaseFromFile, getUsers, getUserByName, getUserById, upsertUser, createUser, deleteUser, getSessions, setSession, deleteSession, deleteSessionsByUserId, getNotices, saveNotices, getSchedule, saveSchedule, saveQualityInspectionBatch, deleteSchedule, getReport, saveReport, deleteReport, getFeedback, saveFeedback, deleteFeedback, getDimensionLibrary, saveDimensionLibrary, deleteDimensionLibrary, getInitialData, saveInitialData, addOperationLog, addOperationLogs, getOperationLogs, getSchedulesBatch, getReportsBatch, getFeedbacksBatch, deleteExpiredSessions } from './database.js';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
 import { fileURLToPath } from 'node:url';
@@ -311,14 +311,14 @@ async function recordOperationLog(req, mutation) {
   });
 }
 
-function addBackfillOperationLog(log) {
-  addOperationLog({
+function backfillOperationLog(log) {
+  return {
     userRole: '历史回填',
     method: 'BACKFILL',
     path: '/api/quality-inspection/history-backfill',
     inspectionInfo: '',
     ...log
-  });
+  };
 }
 
 async function backfillRecentBusinessOperationLogs(days = 10) {
@@ -328,7 +328,7 @@ async function backfillRecentBusinessOperationLogs(days = 10) {
   const ids = rows.map((row) => row.id).filter(Boolean);
   const schedules = getSchedulesBatch(ids);
   const feedbacks = getFeedbacksBatch(ids);
-  let count = 0;
+  const logs = [];
 
   rows.forEach((row) => {
     const recordId = safeNoticeValue(row.id, '');
@@ -337,60 +337,57 @@ async function backfillRecentBusinessOperationLogs(days = 10) {
 
     const noticeTime = textDateValue(row.inspectionFillTime, row.createdAt, notices.submittedAt);
     if (isRecentOperationTime(noticeTime, cutoffTime)) {
-      addBackfillOperationLog({
+      logs.push(backfillOperationLog({
         id: operationLogId('notice', recordId, noticeTime),
         createdAt: noticeTime.length <= 10 ? `${noticeTime} 00:00:00` : noticeTime,
         userName: safeNoticeValue(row.inspectionApplicant || row.inspectionNotifier, '历史回填'),
         action: '提交验货通知',
         detail: `记录ID：${recordId}`,
         inspectionInfo
-      });
-      count += 1;
+      }));
     }
 
     const schedule = schedules[recordId] || {};
     const scheduleTime = textDateValue(schedule.updatedAt, schedule.scheduledAt, schedule.scheduledDate);
     if ((schedule.inspector || schedule.scheduledDate || schedule.status) && isRecentOperationTime(scheduleTime, cutoffTime)) {
-      addBackfillOperationLog({
+      logs.push(backfillOperationLog({
         id: operationLogId('schedule', recordId, scheduleTime),
         createdAt: scheduleTime.length <= 10 ? `${scheduleTime} 00:00:00` : scheduleTime,
         userName: safeNoticeValue(schedule.updatedBy, '历史回填'),
         action: '安排验货',
         detail: `验货员：${safeNoticeValue(schedule.inspector)}；计划时间：${safeNoticeValue(schedule.scheduledDate)}`,
         inspectionInfo
-      });
-      count += 1;
+      }));
     }
 
     const feedback = feedbacks[recordId] || {};
     const feedbackTime = textDateValue(feedback.updatedAt, feedback.actualInspectionTime);
     if ((feedback.result || feedback.actualInspectionTime || feedback.feedbackText) && isRecentOperationTime(feedbackTime, cutoffTime)) {
-      addBackfillOperationLog({
+      logs.push(backfillOperationLog({
         id: operationLogId('feedback', recordId, feedbackTime),
         createdAt: feedbackTime.length <= 10 ? `${feedbackTime} 00:00:00` : feedbackTime,
         userName: safeNoticeValue(feedback.updatedBy || feedback.actualInspector, '历史回填'),
         action: '提交验货反馈',
         detail: `记录ID：${recordId}；结果：${safeNoticeValue(feedback.result)}`,
         inspectionInfo
-      });
-      count += 1;
+      }));
     }
 
     const rework = feedback.rework || {};
     const reworkTime = textDateValue(rework.updatedAt, rework.reworkRequestedAt, rework.completedAt, rework.scheduledAt, rework.reinspectedAt);
     if ((rework.status || rework.reworkCompleteTime || rework.reworkRemark) && isRecentOperationTime(reworkTime, cutoffTime)) {
-      addBackfillOperationLog({
+      logs.push(backfillOperationLog({
         id: operationLogId('rework', recordId, reworkTime),
         createdAt: reworkTime.length <= 10 ? `${reworkTime} 00:00:00` : reworkTime,
         userName: safeNoticeValue(rework.updatedBy || rework.completedBy || rework.reinspectedBy, '历史回填'),
         action: '复验通知',
         detail: `记录ID：${recordId}；状态：${safeNoticeValue(rework.status)}；返工完成时间：${safeNoticeValue(rework.reworkCompleteTime)}`,
         inspectionInfo
-      });
-      count += 1;
+      }));
     }
   });
 
+  const count = addOperationLogs(logs);
   if (count) console.log(`[operation-log] backfilled ${count} recent business operation logs`);
   return count;
 }
@@ -527,6 +524,7 @@ function normalizePageAccess(user) {
 }
 
 let dbReady = false;
+let dbReadyPromise = null;
 
 const latestBackupDir = path.join(dataDir, 'backups', 'latest');
 const latestBackupManifestPath = path.join(latestBackupDir, 'manifest.json');
@@ -679,24 +677,35 @@ function scheduleDailyLatestBackup() {
 }
 
 async function ensureDb() {
-  if (!dbReady) {
-    await initDatabase();
-    // 启动时自动备份数据库，防止代码bug导致数据损坏
-    try {
-      const { copyFileSync, existsSync } = await import('node:fs');
-      const dbFile = path.join(dataDir, 'db.sqlite');
-      const backupFile = path.join(dataDir, 'db.backup.sqlite');
-      if (existsSync(dbFile)) {
-        copyFileSync(dbFile, backupFile);
+  if (dbReady) return;
+  if (!dbReadyPromise) {
+    dbReadyPromise = (async () => {
+      await initDatabase();
+      // 启动时自动备份数据库，防止代码bug导致数据损坏
+      try {
+        const { copyFileSync, existsSync } = await import('node:fs');
+        const dbFile = path.join(dataDir, 'db.sqlite');
+        const backupFile = path.join(dataDir, 'db.backup.sqlite');
+        if (existsSync(dbFile)) {
+          copyFileSync(dbFile, backupFile);
+        }
+      } catch {
+        // 备份失败不阻塞启动
       }
-    } catch {
-      // 备份失败不阻塞启动
-    }
-    await syncPrimaryAdminCredentials();
-    dbReady = true;
-    deleteExpiredSessions();
-    await backfillRecentBusinessOperationLogs(10);
+      await syncPrimaryAdminCredentials();
+      dbReady = true;
+      deleteExpiredSessions();
+      setTimeout(() => {
+        backfillRecentBusinessOperationLogs(10).catch((error) => {
+          console.error('[operation-log] background backfill failed:', error?.message || error);
+        });
+      }, 1000).unref();
+    })().catch((error) => {
+      dbReadyPromise = null;
+      throw error;
+    });
   }
+  await dbReadyPromise;
 }
 
 setInterval(async () => {

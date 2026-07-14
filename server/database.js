@@ -398,7 +398,7 @@ export function saveInitialData(data) {
   saveDb();
 }
 
-export function addOperationLog(log) {
+function insertOperationLog(log) {
   db.run('INSERT OR REPLACE INTO operation_logs (id, created_at, user_name, user_role, action, detail, inspection_info, method, path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [
     log.id,
     log.createdAt,
@@ -410,7 +410,18 @@ export function addOperationLog(log) {
     log.method || '',
     log.path || ''
   ]);
+}
+
+export function addOperationLog(log) {
+  insertOperationLog(log);
   saveDb();
+}
+
+export function addOperationLogs(logs) {
+  if (!Array.isArray(logs) || !logs.length) return 0;
+  logs.forEach(insertOperationLog);
+  saveDb();
+  return logs.length;
 }
 
 export function getOperationLogs(limit = 500) {
