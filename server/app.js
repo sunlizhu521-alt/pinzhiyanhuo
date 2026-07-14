@@ -618,12 +618,28 @@ async function databaseBackupCandidates() {
   ];
   const deploymentEntries = await readdir(deploymentBackupDir, { withFileTypes: true }).catch(() => []);
   deploymentEntries.filter((entry) => entry.isDirectory()).forEach((entry) => {
-    candidates.push({
-      id: `deployment-${entry.name}`,
-      label: `部署备份 ${entry.name}`,
-      filePath: path.join(deploymentBackupDir, entry.name, 'db.sqlite')
+    [
+      { fileName: 'db.sqlite', suffix: '', label: '正式库' },
+      { fileName: 'db.backup.sqlite', suffix: '-startup', label: '启动前副本' },
+      { fileName: 'db.previous.sqlite', suffix: '-previous', label: '上一写入版本' }
+    ].forEach((variant) => {
+      candidates.push({
+        id: `deployment-${entry.name}${variant.suffix}`,
+        label: `部署备份 ${entry.name} / ${variant.label}`,
+        filePath: path.join(deploymentBackupDir, entry.name, variant.fileName)
+      });
     });
   });
+  const periodicEntries = await readdir(path.join(dataDir, 'backups'), { withFileTypes: true }).catch(() => []);
+  periodicEntries
+    .filter((entry) => entry.isFile() && /^db-.*\.sqlite$/i.test(entry.name))
+    .forEach((entry) => {
+      candidates.push({
+        id: `periodic-${entry.name}`,
+        label: `周期备份 ${entry.name}`,
+        filePath: path.join(dataDir, 'backups', entry.name)
+      });
+    });
   const historyEntries = await readdir(backupHistoryDir, { withFileTypes: true }).catch(() => []);
   historyEntries.filter((entry) => entry.isDirectory()).forEach((entry) => {
     candidates.push({

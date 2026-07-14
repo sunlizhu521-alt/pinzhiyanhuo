@@ -40,6 +40,8 @@ function inspectDatabase(database) {
     valid: integrity.toLowerCase() === 'ok',
     integrity,
     counts,
+    latestOperationAt: String(scalar(database, 'SELECT MAX(created_at) FROM operation_logs') || ''),
+    noticesSubmittedAt: String(scalar(database, "SELECT value FROM meta WHERE key = 'notices_submittedAt'") || ''),
     businessRows: counts.notices + counts.schedules + counts.reports + counts.feedback
       + counts.dimension_library + counts.initial_data + counts.operation_logs
   };
