@@ -856,6 +856,18 @@ th {
   white-space: nowrap;
 }
 
+.inspection-schedule-table tbody tr:nth-child(odd) td {
+  background: #ffffff;
+}
+
+.inspection-schedule-table tbody tr:nth-child(even) td {
+  background: #f3f7fb;
+}
+
+.inspection-schedule-table tbody tr:hover td {
+  background: #e8f2ff;
+}
+
 .inspection-feedback-table {
   max-height: calc(100vh - 280px);
   overflow-y: auto;

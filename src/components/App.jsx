@@ -1592,23 +1592,36 @@ function App() {
       setMessage(singleSubmit ? '验货安排已提交：1 条。' : `验货安排已一键提交：共 ${entries.length} 条。`);
       return;
     }
-    const responses = await Promise.all(entries.flatMap(([recordId, draft]) => {
+    const items = entries.flatMap(([recordId, draft]) => {
       const targetIds = Array.isArray(draft.sourceIds) && draft.sourceIds.length ? draft.sourceIds : [recordId];
       const scheduledDate = normalize(draft.scheduledDate);
       const inspector = normalize(draft.inspector);
-      return targetIds.map((targetId) => authFetch(`${API}/api/quality-inspection/schedules/${encodeURIComponent(targetId)}`, {
+      return targetIds.map((targetId) => ({
+        id: targetId,
+        scheduledDate,
+        inspector,
+        remark: normalize(draft.remark),
+        status: scheduledDate || inspector ? '已安排' : '未安排'
+      }));
+    });
+    let response;
+    try {
+      const singleItem = singleSubmit && items.length === 1;
+      const url = singleItem
+        ? `${API}/api/quality-inspection/schedules/${encodeURIComponent(items[0].id)}`
+        : `${API}/api/quality-inspection/schedules`;
+      response = await authFetch(url, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scheduledDate,
-          inspector,
-          remark: normalize(draft.remark),
-          status: scheduledDate || inspector ? '已安排' : '未安排'
-        })
-      }));
-    }));
-    setSavingId('');
-    if (responses.some((res) => !res.ok)) {
+        body: JSON.stringify(singleItem ? items[0] : { items })
+      });
+    } catch {
+      setMessage('验货安排保存失败。');
+      return;
+    } finally {
+      setSavingId('');
+    }
+    if (!response.ok) {
       setMessage('验货安排保存失败。');
       return;
     }

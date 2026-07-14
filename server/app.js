@@ -8,7 +8,7 @@ import rateLimit from 'express-rate-limit';
 import { format } from 'date-fns';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { cp, mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
-import { initDatabase, getUsers, getUserByName, getUserById, upsertUser, createUser, deleteUser, getSessions, setSession, deleteSession, deleteSessionsByUserId, getNotices, saveNotices, getSchedule, saveSchedule, deleteSchedule, getReport, saveReport, deleteReport, getFeedback, saveFeedback, deleteFeedback, getDimensionLibrary, saveDimensionLibrary, deleteDimensionLibrary, getInitialData, saveInitialData, addOperationLog, getOperationLogs, getSchedulesBatch, getReportsBatch, getFeedbacksBatch, deleteExpiredSessions } from './database.js';
+import { initDatabase, getUsers, getUserByName, getUserById, upsertUser, createUser, deleteUser, getSessions, setSession, deleteSession, deleteSessionsByUserId, getNotices, saveNotices, getSchedule, saveSchedule, saveQualityInspectionBatch, deleteSchedule, getReport, saveReport, deleteReport, getFeedback, saveFeedback, deleteFeedback, getDimensionLibrary, saveDimensionLibrary, deleteDimensionLibrary, getInitialData, saveInitialData, addOperationLog, getOperationLogs, getSchedulesBatch, getReportsBatch, getFeedbacksBatch, deleteExpiredSessions } from './database.js';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
 import { fileURLToPath } from 'node:url';
@@ -252,6 +252,7 @@ function describeMutation(req) {
   if (method === 'DELETE' && /\/api\/quality-inspection\/notices\/[^/]+$/.test(pathName)) return { action: '删除单条验货通知', detail: `记录ID：${safeNoticeValue(targetId)}` };
   if (pathName === '/api/quality-inspection/direct-feedback') return { action: '新增未通知验货反馈', detail: `${safeNoticeValue(body.notice?.supplierShortName || body.supplierShortName)} / ${safeNoticeValue(body.notice?.series || body.series)}` };
   if (pathName === '/api/quality-inspection/summary-import') return { action: '导入历史台账', detail: `记录数：${itemsCount}` };
+  if (method === 'PATCH' && pathName === '/api/quality-inspection/schedules') return { action: '批量安排验货', detail: `记录数：${itemsCount}` };
   if (/\/api\/quality-inspection\/schedules\/[^/]+$/.test(pathName)) return { action: '安排验货', detail: `验货员：${safeNoticeValue(body.inspector)}；计划时间：${safeNoticeValue(body.scheduledDate)}` };
   if (method === 'POST' && /\/api\/quality-inspection\/reports\/[^/]+$/.test(pathName)) return { action: '上传检验报告单', detail: `记录ID：${safeNoticeValue(targetId)}${fileText ? `；${fileText}` : ''}` };
   if (method === 'DELETE' && /\/api\/quality-inspection\/reports\/[^/]+$/.test(pathName)) return { action: '删除检验报告单', detail: `记录ID：${safeNoticeValue(targetId)}` };
@@ -271,6 +272,7 @@ function shouldNotifyDingTalk(req, mutation) {
   const pathName = String(req.originalUrl || req.path || '').split('?')[0];
   const body = req.body || {};
   if (method === 'POST' && pathName === '/api/quality-inspection/notices') return true;
+  if (method === 'PATCH' && pathName === '/api/quality-inspection/schedules') return true;
   if (method === 'PATCH' && /\/api\/quality-inspection\/schedules\/[^/]+$/.test(pathName)) return true;
   if (method === 'POST' && pathName === '/api/quality-inspection/direct-feedback') return true;
   if (method === 'PATCH' && /\/api\/quality-inspection\/feedback\/[^/]+$/.test(pathName)) {
@@ -2254,35 +2256,55 @@ app.post('/api/quality-inspection/summary-import', requireAuth, requirePages('in
   res.json({ notices: inspection.notices, rows: composedRecords(db) });
 });
 
-app.patch('/api/quality-inspection/schedules/:id', requireAuth, requirePages('inspectionSchedule'), requireRoles(ROLE_ADMIN), async (req, res) => {
-  const db = await readDb();
-  const { reportNo: _ignoredReportNo, ...schedulePayload } = req.body || {};
+function buildScheduleChanges(items, user) {
+  const schedules = {};
+  const feedbackChanges = {};
   const updatedAt = nowText();
-  const nextSchedule = {
-    ...(db.qualityInspection.schedules[req.params.id] || {}),
-    ...schedulePayload,
-    updatedAt
-  };
-  db.qualityInspection.schedules[req.params.id] = nextSchedule;
-  const feedback = db.qualityInspection.feedback[req.params.id] || {};
-  const rework = feedback.rework || {};
-  const isReworkSchedule = normalizeText(rework.completedAt) || normalizeText(rework.reworkCompleteTime);
-  if (normalizeText(nextSchedule.status) === '已安排' && isReworkSchedule) {
-    db.qualityInspection.feedback[req.params.id] = {
-      ...feedback,
-      rework: {
-        ...rework,
-        status: '待验货',
-        scheduledAt: updatedAt,
-        scheduledBy: req.authUser.name,
-        updatedAt,
-        updatedBy: req.authUser.name
-      },
+  items.forEach(({ id, ...payload }) => {
+    const { reportNo: _ignoredReportNo, ...schedulePayload } = payload;
+    const nextSchedule = {
+      ...(schedules[id] || getSchedule(id)),
+      ...schedulePayload,
       updatedAt
     };
-  }
-  await saveDb(db);
-  res.json(db.qualityInspection.schedules[req.params.id]);
+    schedules[id] = nextSchedule;
+    const feedback = feedbackChanges[id] || getFeedback(id);
+    const rework = feedback.rework || {};
+    const isReworkSchedule = normalizeText(rework.completedAt) || normalizeText(rework.reworkCompleteTime);
+    if (normalizeText(nextSchedule.status) === '已安排' && isReworkSchedule) {
+      feedbackChanges[id] = {
+        ...feedback,
+        rework: {
+          ...rework,
+          status: '待验货',
+          scheduledAt: updatedAt,
+          scheduledBy: user.name,
+          updatedAt,
+          updatedBy: user.name
+        },
+        updatedAt
+      };
+    }
+  });
+  return { schedules, feedback: feedbackChanges };
+}
+
+app.patch('/api/quality-inspection/schedules', requireAuth, requirePages('inspectionSchedule'), requireRoles(ROLE_ADMIN), async (req, res) => {
+  const items = Array.isArray(req.body?.items) ? req.body.items : [];
+  if (!items.length) return res.status(400).json({ error: '暂无可提交的验货安排。' });
+  if (items.length > 2000) return res.status(400).json({ error: '单次最多提交 2000 条验货安排。' });
+  const normalizedItems = items.map((item) => ({ ...item, id: normalizeText(item?.id) }));
+  if (normalizedItems.some((item) => !item.id)) return res.status(400).json({ error: '验货安排记录ID不能为空。' });
+  const changes = buildScheduleChanges(normalizedItems, req.authUser);
+  saveQualityInspectionBatch(changes);
+  res.json({ updated: normalizedItems.length });
+});
+
+app.patch('/api/quality-inspection/schedules/:id', requireAuth, requirePages('inspectionSchedule'), requireRoles(ROLE_ADMIN), async (req, res) => {
+  const id = normalizeText(req.params.id);
+  const changes = buildScheduleChanges([{ ...(req.body || {}), id }], req.authUser);
+  saveQualityInspectionBatch(changes);
+  res.json(changes.schedules[id]);
 });
 
 app.post('/api/quality-inspection/reports/:id', requireAuth, requirePages('inspectionFeedback'), upload.single('file'), async (req, res) => {

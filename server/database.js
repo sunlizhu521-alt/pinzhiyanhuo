@@ -202,6 +202,16 @@ export function saveSchedule(id, data) {
   saveDb();
 }
 
+export function saveQualityInspectionBatch({ schedules = {}, feedback = {} }) {
+  Object.entries(schedules).forEach(([id, data]) => {
+    db.run('INSERT OR REPLACE INTO schedules (id, data) VALUES (?, ?)', [id, JSON.stringify(data)]);
+  });
+  Object.entries(feedback).forEach(([id, data]) => {
+    db.run('INSERT OR REPLACE INTO feedback (id, data) VALUES (?, ?)', [id, JSON.stringify(data)]);
+  });
+  saveDb();
+}
+
 export function deleteSchedule(id) {
   db.run('DELETE FROM schedules WHERE id = ?', [id]);
   saveDb();
