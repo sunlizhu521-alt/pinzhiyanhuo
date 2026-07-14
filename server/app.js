@@ -449,6 +449,31 @@ async function verifyPassword(password, hash) {
   return password === hash;
 }
 
+async function syncPrimaryAdminCredentials() {
+  if (!ADMIN_PASSWORD) return;
+  const existing = getUserByName(DEFAULT_ADMIN_USER.name) || getUserById(DEFAULT_ADMIN_USER.id);
+  const passwordMatches = existing
+    ? await verifyPassword(ADMIN_PASSWORD, existing.password)
+    : false;
+  const accessMatches = existing
+    && existing.role === ROLE_ADMIN
+    && PAGE_KEYS.every((page) => existing.pageAccess?.includes(page))
+    && !existing.mustResetPassword;
+  if (passwordMatches && accessMatches) return;
+  const userId = existing?.id || DEFAULT_ADMIN_USER.id;
+  upsertUser({
+    ...existing,
+    id: userId,
+    name: DEFAULT_ADMIN_USER.name,
+    password: passwordMatches ? existing.password : await hashPassword(ADMIN_PASSWORD),
+    role: ROLE_ADMIN,
+    pageAccess: PAGE_KEYS,
+    mustResetPassword: false
+  });
+  if (!passwordMatches) deleteSessionsByUserId(userId);
+  console.log('[auth] primary admin credentials synchronized');
+}
+
 function safeFileBaseName(value, fallback) {
   const cleaned = fixUploadFileName(value)
     .trim()
@@ -620,6 +645,7 @@ async function ensureDb() {
     } catch {
       // 备份失败不阻塞启动
     }
+    await syncPrimaryAdminCredentials();
     dbReady = true;
     deleteExpiredSessions();
     await backfillRecentBusinessOperationLogs(10);
