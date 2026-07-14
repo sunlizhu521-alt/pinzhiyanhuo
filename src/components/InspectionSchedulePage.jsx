@@ -84,7 +84,23 @@ function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete
       <DataTable
         className="inspection-schedule-table"
         rows={filteredRows}
-        columns={['供应商简称', '地址', '产品线', '系列', 'SKU及数量', '数量', '事业部', '运营', '验货通知人', '备注', '可验货时间', '验货员 *', '计划验货时间 *', '安排备注', '操作']}
+        columns={[
+          { key: 'supplierShortName', label: '供应商简称', className: 'schedule-nowrap-cell' },
+          { key: 'supplierAddress', label: '地址', className: 'schedule-nowrap-cell' },
+          { key: 'salesProductLine', label: '产品线', className: 'schedule-nowrap-cell' },
+          '系列',
+          'SKU及数量',
+          '数量',
+          '事业部',
+          '运营',
+          { key: 'inspectionNotifier', label: '验货通知人', className: 'schedule-nowrap-cell' },
+          '备注',
+          { key: 'shipmentTime', label: '可验货时间', className: 'schedule-nowrap-cell' },
+          '验货员 *',
+          '计划验货时间 *',
+          '安排备注',
+          '操作'
+        ]}
         render={(record) => [
           record.supplierShortName,
           provinceCityText(record.supplierAddress),

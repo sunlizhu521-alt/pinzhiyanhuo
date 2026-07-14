@@ -852,6 +852,10 @@ th {
   min-width: 1980px;
 }
 
+.inspection-schedule-table .schedule-nowrap-cell {
+  white-space: nowrap;
+}
+
 .inspection-feedback-table {
   max-height: calc(100vh - 280px);
   overflow-y: auto;
