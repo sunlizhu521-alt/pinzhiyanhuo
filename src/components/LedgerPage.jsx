@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import DataTable from './DataTable.jsx';
 import ReportPreviewModal from './ReportPreviewModal.jsx';
 import { normalize, formatDate, latestFeedback, splitMultiValue, uniqueValues } from '../utils.js';
+import { extractProvinceCityFromAddress } from '../dimension-utils.js';
 import { reportHref, reportFileExt } from '../file-utils.js';
 
 function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImport, onClearImportPreview, canDelete, onDelete, onUndoLatestImport, onDeleteAllImports, onExport, savingId }) {
@@ -135,6 +136,7 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
 
   const ledgerColumns = [
     '供应商',
+    '地址',
     '产品线',
     '系列',
     '数量',
@@ -308,6 +310,7 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
           const passRate = checked > 0 && !Number.isNaN(qualified) ? `${Math.round((qualified / checked) * 100)}%` : '';
           return [
             record.supplierShortName,
+            extractProvinceCityFromAddress(record.supplierAddress),
             record.salesProductLine,
             record.series,
             record.totalQuantity,
