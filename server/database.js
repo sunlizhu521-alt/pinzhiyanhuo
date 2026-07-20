@@ -12,6 +12,7 @@ mkdirSync(dataDir, { recursive: true });
 
 let SQL = null;
 let db = null;
+let lastPersistedBuffer = null;
 
 const DATABASE_TABLES = [
   'users',
@@ -84,8 +85,10 @@ export async function initDatabase() {
   if (existsSync(dbPath)) {
     const buffer = readFileSync(dbPath);
     db = new SQL.Database(buffer);
+    lastPersistedBuffer = Buffer.from(buffer);
   } else {
     db = new SQL.Database();
+    lastPersistedBuffer = Buffer.from(db.export());
   }
 
   db.run(`CREATE TABLE IF NOT EXISTS users (
@@ -128,8 +131,18 @@ export async function initDatabase() {
 }
 
 function saveDb() {
-  const buffer = db.export();
-  atomicWriteDatabase(buffer);
+  const buffer = Buffer.from(db.export());
+  try {
+    atomicWriteDatabase(buffer);
+    lastPersistedBuffer = buffer;
+  } catch (error) {
+    if (lastPersistedBuffer) {
+      const failedDatabase = db;
+      db = new SQL.Database(lastPersistedBuffer);
+      failedDatabase?.close();
+    }
+    throw error;
+  }
 }
 
 export function inspectDatabaseFile(filePath) {
@@ -154,14 +167,91 @@ export function inspectDatabaseFile(filePath) {
 }
 
 export function restoreDatabaseFromFile(filePath) {
-  const buffer = readFileSync(filePath);
+  const buffer = Buffer.from(readFileSync(filePath));
   const inspection = validateDatabaseBuffer(buffer);
   atomicWriteDatabase(buffer);
   const restored = new SQL.Database(buffer);
   const previous = db;
   db = restored;
+  lastPersistedBuffer = buffer;
   previous?.close();
   return inspection;
+}
+
+function runPersistedTransaction(mutation) {
+  db.run('BEGIN TRANSACTION');
+  try {
+    mutation();
+    db.run('COMMIT');
+    saveDb();
+  } catch (error) {
+    try {
+      db.run('ROLLBACK');
+    } catch {
+      // saveDb restores the last persisted database when disk persistence fails.
+    }
+    throw error;
+  }
+}
+
+function replaceJsonMapTable(tableName, keyName, values = {}) {
+  db.run(`DELETE FROM ${tableName}`);
+  const insert = db.prepare(`INSERT INTO ${tableName} (${keyName}, data) VALUES (?, ?)`);
+  Object.entries(values || {}).forEach(([key, data]) => {
+    if (!key) return;
+    insert.run([key, JSON.stringify(data || {})]);
+  });
+  insert.free();
+}
+
+export function saveDatabaseState(state = {}) {
+  const inspection = state.qualityInspection || {};
+  const notices = inspection.notices || { rows: [], submittedAt: '', submittedBy: '' };
+  const existingUsers = getUsers();
+  const existingUsersById = new Map(existingUsers.map((user) => [user.id, user]));
+  const existingUsersByName = new Map(existingUsers.map((user) => [user.name, user]));
+  runPersistedTransaction(() => {
+    const userInsert = db.prepare('INSERT OR REPLACE INTO users (id, name, password, role, page_access, must_reset_password) VALUES (?, ?, ?, ?, ?, ?)');
+    (state.users || []).forEach((user) => {
+      const existing = existingUsersById.get(user.id) || existingUsersByName.get(user.name);
+      const password = user.password || existing?.password;
+      if (!password) throw new Error(`Cannot persist user without credentials: ${user.name || user.id || 'unknown'}`);
+      userInsert.run([
+        user.id,
+        user.name,
+        password,
+        user.role || '普通用户',
+        JSON.stringify(user.pageAccess || []),
+        user.mustResetPassword ? 1 : 0
+      ]);
+    });
+    userInsert.free();
+
+    const sessionInsert = db.prepare('INSERT OR REPLACE INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)');
+    Object.entries(state.sessions || {}).forEach(([token, session]) => {
+      sessionInsert.run([token, session.userId, session.createdAt || '']);
+    });
+    sessionInsert.free();
+
+    db.run('DELETE FROM notices');
+    const noticeInsert = db.prepare('INSERT INTO notices (id, data) VALUES (?, ?)');
+    (notices.rows || []).forEach((row) => {
+      noticeInsert.run([row.id || '', JSON.stringify(row)]);
+    });
+    noticeInsert.free();
+    db.run('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', ['notices_submittedAt', notices.submittedAt || '']);
+    db.run('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', ['notices_submittedBy', notices.submittedBy || '']);
+
+    replaceJsonMapTable('schedules', 'id', inspection.schedules);
+    replaceJsonMapTable('reports', 'id', inspection.reports);
+    replaceJsonMapTable('feedback', 'id', inspection.feedback);
+    replaceJsonMapTable('dimension_library', 'slot_id', inspection.dimensionLibrary);
+
+    db.run('DELETE FROM initial_data');
+    if (inspection.initialData && Object.keys(inspection.initialData).length) {
+      db.run('INSERT INTO initial_data (id, data) VALUES (1, ?)', [JSON.stringify(inspection.initialData)]);
+    }
+  });
 }
 
 function queryOne(sql, params = []) {
@@ -249,8 +339,13 @@ export function getSessions() {
 }
 
 export function setSession(token, userId, createdAt) {
-  db.run('INSERT OR REPLACE INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)', [token, userId, createdAt]);
-  saveDb();
+  runPersistedTransaction(() => {
+    db.run('INSERT OR REPLACE INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)', [token, userId, createdAt]);
+    db.run(`DELETE FROM sessions
+      WHERE user_id = ? AND token NOT IN (
+        SELECT token FROM sessions WHERE user_id = ? ORDER BY created_at DESC, token DESC LIMIT 5
+      )`, [userId, userId]);
+  });
 }
 
 export function deleteSession(token) {
@@ -421,9 +516,35 @@ export function addOperationLog(log) {
 
 export function addOperationLogs(logs) {
   if (!Array.isArray(logs) || !logs.length) return 0;
-  logs.forEach(insertOperationLog);
-  saveDb();
+  runPersistedTransaction(() => logs.forEach(insertOperationLog));
   return logs.length;
+}
+
+function comparableOperationLog(log = {}) {
+  return {
+    id: String(log.id || ''),
+    createdAt: String(log.createdAt || log.created_at || ''),
+    userName: String(log.userName || log.user_name || ''),
+    userRole: String(log.userRole || log.user_role || ''),
+    action: String(log.action || ''),
+    detail: String(log.detail || ''),
+    inspectionInfo: String(log.inspectionInfo || log.inspection_info || ''),
+    method: String(log.method || ''),
+    path: String(log.path || '')
+  };
+}
+
+export function syncBackfillOperationLogs(logs = []) {
+  const desired = logs.map(comparableOperationLog).filter((log) => log.id).sort((a, b) => a.id.localeCompare(b.id));
+  const current = queryAll("SELECT * FROM operation_logs WHERE method = 'BACKFILL'")
+    .map(comparableOperationLog)
+    .sort((a, b) => a.id.localeCompare(b.id));
+  if (JSON.stringify(current) === JSON.stringify(desired)) return 0;
+  runPersistedTransaction(() => {
+    db.run("DELETE FROM operation_logs WHERE method = 'BACKFILL'");
+    desired.forEach(insertOperationLog);
+  });
+  return desired.length;
 }
 
 export function getOperationLogs(limit = 500) {

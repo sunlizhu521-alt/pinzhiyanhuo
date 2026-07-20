@@ -8,7 +8,7 @@ import rateLimit from 'express-rate-limit';
 import { format } from 'date-fns';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { cp, mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
-import { initDatabase, inspectDatabaseFile, restoreDatabaseFromFile, getUsers, getUserByName, getUserById, upsertUser, createUser, deleteUser, getSessions, setSession, deleteSession, deleteSessionsByUserId, getNotices, saveNotices, getSchedule, saveSchedule, saveQualityInspectionBatch, deleteSchedule, getReport, saveReport, deleteReport, getFeedback, saveFeedback, deleteFeedback, getDimensionLibrary, saveDimensionLibrary, deleteDimensionLibrary, getInitialData, saveInitialData, addOperationLog, addOperationLogs, getOperationLogs, getSchedulesBatch, getReportsBatch, getFeedbacksBatch, deleteExpiredSessions } from './database.js';
+import { initDatabase, inspectDatabaseFile, restoreDatabaseFromFile, saveDatabaseState, getUsers, getUserByName, getUserById, upsertUser, createUser, deleteUser, getSessions, setSession, deleteSession, deleteSessionsByUserId, getNotices, saveNotices, getSchedule, saveSchedule, saveQualityInspectionBatch, deleteSchedule, getReport, saveReport, deleteReport, getFeedback, saveFeedback, deleteFeedback, getDimensionLibrary, saveDimensionLibrary, deleteDimensionLibrary, getInitialData, saveInitialData, addOperationLog, syncBackfillOperationLogs, getOperationLogs, getSchedulesBatch, getReportsBatch, getFeedbacksBatch, deleteExpiredSessions } from './database.js';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
 import { fileURLToPath } from 'node:url';
@@ -123,6 +123,28 @@ app.use(helmet({
   crossOriginOpenerPolicy: false
 }));
 app.use('/api/', apiLimiter);
+let businessMutationTail = Promise.resolve();
+app.use('/api', async (req, res, next) => {
+  const mutatingMethods = new Set(['POST', 'PATCH', 'DELETE']);
+  const pathName = String(req.originalUrl || req.path || '').split('?')[0];
+  if (!mutatingMethods.has(req.method) || pathName === '/api/auth/login') {
+    next();
+    return;
+  }
+  const previous = businessMutationTail;
+  let releaseMutation;
+  businessMutationTail = new Promise((resolve) => { releaseMutation = resolve; });
+  await previous;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    releaseMutation();
+  };
+  res.once('finish', release);
+  res.once('close', release);
+  next();
+});
 app.use('/api', (req, res, next) => {
   const mutatingMethods = new Set(['POST', 'PATCH', 'DELETE']);
   if (!mutatingMethods.has(req.method)) {
@@ -195,8 +217,8 @@ function isRecentOperationTime(value, cutoffTime) {
   return !!date && date.getTime() >= cutoffTime;
 }
 
-function operationLogId(prefix, recordId, createdAt) {
-  return `backfill-${prefix}-${createHash('sha1').update(`${recordId}|${createdAt}`).digest('hex').slice(0, 24)}`;
+function operationLogId(prefix, recordId) {
+  return `backfill-${prefix}-${createHash('sha1').update(recordId).digest('hex').slice(0, 24)}`;
 }
 
 function inspectionInfoForRecord(record = {}) {
@@ -335,10 +357,10 @@ async function backfillRecentBusinessOperationLogs(days = 10) {
     if (!recordId) return;
     const inspectionInfo = inspectionInfoForRecord(row);
 
-    const noticeTime = textDateValue(row.inspectionFillTime, row.createdAt, notices.submittedAt);
+    const noticeTime = textDateValue(row.inspectionFillTime, row.createdAt);
     if (isRecentOperationTime(noticeTime, cutoffTime)) {
       logs.push(backfillOperationLog({
-        id: operationLogId('notice', recordId, noticeTime),
+        id: operationLogId('notice', recordId),
         createdAt: noticeTime.length <= 10 ? `${noticeTime} 00:00:00` : noticeTime,
         userName: safeNoticeValue(row.inspectionApplicant || row.inspectionNotifier, '历史回填'),
         action: '提交验货通知',
@@ -351,7 +373,7 @@ async function backfillRecentBusinessOperationLogs(days = 10) {
     const scheduleTime = textDateValue(schedule.updatedAt, schedule.scheduledAt, schedule.scheduledDate);
     if ((schedule.inspector || schedule.scheduledDate || schedule.status) && isRecentOperationTime(scheduleTime, cutoffTime)) {
       logs.push(backfillOperationLog({
-        id: operationLogId('schedule', recordId, scheduleTime),
+        id: operationLogId('schedule', recordId),
         createdAt: scheduleTime.length <= 10 ? `${scheduleTime} 00:00:00` : scheduleTime,
         userName: safeNoticeValue(schedule.updatedBy, '历史回填'),
         action: '安排验货',
@@ -364,7 +386,7 @@ async function backfillRecentBusinessOperationLogs(days = 10) {
     const feedbackTime = textDateValue(feedback.updatedAt, feedback.actualInspectionTime);
     if ((feedback.result || feedback.actualInspectionTime || feedback.feedbackText) && isRecentOperationTime(feedbackTime, cutoffTime)) {
       logs.push(backfillOperationLog({
-        id: operationLogId('feedback', recordId, feedbackTime),
+        id: operationLogId('feedback', recordId),
         createdAt: feedbackTime.length <= 10 ? `${feedbackTime} 00:00:00` : feedbackTime,
         userName: safeNoticeValue(feedback.updatedBy || feedback.actualInspector, '历史回填'),
         action: '提交验货反馈',
@@ -377,7 +399,7 @@ async function backfillRecentBusinessOperationLogs(days = 10) {
     const reworkTime = textDateValue(rework.updatedAt, rework.reworkRequestedAt, rework.completedAt, rework.scheduledAt, rework.reinspectedAt);
     if ((rework.status || rework.reworkCompleteTime || rework.reworkRemark) && isRecentOperationTime(reworkTime, cutoffTime)) {
       logs.push(backfillOperationLog({
-        id: operationLogId('rework', recordId, reworkTime),
+        id: operationLogId('rework', recordId),
         createdAt: reworkTime.length <= 10 ? `${reworkTime} 00:00:00` : reworkTime,
         userName: safeNoticeValue(rework.updatedBy || rework.completedBy || rework.reinspectedBy, '历史回填'),
         action: '复验通知',
@@ -387,8 +409,8 @@ async function backfillRecentBusinessOperationLogs(days = 10) {
     }
   });
 
-  const count = addOperationLogs(logs);
-  if (count) console.log(`[operation-log] backfilled ${count} recent business operation logs`);
+  const count = syncBackfillOperationLogs(logs);
+  if (count) console.log(`[operation-log] synchronized ${count} recent business operation logs`);
   return count;
 }
 
@@ -709,13 +731,9 @@ async function ensureDb() {
         // 备份失败不阻塞启动
       }
       await syncPrimaryAdminCredentials();
-      dbReady = true;
       deleteExpiredSessions();
-      setTimeout(() => {
-        backfillRecentBusinessOperationLogs(10).catch((error) => {
-          console.error('[operation-log] background backfill failed:', error?.message || error);
-        });
-      }, 1000).unref();
+      await backfillRecentBusinessOperationLogs(10);
+      dbReady = true;
     })().catch((error) => {
       dbReadyPromise = null;
       throw error;
@@ -779,29 +797,7 @@ async function readDb() {
 
 async function saveDb(db) {
   await ensureDb();
-  if (db.users) {
-    db.users.forEach((u) => {
-      if (u.password) {
-        upsertUser(u);
-        return;
-      }
-      const existing = getUserById(u.id) || getUserByName(u.name);
-      if (existing) upsertUser({ ...existing, ...u, password: existing.password });
-    });
-  }
-  if (db.sessions) {
-    Object.entries(db.sessions).forEach(([token, s]) => setSession(token, s.userId, s.createdAt));
-  }
-  const qi = db.qualityInspection;
-  if (qi?.notices?.rows) saveNotices(qi.notices.rows, qi.notices.submittedAt || '', qi.notices.submittedBy || '');
-  if (qi?.schedules) Object.entries(qi.schedules).forEach(([id, data]) => { if (Object.keys(data).length) saveSchedule(id, data); });
-  if (qi?.reports) Object.entries(qi.reports).forEach(([id, data]) => { if (Object.keys(data).length) saveReport(id, data); });
-  if (qi?.feedback) Object.entries(qi.feedback).forEach(([id, data]) => { if (Object.keys(data).length) saveFeedback(id, data); });
-  if (qi?.dimensionLibrary) Object.entries(qi.dimensionLibrary).forEach(([slotId, data]) => {
-    if (data && Object.keys(data).length) saveDimensionLibrary(slotId, data);
-    else deleteDimensionLibrary(slotId);
-  });
-  if (qi?.initialData?.columns?.length) saveInitialData(qi.initialData);
+  saveDatabaseState(db);
 }
 
 async function removeUploadedFile(file) {
@@ -2763,7 +2759,9 @@ app.use((error, req, res, next) => {
     const limitMb = req.path.includes('/dimension-library/') ? 100 : 20;
     return res.status(413).json({ error: `上传文件超过 ${limitMb}MB 限制，请压缩文件后重新上传。` });
   }
-  return next(error);
+  console.error(`[api-error] ${req.method} ${req.originalUrl || req.path}:`, error?.stack || error?.message || error);
+  if (res.headersSent) return next(error);
+  return res.status(500).json({ error: '服务器保存失败，请稍后重试；如持续失败请联系管理员。' });
 });
 
 const distDir = path.join(rootDir, 'dist');
@@ -2792,6 +2790,8 @@ app.get(/^\/(?!api).*/, (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.sendFile(path.join(distDir, 'index.html'));
 });
+
+await ensureDb();
 
 app.listen(port, () => {
   console.log(`Quality inspection server running at http://localhost:${port}`);

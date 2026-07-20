@@ -89,6 +89,20 @@ jobs:
             pm2 save
             pm2 list
 
+            echo ">>> Wait for service health"
+            for attempt in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:4002/api/health >/dev/null; then
+                echo "Service health check passed"
+                break
+              fi
+              if [ "$attempt" -eq 30 ]; then
+                echo "Service health check failed"
+                pm2 logs pinzhiyanhuo --lines 80 --nostream
+                exit 1
+              fi
+              sleep 1
+            done
+
             echo ">>> Verify deployed assets"
             curl -s http://127.0.0.1:4002/ | grep -o 'assets/index-[^"]*\.js' || true
             cat dist/index.html | grep -o 'assets/index-[^"]*\.js' || true
