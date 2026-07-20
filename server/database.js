@@ -535,7 +535,14 @@ function comparableOperationLog(log = {}) {
 }
 
 export function syncBackfillOperationLogs(logs = []) {
-  const desired = logs.map(comparableOperationLog).filter((log) => log.id).sort((a, b) => a.id.localeCompare(b.id));
+  const actualOperationKeys = new Set(
+    queryAll("SELECT action, created_at FROM operation_logs WHERE method <> 'BACKFILL'")
+      .map((row) => `${row.action}\u0000${row.created_at}`)
+  );
+  const desired = logs
+    .map(comparableOperationLog)
+    .filter((log) => log.id && !actualOperationKeys.has(`${log.action}\u0000${log.createdAt}`))
+    .sort((a, b) => a.id.localeCompare(b.id));
   const current = queryAll("SELECT * FROM operation_logs WHERE method = 'BACKFILL'")
     .map(comparableOperationLog)
     .sort((a, b) => a.id.localeCompare(b.id));

@@ -118,7 +118,10 @@ test('backfill logs are synchronized idempotently and stale duplicates are remov
       { ...base, id: 'old-duplicate-2' },
       { ...base, id: 'actual-log', method: 'POST', path: '/api/quality-inspection/notices' }
     ]);
-    const desired = [{ ...base, id: 'backfill-notice-stable' }];
+    const desired = [
+      { ...base, id: 'backfill-notice-duplicate' },
+      { ...base, id: 'backfill-notice-stable', createdAt: '2026-07-20 10:01:00' }
+    ];
     if (syncBackfillOperationLogs(desired) !== 1) process.exit(2);
     const dbPath = path.join(process.env.DATA_DIR, 'db.sqlite');
     const first = inspectDatabaseFile(dbPath);
