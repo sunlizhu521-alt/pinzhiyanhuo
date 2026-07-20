@@ -38,7 +38,10 @@ test('concurrent login and notice submission complete through the HTTP API', asy
     import { initDatabase, saveDatabaseState } from './server/database.js';
     await initDatabase();
     saveDatabaseState({
-      users: [{ id: 'u-admin', name: '孙立柱', password: await bcrypt.hash(process.env.ADMIN_PASSWORD, 4), role: '管理员', pageAccess: [] }],
+      users: [
+        { id: 'u-admin', name: '孙立柱', password: await bcrypt.hash(process.env.ADMIN_PASSWORD, 4), role: '管理员', pageAccess: [] },
+        { id: 'u-user', name: '测试用户', password: await bcrypt.hash(process.env.ADMIN_PASSWORD, 4), role: '普通用户', pageAccess: ['inspectionNotice'] }
+      ],
       sessions: {},
       qualityInspection: {
         notices: { rows: [], submittedAt: '', submittedBy: '' },
@@ -76,15 +79,28 @@ test('concurrent login and notice submission complete through the HTTP API', asy
   try {
     await waitForHealth(baseUrl, child);
     const loginStartedAt = Date.now();
-    const logins = await Promise.all(Array.from({ length: 5 }, () => fetch(`${baseUrl}/api/auth/login`, {
+    const loginCredentials = [
+      ...Array.from({ length: 12 }, () => ({ name: '孙立柱', password })),
+      ...Array.from({ length: 12 }, () => ({ name: '测试用户', password }))
+    ];
+    const logins = await Promise.all(loginCredentials.map((credentials) => fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: '孙立柱', password }),
+      body: JSON.stringify(credentials),
       signal: AbortSignal.timeout(10000)
     })));
     assert.ok(logins.every((response) => response.ok), `login responses: ${logins.map((response) => response.status).join(', ')}`);
     assert.ok(Date.now() - loginStartedAt < 10000, 'concurrent logins exceeded 10 seconds');
-    const login = await logins[0].json();
+    await Promise.all(logins.map((response) => response.json()));
+    const latestLoginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: '孙立柱', password }),
+      signal: AbortSignal.timeout(10000)
+    });
+    const latestLoginText = await latestLoginResponse.text();
+    assert.equal(latestLoginResponse.status, 200, latestLoginText);
+    const login = JSON.parse(latestLoginText);
     assert.ok(login.token);
 
     const noticeBody = (id) => JSON.stringify({

@@ -343,7 +343,7 @@ export function setSession(token, userId, createdAt) {
     db.run('INSERT OR REPLACE INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)', [token, userId, createdAt]);
     db.run(`DELETE FROM sessions
       WHERE user_id = ? AND token NOT IN (
-        SELECT token FROM sessions WHERE user_id = ? ORDER BY created_at DESC, token DESC LIMIT 5
+        SELECT token FROM sessions WHERE user_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 5
       )`, [userId, userId]);
   });
 }

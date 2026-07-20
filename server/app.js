@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import multer from 'multer';
 import xlsx from 'xlsx';
 import compression from 'compression';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { format } from 'date-fns';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { cp, mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
@@ -91,9 +91,17 @@ const apiLimiter = rateLimit({
 });
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 20,
   standardHeaders: true,
   legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  keyGenerator: (req) => {
+    const account = String(req.body?.name || '').trim().toLowerCase();
+    const accountKey = account
+      ? createHash('sha256').update(account).digest('hex').slice(0, 16)
+      : 'missing-account';
+    return `${ipKeyGenerator(req.ip || '')}:${accountKey}`;
+  },
   message: { error: '登录过于频繁，请15分钟后再试' }
 });
 const registerLimiter = rateLimit({
