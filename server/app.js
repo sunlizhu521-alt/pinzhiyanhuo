@@ -254,6 +254,30 @@ function feedbackOperationDescription(body = {}, targetId = '') {
   };
 }
 
+function feedbackNotificationFields(record = {}, feedback = {}) {
+  const fields = [
+    ['验货通知人', record.inspectionNotifier || record.inspectionApplicant],
+    ['供应商简称', record.supplierShortName],
+    ['产品线', record.salesProductLine],
+    ['系列', record.series],
+    ['通知数量', record.totalQuantity],
+    ['实际验货数量', feedback.inspectionQuantity],
+    ['检验数量', feedback.checkQuantity],
+    ['合格数量', feedback.qualifiedQuantity],
+    ['验货结果', feedback.result],
+    ['实际验货时间', feedback.actualInspectionTime],
+    ['实际验货人', feedback.actualInspector]
+  ];
+  [
+    ['问题等级', feedback.issueLevel],
+    ['问题分类', feedback.issueCategoryPrimary],
+    ['问题反馈', feedback.feedbackText]
+  ].forEach(([label, value]) => {
+    if (normalizeText(value)) fields.push([label, value]);
+  });
+  return fields.map(([label, value]) => ({ label, value: safeNoticeValue(value) }));
+}
+
 function describeMutation(req) {
   const method = req.method;
   const pathName = String(req.originalUrl || req.path || '').split('?')[0];
@@ -282,7 +306,16 @@ function describeMutation(req) {
   if (method === 'POST' && pathName === '/api/quality-inspection/notices') return { action: '提交验货通知', detail: `记录数：${rowsCount}`, inspectionInfo: noticeRowsSummary(body.rows) };
   if (method === 'DELETE' && pathName === '/api/quality-inspection/notices') return { action: '清空验货通知和安排', detail: '清空全部验货通知、安排、报告和反馈' };
   if (method === 'DELETE' && /\/api\/quality-inspection\/notices\/[^/]+$/.test(pathName)) return { action: '删除单条验货通知', detail: `记录ID：${safeNoticeValue(targetId)}` };
-  if (pathName === '/api/quality-inspection/direct-feedback') return { action: '新增未通知验货反馈', detail: `${safeNoticeValue(body.notice?.supplierShortName || body.supplierShortName)} / ${safeNoticeValue(body.notice?.series || body.series)}` };
+  if (pathName === '/api/quality-inspection/direct-feedback') {
+    const context = req.dingTalkFeedback || {};
+    const record = context.record || body.notice || body;
+    const feedback = context.feedback || body.feedback || body;
+    return {
+      action: '新增未通知验货反馈',
+      detail: `${safeNoticeValue(record.supplierShortName)} / ${safeNoticeValue(record.series)}`,
+      notificationFields: feedbackNotificationFields(record, feedback)
+    };
+  }
   if (pathName === '/api/quality-inspection/summary-import') return { action: '导入历史台账', detail: `记录数：${itemsCount}` };
   if (method === 'PATCH' && pathName === '/api/quality-inspection/schedules') return { action: '批量安排验货', detail: `记录数：${itemsCount}` };
   if (/\/api\/quality-inspection\/schedules\/[^/]+$/.test(pathName)) return { action: '安排验货', detail: `验货员：${safeNoticeValue(body.inspector)}；计划时间：${safeNoticeValue(body.scheduledDate)}` };
@@ -295,7 +328,13 @@ function describeMutation(req) {
   if (method === 'PATCH' && /\/api\/quality-inspection\/report-files\/[^/]+$/.test(pathName)) return { action: '修改报告单库文件名', detail: `原文件：${safeNoticeValue(targetId)}；新文件：${safeNoticeValue(body.fileName)}` };
   if (pathName === '/api/quality-inspection/report-files/batch-delete') return { action: '批量删除报告单库文件', detail: `文件数：${Array.isArray(body.fileNames) ? body.fileNames.length : 0}` };
   if (method === 'DELETE' && /\/api\/quality-inspection\/report-files\/[^/]+$/.test(pathName)) return { action: '删除报告单库文件', detail: `文件：${safeNoticeValue(targetId)}` };
-  if (/\/api\/quality-inspection\/feedback\/[^/]+$/.test(pathName)) return feedbackOperationDescription(body, req.params?.id || targetId);
+  if (/\/api\/quality-inspection\/feedback\/[^/]+$/.test(pathName)) {
+    const context = req.dingTalkFeedback || {};
+    return {
+      ...feedbackOperationDescription(context.feedback || body, req.params?.id || targetId),
+      notificationFields: feedbackNotificationFields(context.record || {}, context.feedback || body)
+    };
+  }
   return { action: `${method} ${pathName}`, detail: '业务数据已变更' };
 }
 
@@ -434,6 +473,9 @@ async function notifyDingTalk(req, mutation) {
     `- 时间：${nowText()}`
   ];
   if (mutation.inspectionInfo) lines.push(`- 验货信息：${safeNoticeValue(mutation.inspectionInfo, '-')}`);
+  (mutation.notificationFields || []).forEach(({ label, value }) => {
+    lines.push(`- ${safeNoticeValue(label)}：${safeNoticeValue(value)}`);
+  });
   const text = lines.join('\n');
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5000);
@@ -2291,6 +2333,7 @@ app.post('/api/quality-inspection/direct-feedback', requireAuth, requirePages('i
   }
   inspection.feedback[id] = feedback;
   await saveDb(db);
+  req.dingTalkFeedback = { record: notice, feedback };
   const rows = composedRecords(db);
   res.json({
     record: rows.find((record) => record.id === id),
@@ -2749,6 +2792,7 @@ app.patch('/api/quality-inspection/feedback/:id', requireAuth, requirePages('ins
   delete nextFeedback.reworkSchedule;
   db.qualityInspection.feedback[req.params.id] = nextFeedback;
   await saveDb(db);
+  req.dingTalkFeedback = { record, feedback: nextFeedback };
   res.json(db.qualityInspection.feedback[req.params.id]);
 });
 
