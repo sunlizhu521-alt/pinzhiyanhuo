@@ -166,3 +166,33 @@ test('login sessions are capped per user', () => {
     rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
+
+test('database runtime remains readable across repeated persisted writes', () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), 'pinzhiyanhuo-runtime-test-'));
+  const env = { ...process.env, DATA_DIR: tempDir };
+  const code = `
+    import path from 'node:path';
+    import { initDatabase, saveInitialData, getInitialData, setSession, inspectDatabaseFile } from './server/database.js';
+    await initDatabase();
+    const rows = Array.from({ length: 2000 }, (_, index) => ({ index, value: 'x'.repeat(256) }));
+    saveInitialData({ sheetName: 'stress', columns: ['index', 'value'], rows });
+    for (let index = 0; index < 120; index += 1) {
+      setSession('runtime-token-' + index, 'u1', '2026-07-22 10:' + String(index % 60).padStart(2, '0') + ':00');
+      const initialData = getInitialData();
+      if (initialData.rows?.length !== rows.length) process.exit(2);
+    }
+    const audit = inspectDatabaseFile(path.join(process.env.DATA_DIR, 'db.sqlite'));
+    if (!audit.valid || audit.counts.sessions !== 5 || audit.counts.initial_data !== 1) process.exit(3);
+  `;
+  try {
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
+      cwd: process.cwd(),
+      env,
+      encoding: 'utf8',
+      timeout: 30000
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+});

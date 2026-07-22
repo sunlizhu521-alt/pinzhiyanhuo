@@ -78,6 +78,26 @@ function atomicWriteDatabase(buffer, preservePrevious = true) {
   }
 }
 
+function replaceActiveDatabase(buffer) {
+  const replacement = new SQL.Database(buffer);
+  const previous = db;
+  db = replacement;
+  try {
+    previous?.close();
+  } catch {
+    // A damaged SQL.js instance may fail while closing; the replacement is already active.
+  }
+}
+
+function recoverFromWasmMemoryError(error) {
+  if (!/memory access out of bounds/i.test(String(error?.message || error)) || !lastPersistedBuffer) {
+    return false;
+  }
+  replaceActiveDatabase(lastPersistedBuffer);
+  console.error('[database] recovered SQL.js runtime from the latest persisted snapshot');
+  return true;
+}
+
 // Initialize the SQLite database and create the first version schema.
 export async function initDatabase() {
   SQL = await initSqlJs();
@@ -131,15 +151,14 @@ export async function initDatabase() {
 }
 
 function saveDb() {
-  const buffer = Buffer.from(db.export());
   try {
+    const buffer = Buffer.from(db.export());
     atomicWriteDatabase(buffer);
     lastPersistedBuffer = buffer;
+    replaceActiveDatabase(buffer);
   } catch (error) {
     if (lastPersistedBuffer) {
-      const failedDatabase = db;
-      db = new SQL.Database(lastPersistedBuffer);
-      failedDatabase?.close();
+      replaceActiveDatabase(lastPersistedBuffer);
     }
     throw error;
   }
@@ -194,14 +213,23 @@ function runPersistedTransaction(mutation) {
   }
 }
 
+function withPreparedStatement(sql, callback) {
+  const statement = db.prepare(sql);
+  try {
+    return callback(statement);
+  } finally {
+    statement.free();
+  }
+}
+
 function replaceJsonMapTable(tableName, keyName, values = {}) {
   db.run(`DELETE FROM ${tableName}`);
-  const insert = db.prepare(`INSERT INTO ${tableName} (${keyName}, data) VALUES (?, ?)`);
-  Object.entries(values || {}).forEach(([key, data]) => {
-    if (!key) return;
-    insert.run([key, JSON.stringify(data || {})]);
+  withPreparedStatement(`INSERT INTO ${tableName} (${keyName}, data) VALUES (?, ?)`, (insert) => {
+    Object.entries(values || {}).forEach(([key, data]) => {
+      if (!key) return;
+      insert.run([key, JSON.stringify(data || {})]);
+    });
   });
-  insert.free();
 }
 
 export function saveDatabaseState(state = {}) {
@@ -211,34 +239,34 @@ export function saveDatabaseState(state = {}) {
   const existingUsersById = new Map(existingUsers.map((user) => [user.id, user]));
   const existingUsersByName = new Map(existingUsers.map((user) => [user.name, user]));
   runPersistedTransaction(() => {
-    const userInsert = db.prepare('INSERT OR REPLACE INTO users (id, name, password, role, page_access, must_reset_password) VALUES (?, ?, ?, ?, ?, ?)');
-    (state.users || []).forEach((user) => {
-      const existing = existingUsersById.get(user.id) || existingUsersByName.get(user.name);
-      const password = user.password || existing?.password;
-      if (!password) throw new Error(`Cannot persist user without credentials: ${user.name || user.id || 'unknown'}`);
-      userInsert.run([
-        user.id,
-        user.name,
-        password,
-        user.role || '普通用户',
-        JSON.stringify(user.pageAccess || []),
-        user.mustResetPassword ? 1 : 0
-      ]);
+    withPreparedStatement('INSERT OR REPLACE INTO users (id, name, password, role, page_access, must_reset_password) VALUES (?, ?, ?, ?, ?, ?)', (userInsert) => {
+      (state.users || []).forEach((user) => {
+        const existing = existingUsersById.get(user.id) || existingUsersByName.get(user.name);
+        const password = user.password || existing?.password;
+        if (!password) throw new Error(`Cannot persist user without credentials: ${user.name || user.id || 'unknown'}`);
+        userInsert.run([
+          user.id,
+          user.name,
+          password,
+          user.role || '普通用户',
+          JSON.stringify(user.pageAccess || []),
+          user.mustResetPassword ? 1 : 0
+        ]);
+      });
     });
-    userInsert.free();
 
-    const sessionInsert = db.prepare('INSERT OR REPLACE INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)');
-    Object.entries(state.sessions || {}).forEach(([token, session]) => {
-      sessionInsert.run([token, session.userId, session.createdAt || '']);
+    withPreparedStatement('INSERT OR REPLACE INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)', (sessionInsert) => {
+      Object.entries(state.sessions || {}).forEach(([token, session]) => {
+        sessionInsert.run([token, session.userId, session.createdAt || '']);
+      });
     });
-    sessionInsert.free();
 
     db.run('DELETE FROM notices');
-    const noticeInsert = db.prepare('INSERT INTO notices (id, data) VALUES (?, ?)');
-    (notices.rows || []).forEach((row) => {
-      noticeInsert.run([row.id || '', JSON.stringify(row)]);
+    withPreparedStatement('INSERT INTO notices (id, data) VALUES (?, ?)', (noticeInsert) => {
+      (notices.rows || []).forEach((row) => {
+        noticeInsert.run([row.id || '', JSON.stringify(row)]);
+      });
     });
-    noticeInsert.free();
     db.run('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', ['notices_submittedAt', notices.submittedAt || '']);
     db.run('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', ['notices_submittedBy', notices.submittedBy || '']);
 
@@ -254,27 +282,54 @@ export function saveDatabaseState(state = {}) {
   });
 }
 
-function queryOne(sql, params = []) {
+function queryOneFromActiveDatabase(sql, params = []) {
   const stmt = db.prepare(sql);
-  stmt.bind(params);
-  if (stmt.step()) {
-    const obj = stmt.getAsObject();
-    stmt.free();
-    return obj;
+  try {
+    stmt.bind(params);
+    return stmt.step() ? stmt.getAsObject() : null;
+  } finally {
+    try {
+      stmt.free();
+    } catch {
+      // The active runtime may already be invalid and will be replaced by the caller.
+    }
   }
-  stmt.free();
-  return null;
+}
+
+function queryOne(sql, params = []) {
+  try {
+    return queryOneFromActiveDatabase(sql, params);
+  } catch (error) {
+    if (!recoverFromWasmMemoryError(error)) throw error;
+    return queryOneFromActiveDatabase(sql, params);
+  }
+}
+
+function queryAllFromActiveDatabase(sql, params = []) {
+  const stmt = db.prepare(sql);
+  try {
+    stmt.bind(params);
+    const rows = [];
+    while (stmt.step()) {
+      rows.push(stmt.getAsObject());
+    }
+    return rows;
+  } finally {
+    try {
+      stmt.free();
+    } catch {
+      // The active runtime may already be invalid and will be replaced by the caller.
+    }
+  }
 }
 
 function queryAll(sql, params = []) {
-  const stmt = db.prepare(sql);
-  stmt.bind(params);
-  const rows = [];
-  while (stmt.step()) {
-    rows.push(stmt.getAsObject());
+  try {
+    return queryAllFromActiveDatabase(sql, params);
+  } catch (error) {
+    if (!recoverFromWasmMemoryError(error)) throw error;
+    return queryAllFromActiveDatabase(sql, params);
   }
-  stmt.free();
-  return rows;
 }
 
 function parsePageAccess(value) {
@@ -371,13 +426,11 @@ export function getNotices() {
 
 export function saveNotices(rows, submittedAt, submittedBy) {
   db.run('DELETE FROM notices');
-  const insert = db.prepare('INSERT INTO notices (id, data) VALUES (?, ?)');
-  rows.forEach((row) => {
-    insert.bind([row.id, JSON.stringify(row)]);
-    insert.step();
-    insert.reset();
+  withPreparedStatement('INSERT INTO notices (id, data) VALUES (?, ?)', (insert) => {
+    rows.forEach((row) => {
+      insert.run([row.id, JSON.stringify(row)]);
+    });
   });
-  insert.free();
   setMeta('notices_submittedAt', submittedAt);
   setMeta('notices_submittedBy', submittedBy);
   saveDb();
@@ -571,7 +624,6 @@ export function getOperationLogs(limit = 500) {
 
 function setMeta(key, value) {
   db.run('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', [key, value]);
-  saveDb();
 }
 
 // Session cleanup - delete sessions older than maxAgeMs (default 7 days)
