@@ -47,6 +47,15 @@ jobs:
             RELEASE=/home/ubuntu/zhuge-ai-lab/pinzhiyanhuo-release.tgz
             RELEASE_DIR=/home/ubuntu/zhuge-ai-lab/pinzhiyanhuo-release
 
+            echo ">>> Pre-deploy service state"
+            pm2 describe pinzhiyanhuo || true
+            pm2 logs pinzhiyanhuo --lines 120 --nostream || true
+            curl -fsS --max-time 5 http://127.0.0.1:4002/api/health || true
+
+            echo ">>> Backup data before replacing code"
+            cd "$APP_DIR"
+            npm run backup
+
             echo ">>> Unpack latest code"
             rm -rf "$RELEASE_DIR"
             mkdir -p "$RELEASE_DIR"
@@ -66,9 +75,6 @@ jobs:
 
             cd "$APP_DIR"
             echo "Release package unpacked"
-
-            echo ">>> Backup data"
-            npm run backup
 
             echo ">>> Install dependencies"
             rm -rf dist
