@@ -1,0 +1,56 @@
+name: Quality Inspection Health Watchdog
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: pinzhiyanhuo-tencent-runtime
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check and recover service
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: 129.211.9.242
+          username: ubuntu
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: 22
+          script: |
+            set -e
+            APP_DIR=/home/ubuntu/zhuge-ai-lab/pinzhiyanhuo
+
+            if curl -fsS --max-time 5 http://127.0.0.1:4002/api/health >/dev/null; then
+              echo "Service is healthy"
+              exit 0
+            fi
+
+            echo "Service is unavailable; creating a verified backup before recovery"
+            cd "$APP_DIR"
+            npm run backup
+
+            export ADMIN_PASSWORD='${{ secrets.ADMIN_PASSWORD }}'
+            export DINGTALK_WEBHOOK='${{ secrets.DINGTALK_WEBHOOK }}'
+            export DINGTALK_SECRET='${{ secrets.DINGTALK_SECRET }}'
+            if pm2 describe pinzhiyanhuo >/dev/null 2>&1; then
+              pm2 restart pinzhiyanhuo --update-env
+            else
+              pm2 start ecosystem.config.cjs --update-env
+            fi
+            pm2 save
+
+            for attempt in $(seq 1 30); do
+              if curl -fsS --max-time 5 http://127.0.0.1:4002/api/health >/dev/null; then
+                echo "Service recovery health check passed"
+                exit 0
+              fi
+              sleep 1
+            done
+
+            pm2 logs pinzhiyanhuo --lines 120 --nostream
+            exit 1
