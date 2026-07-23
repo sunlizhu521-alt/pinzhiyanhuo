@@ -278,6 +278,32 @@ function feedbackNotificationFields(record = {}, feedback = {}) {
   return fields.map(([label, value]) => ({ label, value: safeNoticeValue(value) }));
 }
 
+function scheduleNotificationFields(record = {}, schedule = {}) {
+  return [
+    ['供应商简称', record.supplierShortName],
+    ['产品线', record.salesProductLine],
+    ['系列', record.series],
+    ['是否新品', record.firstInspection],
+    ['SKU及数量', record.skuQuantity],
+    ['数量', record.totalQuantity],
+    ['事业部', record.businessDepartments],
+    ['运营', record.operation],
+    ['验货通知人', record.inspectionNotifier || record.inspectionApplicant],
+    ['地址', record.supplierAddress],
+    ['可验货时间', record.shipmentTime],
+    ['验货员', schedule.inspector],
+    ['计划验货时间', schedule.scheduledDate]
+  ].map(([label, value]) => ({ label, value: safeNoticeValue(value) }));
+}
+
+function setScheduleNotificationContext(req, items, schedules) {
+  const noticesById = new Map((getNotices().rows || []).map((record) => [record.id, record]));
+  req.dingTalkSchedules = items.map((item) => ({
+    record: noticesById.get(item.id) || {},
+    schedule: schedules[item.id] || item
+  }));
+}
+
 function describeMutation(req) {
   const method = req.method;
   const pathName = String(req.originalUrl || req.path || '').split('?')[0];
@@ -317,8 +343,28 @@ function describeMutation(req) {
     };
   }
   if (pathName === '/api/quality-inspection/summary-import') return { action: '导入历史台账', detail: `记录数：${itemsCount}` };
-  if (method === 'PATCH' && pathName === '/api/quality-inspection/schedules') return { action: '批量安排验货', detail: `记录数：${itemsCount}` };
-  if (/\/api\/quality-inspection\/schedules\/[^/]+$/.test(pathName)) return { action: '安排验货', detail: `验货员：${safeNoticeValue(body.inspector)}；计划时间：${safeNoticeValue(body.scheduledDate)}` };
+  if (method === 'PATCH' && pathName === '/api/quality-inspection/schedules') {
+    const contexts = req.dingTalkSchedules || [];
+    const notificationSections = contexts.slice(0, 10).map(({ record, schedule }, index) => ({
+      title: `验货安排 ${index + 1}`,
+      fields: scheduleNotificationFields(record, schedule)
+    }));
+    return {
+      action: '批量安排验货',
+      detail: `记录数：${itemsCount}`,
+      notificationSections,
+      notificationOmittedCount: Math.max(0, contexts.length - notificationSections.length)
+    };
+  }
+  if (/\/api\/quality-inspection\/schedules\/[^/]+$/.test(pathName)) {
+    const context = req.dingTalkSchedules?.[0] || {};
+    const schedule = context.schedule || body;
+    return {
+      action: '安排验货',
+      detail: `验货员：${safeNoticeValue(schedule.inspector)}；计划时间：${safeNoticeValue(schedule.scheduledDate)}`,
+      notificationFields: scheduleNotificationFields(context.record || {}, schedule)
+    };
+  }
   if (method === 'POST' && /\/api\/quality-inspection\/reports\/[^/]+$/.test(pathName)) return { action: '上传检验报告单', detail: `记录ID：${safeNoticeValue(targetId)}${fileText ? `；${fileText}` : ''}` };
   if (method === 'DELETE' && /\/api\/quality-inspection\/reports\/[^/]+$/.test(pathName)) return { action: '删除检验报告单', detail: `记录ID：${safeNoticeValue(targetId)}` };
   if (method === 'DELETE' && /\/api\/quality-inspection\/records\/[^/]+$/.test(pathName)) return { action: '删除验货记录', detail: `记录ID：${safeNoticeValue(targetId)}` };
@@ -476,6 +522,15 @@ async function notifyDingTalk(req, mutation) {
   (mutation.notificationFields || []).forEach(({ label, value }) => {
     lines.push(`- ${safeNoticeValue(label)}：${safeNoticeValue(value)}`);
   });
+  (mutation.notificationSections || []).forEach(({ title, fields }) => {
+    lines.push('', `#### ${safeNoticeValue(title)}`);
+    (fields || []).forEach(({ label, value }) => {
+      lines.push(`- ${safeNoticeValue(label)}：${safeNoticeValue(value)}`);
+    });
+  });
+  if (mutation.notificationOmittedCount) {
+    lines.push(`- 其余 ${mutation.notificationOmittedCount} 条安排未展开，请在验货安排页面查看。`);
+  }
   const text = lines.join('\n');
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5000);
@@ -2479,13 +2534,16 @@ app.patch('/api/quality-inspection/schedules', requireAuth, requirePages('inspec
   if (normalizedItems.some((item) => !item.id)) return res.status(400).json({ error: '验货安排记录ID不能为空。' });
   const changes = buildScheduleChanges(normalizedItems, req.authUser);
   saveQualityInspectionBatch(changes);
+  setScheduleNotificationContext(req, normalizedItems, changes.schedules);
   res.json({ updated: normalizedItems.length });
 });
 
 app.patch('/api/quality-inspection/schedules/:id', requireAuth, requirePages('inspectionSchedule'), requireRoles(ROLE_ADMIN), async (req, res) => {
   const id = normalizeText(req.params.id);
-  const changes = buildScheduleChanges([{ ...(req.body || {}), id }], req.authUser);
+  const item = { ...(req.body || {}), id };
+  const changes = buildScheduleChanges([item], req.authUser);
   saveQualityInspectionBatch(changes);
+  setScheduleNotificationContext(req, [item], changes.schedules);
   res.json(changes.schedules[id]);
 });
 

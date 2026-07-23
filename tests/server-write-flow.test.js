@@ -137,12 +137,14 @@ test('concurrent login and notice submission complete through the HTTP API', asy
           supplierFinishTime: '2026-07-21',
           shipmentTime: '2026-07-22',
           supplierShortName: '测试供应商',
+          supplierAddress: '广东省深圳市测试路1号',
           businessDepartments: '测试事业部',
           operation: '测试运营',
           firstInspection: '是',
           salesProductLine: '测试产品线',
           series: '测试系列',
-          totalQuantity: '10'
+          totalQuantity: '10',
+          skuQuantity: 'SKU-A 10'
       }]
     });
     const noticeResponses = await Promise.all(['integration-notice-1', 'integration-notice-2'].map((id) => (
@@ -158,6 +160,63 @@ test('concurrent login and notice submission complete through the HTTP API', asy
     )));
     const noticeResponseTexts = await Promise.all(noticeResponses.map((response) => response.text()));
     assert.ok(noticeResponses.every((response) => response.status === 200), `${noticeResponseTexts.join('\n')}\n${output}`);
+
+    const scheduleResponse = await fetch(`${baseUrl}/api/quality-inspection/schedules/integration-notice-1`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${login.token}`
+      },
+      body: JSON.stringify({
+        inspector: '梅孜琨',
+        scheduledDate: '2026-07-29',
+        status: '已安排'
+      }),
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(scheduleResponse.status, 200, await scheduleResponse.text());
+    const scheduleMessage = await waitForDingTalkMessage(dingTalkMessages, '安排验货');
+    [
+      '供应商简称：测试供应商',
+      '产品线：测试产品线',
+      '系列：测试系列',
+      '是否新品：是',
+      'SKU及数量：SKU-A 10',
+      '数量：10',
+      '事业部：测试事业部',
+      '运营：测试运营',
+      '验货通知人：孙立柱',
+      '地址：广东省深圳市',
+      '可验货时间：2026-07-22',
+      '验货员：梅孜琨',
+      '计划验货时间：2026-07-29'
+    ].forEach((expected) => assert.match(scheduleMessage, new RegExp(expected)));
+
+    const batchScheduleResponse = await fetch(`${baseUrl}/api/quality-inspection/schedules`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${login.token}`
+      },
+      body: JSON.stringify({
+        items: [{
+          id: 'integration-notice-2',
+          inspector: '测试批量验货员',
+          scheduledDate: '2026-07-30',
+          status: '已安排'
+        }]
+      }),
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(batchScheduleResponse.status, 200, await batchScheduleResponse.text());
+    const batchScheduleMessage = await waitForDingTalkMessage(dingTalkMessages, '批量安排验货');
+    [
+      '#### 验货安排 1',
+      '供应商简称：测试供应商',
+      'SKU及数量：SKU-A 10',
+      '验货员：测试批量验货员',
+      '计划验货时间：2026-07-30'
+    ].forEach((expected) => assert.match(batchScheduleMessage, new RegExp(expected)));
 
     const recordsResponse = await fetch(`${baseUrl}/api/quality-inspection/records`, {
       headers: { Authorization: `Bearer ${login.token}` },
