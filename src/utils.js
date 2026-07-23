@@ -248,6 +248,7 @@ function mergeScheduleRecords(records = []) {
     const hasQuantity = group.some((record) => parseQuantity(record.totalQuantity) !== null);
     const businessDepartments = uniqueValues(group.flatMap((record) => splitMultiValue(record.businessDepartments)));
     const remarks = uniqueValues(group.map((record) => record.remark));
+    const firstInspections = uniqueValues(group.map((record) => record.firstInspection));
     const quantityDetail = group
       .map((record) => {
         const departments = splitMultiValue(record.businessDepartments);
@@ -266,6 +267,7 @@ function mergeScheduleRecords(records = []) {
       sourceCount: group.length,
       totalQuantity: hasQuantity ? formatQuantity(totalQuantity) : normalize(first.totalQuantity),
       businessDepartments: businessDepartments.join('/'),
+      firstInspection: firstInspections.join('/'),
       remark: mergedRemarkParts.join('；'),
       schedule: first.schedule || {},
       report: { ...(first.report || {}) }
