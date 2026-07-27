@@ -57,7 +57,7 @@ function InspectionStampPage({ records, savingId, onStamp, onReject }) {
   }
 
   async function saveStampResult(dataUrl, skipStamp) {
-    if (!canStamp) return;
+    if (!current || (!skipStamp && !canStamp)) return;
     setPreviewing(true);
     setPreviewError('');
     try {
@@ -82,7 +82,11 @@ function InspectionStampPage({ records, savingId, onStamp, onReject }) {
   }
 
   async function saveWithoutStamp() {
-    if (!canStamp) return;
+    if (!current) return;
+    if (!canStamp) {
+      await saveStampResult('', true);
+      return;
+    }
     setPreviewing(true);
     setPreviewError('');
     try {
@@ -173,7 +177,7 @@ function InspectionStampPage({ records, savingId, onStamp, onReject }) {
         </label>
         <button type="button" className="ghost compact-button" onClick={() => go(-1)} disabled={stampRecords.length < 2}>上一张</button>
         <button type="button" className="ghost compact-button" onClick={() => go(1)} disabled={stampRecords.length < 2}>下一张</button>
-        <button type="button" className="ghost compact-button" onClick={() => setRotation((value) => (value + 90) % 360)} disabled={!current}>旋转</button>
+        <button type="button" className="ghost compact-button" onClick={() => setRotation((value) => (value + 90) % 360)} disabled={!canStamp}>旋转</button>
         <button
           type="button"
           className="compact-button"
@@ -185,7 +189,7 @@ function InspectionStampPage({ records, savingId, onStamp, onReject }) {
         <button
           type="button"
           className="compact-button"
-          disabled={!canStamp || previewing || savingId === current?.id}
+          disabled={!current || previewing || savingId === current?.id}
           onClick={saveWithoutStamp}
         >
           {savingId === current?.id ? '保存中' : '直接保存'}
@@ -269,7 +273,7 @@ function InspectionStampPage({ records, savingId, onStamp, onReject }) {
               <span>{current.salesProductLine || ''} {current.series || ''}</span>
               {activePreview && <span className="stamp-preview-note">当前为盖章预览，确认保存后才会覆盖原文件。</span>}
               {previewError && <span className="stamp-warning">{previewError}</span>}
-              {!canStamp && <span className="stamp-warning">当前文件不是图片格式，只能查看，不能直接加盖图片印章。</span>}
+              {!canStamp && <span className="stamp-warning">当前文件不是图片格式，只能查看，不能直接加盖图片印章；可点击“直接保存”保留原文件。</span>}
             </div>
             <div className="stamp-canvas">
               {isImageReport(current) ? (

@@ -59,6 +59,7 @@ const PRODUCT_CATEGORY_SLOT_ID = 'dimension-slot-1';
 const PURCHASE_WORK_DIVISION_SLOT_ID = 'dimension-slot-2';
 const DIMENSION_PREVIEW_ROW_LIMIT = 20;
 const DIMENSION_SLOT_IDS = ['dimension-slot-1', 'dimension-slot-2', 'dimension-slot-3', 'dimension-slot-4'];
+const REPORT_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp']);
 const DIMENSION_SUPPLIER_ALIASES = ['产品线明细供应商', '供应商简称', '供应商', '供应商名称', '厂家简称', '厂商简称', '工厂简称'];
 const DIMENSION_ADDRESS_ALIASES = ['产品线明细地址', '供应商地址', '验货地址', '工厂地址', '详细地址', '地址', '所在地'];
 const DIMENSION_PROVINCE_ALIASES = ['省', '省份', '所在省', '省区'];
@@ -2650,6 +2651,11 @@ app.post('/api/quality-inspection/reports/:id/stamp', requireAuth, requirePages(
   const skipStamp = Boolean(req.body.skipStamp && req.body.skipStamp !== '0');
   const processedAt = nowText();
   const rotation = Number(req.body.rotation || 0);
+  const isImageReport = REPORT_IMAGE_EXTENSIONS.has(path.extname(previous.fileName).toLowerCase());
+  if (!skipStamp && !isImageReport) {
+    await removeUploadedFile(req.file);
+    return res.status(400).json({ error: '当前文件不是图片格式，只能查看或直接保存，不能加盖图片印章。' });
+  }
 
   if (req.file) {
     await rename(req.file.path, reportFilePath(previous.fileName));

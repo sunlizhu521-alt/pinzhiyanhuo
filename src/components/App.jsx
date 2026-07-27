@@ -2241,7 +2241,7 @@ function App() {
       setMessage('当前没有可盖章的检验报告单。');
       return false;
     }
-    if (!isImageReport(record)) {
+    if (!skipStamp && !isImageReport(record)) {
       setMessage('当前文件不是图片格式，暂不支持直接盖章，请上传 JPG/PNG 图片版检验报告单。');
       return false;
     }
@@ -2286,7 +2286,7 @@ function App() {
           const payload = await res.json();
           setReportFiles(payload.files || []);
         }
-        setMessage(skipStamp ? '图片已按当前方向保存到报告单文件库。' : '检验章已加盖，图片已保存到报告单文件库。');
+        setMessage(skipStamp ? '文件已直接保存到报告单文件库。' : '检验章已加盖，图片已保存到报告单文件库。');
         return true;
       }
       if (STATIC_MODE) {
@@ -2302,7 +2302,7 @@ function App() {
         };
         saveStaticDb(db);
         setRecords(composedStaticRecords(db).filter((item) => canReadClientRecord(user, item)));
-        setMessage(skipStamp ? '图片已按当前方向保存，文件已覆盖保存。' : '检验章已加盖，文件已覆盖保存。');
+        setMessage(skipStamp ? '文件已直接保存。' : '检验章已加盖，文件已覆盖保存。');
         return true;
       }
       const stampFileName = record.report?.fileName || record.report?.originalName || 'stamped-report.png';
@@ -2320,7 +2320,7 @@ function App() {
         return false;
       }
       await refreshRecords();
-      setMessage(skipStamp ? '图片已按当前方向保存到报告单文件库。' : '检验章已加盖，文件已覆盖保存到报告单文件库。');
+      setMessage(skipStamp ? '文件已直接保存到报告单文件库。' : '检验章已加盖，文件已覆盖保存到报告单文件库。');
       return true;
     } catch (error) {
       console.error('stampReport failed', error);
