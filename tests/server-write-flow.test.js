@@ -51,7 +51,7 @@ test('concurrent login and notice submission complete through the HTTP API', asy
     saveDatabaseState({
       users: [
         { id: 'u-admin', name: '孙立柱', password: await bcrypt.hash(process.env.ADMIN_PASSWORD, 4), role: '管理员', pageAccess: [] },
-        { id: 'u-user', name: '测试用户', password: await bcrypt.hash(process.env.ADMIN_PASSWORD, 4), role: '普通用户', pageAccess: ['inspectionNotice'] }
+        { id: 'u-user', name: '测试用户', password: await bcrypt.hash(process.env.ADMIN_PASSWORD, 4), role: '普通用户', pageAccess: ['inspectionNotice', 'inspectionFeedback'] }
       ],
       sessions: {},
       qualityInspection: {
@@ -192,6 +192,26 @@ test('concurrent login and notice submission complete through the HTTP API', asy
       '计划验货时间：2026-07-29'
     ].forEach((expected) => assert.match(scheduleMessage, new RegExp(expected)));
 
+    const userLoginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: '测试用户', password }),
+      signal: AbortSignal.timeout(10000)
+    });
+    const userLoginText = await userLoginResponse.text();
+    assert.equal(userLoginResponse.status, 200, userLoginText);
+    const userLogin = JSON.parse(userLoginText);
+    const deniedInspectorResponse = await fetch(`${baseUrl}/api/quality-inspection/feedback/integration-notice-1`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${userLogin.token}`
+      },
+      body: JSON.stringify({ assignedInspector: '无权修改' }),
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(deniedInspectorResponse.status, 403, await deniedInspectorResponse.text());
+
     const batchScheduleResponse = await fetch(`${baseUrl}/api/quality-inspection/schedules`, {
       method: 'PATCH',
       headers: {
@@ -235,6 +255,7 @@ test('concurrent login and notice submission complete through the HTTP API', asy
         Authorization: `Bearer ${login.token}`
       },
       body: JSON.stringify({
+        assignedInspector: '管理员修改验货员',
         actualInspectionTime: '2026-07-21',
         actualInspector: '测试验货员',
         inspectionQuantity: '10',
@@ -248,6 +269,17 @@ test('concurrent login and notice submission complete through the HTTP API', asy
       signal: AbortSignal.timeout(10000)
     });
     assert.equal(feedbackResponse.status, 200, await feedbackResponse.text());
+    const updatedRecordsResponse = await fetch(`${baseUrl}/api/quality-inspection/records`, {
+      headers: { Authorization: `Bearer ${login.token}` },
+      signal: AbortSignal.timeout(10000)
+    });
+    const updatedRecordsText = await updatedRecordsResponse.text();
+    assert.equal(updatedRecordsResponse.status, 200, updatedRecordsText);
+    const updatedRecords = JSON.parse(updatedRecordsText);
+    assert.equal(
+      updatedRecords.rows.find((record) => record.id === 'integration-notice-1')?.schedule?.inspector,
+      '管理员修改验货员'
+    );
     const feedbackMessage = await waitForDingTalkMessage(dingTalkMessages, '提交验货反馈');
     [
       '验货通知人：孙立柱',

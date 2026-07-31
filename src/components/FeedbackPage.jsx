@@ -30,6 +30,7 @@ function FeedbackPage({
   onClearImportPreview,
   onSave,
   onAddFeedback,
+  canEditInspector = false,
   canDelete = false,
   onDelete,
   onDeleteReport
@@ -490,7 +491,16 @@ function FeedbackPage({
             formatDate(record.inspectionFillTime),
             formatDate(record.shipmentTime),
             formatDate(record.schedule?.scheduledDate),
-            <span className="readonly-cell">{normalize(record.schedule?.inspector)}</span>,
+            canEditInspector ? (
+              <input
+                name="assignedInspector"
+                form={`feedback-form-${record.id}`}
+                className="table-input"
+                defaultValue={normalize(record.schedule?.inspector)}
+              />
+            ) : (
+              <span className="readonly-cell">{normalize(record.schedule?.inspector)}</span>
+            ),
             <input name="actualInspector" form={`feedback-form-${record.id}`} className="table-input" defaultValue={feedback.actualInspector || ''} />,
             <input
               name="actualInspectionTime"

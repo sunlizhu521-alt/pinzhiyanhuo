@@ -1758,6 +1758,8 @@ function App() {
   async function saveFeedback(record, formElement, cachedReportFile) {
     setSavingId(record.id);
     const form = new FormData(formElement);
+    const canEditAssignedInspector = isPrimaryAdminUser(user);
+    const assignedInspector = canEditAssignedInspector ? normalize(form.get('assignedInspector')) : '';
     const formFile = form.get('reportFile');
     const file = cachedReportFile instanceof File && cachedReportFile.size > 0 ? cachedReportFile : formFile;
     const sourceIds = Array.isArray(record.sourceIds) && record.sourceIds.length ? record.sourceIds : [record.id];
@@ -1856,6 +1858,14 @@ function App() {
       sourceIds.forEach((sourceId) => {
         const sourceRecord = records.find((item) => item.id === sourceId) || record;
         const patch = feedbackPatchForRecord(sourceRecord);
+        if (canEditAssignedInspector) {
+          db.qualityInspection.schedules[sourceId] = {
+            ...(db.qualityInspection.schedules[sourceId] || {}),
+            inspector: assignedInspector,
+            updatedAt: savedAt,
+            updatedBy: user.name
+          };
+        }
         db.qualityInspection.feedback[sourceId] = {
           ...(db.qualityInspection.feedback[sourceId] || {}),
           ...patch,
@@ -1906,7 +1916,11 @@ function App() {
       return authFetch(`${API}/api/quality-inspection/feedback/${encodeURIComponent(sourceRecord.id)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...(sourceRecord.feedback || {}), ...feedbackPatchForRecord(sourceRecord) })
+        body: JSON.stringify({
+          ...(sourceRecord.feedback || {}),
+          ...feedbackPatchForRecord(sourceRecord),
+          ...(canEditAssignedInspector ? { assignedInspector } : {})
+        })
       });
     }));
     setSavingId('');
@@ -2999,6 +3013,7 @@ function App() {
             onClearImportPreview={clearFeedbackImportPreview}
             onSave={saveFeedback}
             onAddFeedback={addDirectFeedback}
+            canEditInspector={isPrimaryAdminUser(user)}
             canDelete={canDeleteInspectionInfo}
             onDelete={deleteInspectionRecord}
             onDeleteReport={deleteReport}

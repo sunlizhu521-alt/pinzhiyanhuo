@@ -2804,10 +2804,26 @@ app.patch('/api/quality-inspection/feedback/:id', requireAuth, requirePages('ins
   const db = await readDb();
   const record = composedRecords(db).find((item) => item.id === req.params.id);
   if (!canWriteFeedback(req.authUser, record)) return res.status(403).json({ error: '无权保存该验货反馈' });
+  const hasAssignedInspector = Object.prototype.hasOwnProperty.call(req.body || {}, 'assignedInspector');
+  if (hasAssignedInspector && !isPrimaryAdminUser(req.authUser)) {
+    return res.status(403).json({ error: '仅孙立柱管理员可以修改验货员' });
+  }
   const updatedAt = nowText();
+  const { assignedInspector, ...feedbackInput } = req.body || {};
+  let notificationRecord = record;
+  if (hasAssignedInspector) {
+    const nextSchedule = {
+      ...(db.qualityInspection.schedules[req.params.id] || {}),
+      inspector: normalizeText(assignedInspector),
+      updatedAt,
+      updatedBy: req.authUser.name
+    };
+    db.qualityInspection.schedules[req.params.id] = nextSchedule;
+    notificationRecord = { ...record, schedule: nextSchedule };
+  }
   const nextFeedback = {
     ...(db.qualityInspection.feedback[req.params.id] || {}),
-    ...req.body,
+    ...feedbackInput,
     updatedAt
   };
   if (nextFeedback.actualInspectionTime) {
@@ -2856,7 +2872,7 @@ app.patch('/api/quality-inspection/feedback/:id', requireAuth, requirePages('ins
   delete nextFeedback.reworkSchedule;
   db.qualityInspection.feedback[req.params.id] = nextFeedback;
   await saveDb(db);
-  req.dingTalkFeedback = { record, feedback: nextFeedback };
+  req.dingTalkFeedback = { record: notificationRecord, feedback: nextFeedback };
   res.json(db.qualityInspection.feedback[req.params.id]);
 });
 
