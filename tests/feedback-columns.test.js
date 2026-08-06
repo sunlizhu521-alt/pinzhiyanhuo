@@ -26,3 +26,11 @@ test('feedback page offers inspection time change as a follow-up result', () => 
   assert.match(source, /requiresFollowUpInspection\(event\.target\.value\)/);
   assert.match(source, /该场景无需上传报告/);
 });
+
+test('feedback page filters records that need inspection verification', () => {
+  const source = readFileSync(new URL('../src/components/FeedbackPage.jsx', import.meta.url), 'utf8');
+
+  assert.match(source, /verificationStatus: inspectionVerificationStatus\(formatDate\(record\.schedule\?\.scheduledDate\), today\)/);
+  assert.match(source, /updateFilter\('verificationStatus', event\.target\.value\)/);
+  assert.match(source, /全部核实状态/);
+});

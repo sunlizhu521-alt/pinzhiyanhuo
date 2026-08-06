@@ -4,6 +4,7 @@ import DataTable from './DataTable.jsx';
 import { canReadClientRecord, hasObjectValue, normalize, formatDate, feedbackReportNo, supplierInitials, formatCompactDate, mergeFeedbackRecords, uniqueValues, requiresFollowUpInspection } from '../utils.js';
 import { reportHref, reportFileExt, isImageReport, shouldShowFeedbackRecord, feedbackMatchKey } from '../file-utils.js';
 import { NOTICE_FIELDS } from '../constants.js';
+import { inspectionVerificationStatus } from '../../shared/feedback-results.js';
 import ReportPreviewModal from './ReportPreviewModal.jsx';
 
 const FEEDBACK_STATUS_OPTIONS = ['待安排验货员', '待验货', '需返工', '验货时间变更', '已验货'];
@@ -41,7 +42,8 @@ function FeedbackPage({
     salesProductLine: '',
     series: '',
     inspector: '',
-    status: ''
+    status: '',
+    verificationStatus: ''
   });
   const [feedbackDrafts, setFeedbackDrafts] = useState({});
   const [freshlySubmitted, setFreshlySubmitted] = useState(new Set());
@@ -63,14 +65,18 @@ function FeedbackPage({
   }
   const mergedRecords = useMemo(() => mergeFeedbackRecords(records, reportHref), [records]);
   const detailRecords = records;
+  const today = formatDate(new Date());
   const filterOptions = useMemo(() => ({
     supplierShortName: uniqueValues(detailRecords.map((record) => record.supplierShortName)),
     salesProductLine: uniqueValues(detailRecords.map((record) => record.salesProductLine)),
     series: uniqueValues(detailRecords.map((record) => record.series)),
     inspector: uniqueValues(detailRecords.map((record) => record.schedule?.inspector)),
     status: uniqueValues(detailRecords.map((record) => feedbackStatus(record, activeFeedback(record))))
-      .sort((left, right) => FEEDBACK_STATUS_OPTIONS.indexOf(left) - FEEDBACK_STATUS_OPTIONS.indexOf(right))
-  }), [detailRecords]);
+      .sort((left, right) => FEEDBACK_STATUS_OPTIONS.indexOf(left) - FEEDBACK_STATUS_OPTIONS.indexOf(right)),
+    verificationStatus: uniqueValues(detailRecords.map((record) => (
+      inspectionVerificationStatus(formatDate(record.schedule?.scheduledDate), today)
+    )))
+  }), [detailRecords, today]);
   const hasFilterOptions = Object.values(filterOptions).some((options) => options.length > 0);
   const filteredRecords = useMemo(() => {
     const normalizedFilters = Object.fromEntries(
@@ -84,16 +90,17 @@ function FeedbackPage({
         series: record.series,
         inspector: record.schedule?.inspector,
         result: feedback.result,
-        status: feedbackStatus(record, feedback)
+        status: feedbackStatus(record, feedback),
+        verificationStatus: inspectionVerificationStatus(formatDate(record.schedule?.scheduledDate), today)
       };
       return Object.entries(normalizedFilters).every(([key, value]) => {
         if (!value) return true;
-        if (key === 'status') return normalize(values.status).toLowerCase() === value;
+        if (key === 'status' || key === 'verificationStatus') return normalize(values[key]).toLowerCase() === value;
         if (key === 'result') return normalize(values[key]).toLowerCase() === value;
         return normalize(values[key]).toLowerCase().includes(value);
       });
     });
-  }, [detailRecords, filters]);
+  }, [detailRecords, filters, today]);
   function updateFilter(key, value) {
     setFilters((current) => ({ ...current, [key]: value }));
   }
@@ -103,7 +110,8 @@ function FeedbackPage({
       salesProductLine: '',
       series: '',
       inspector: '',
-      status: ''
+      status: '',
+      verificationStatus: ''
     });
   }
   useEffect(() => {
@@ -238,6 +246,12 @@ function FeedbackPage({
             <select value={filters.status} onChange={(event) => updateFilter('status', event.target.value)}>
               <option value="">全部状态</option>
               {filterOptions.status.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          )}
+          {filterOptions.verificationStatus.length > 0 && (
+            <select value={filters.verificationStatus} onChange={(event) => updateFilter('verificationStatus', event.target.value)}>
+              <option value="">全部核实状态</option>
+              {filterOptions.verificationStatus.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
           )}
           <button type="button" className="ghost compact-button" onClick={clearFilters}>清除筛选</button>
