@@ -298,6 +298,58 @@ test('concurrent login and notice submission complete through the HTTP API', asy
       '问题反馈：包装破损'
     ].forEach((expected) => assert.match(feedbackMessage, new RegExp(expected)));
 
+    const timeChangeResponse = await fetch(`${baseUrl}/api/quality-inspection/feedback/integration-notice-2`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${login.token}`
+      },
+      body: JSON.stringify({
+        actualInspectionTime: '2026-07-30',
+        actualInspector: '测试批量验货员',
+        inspectionQuantity: '10',
+        result: '验货时间变更',
+        feedbackText: '供应商申请调整验货时间'
+      }),
+      signal: AbortSignal.timeout(10000)
+    });
+    const timeChangeText = await timeChangeResponse.text();
+    assert.equal(timeChangeResponse.status, 200, timeChangeText);
+    const timeChangeFeedback = JSON.parse(timeChangeText);
+    assert.equal(timeChangeFeedback.result, '验货时间变更');
+    assert.equal(timeChangeFeedback.rework?.status, '待复验');
+
+    const timeChangeCompleteResponse = await fetch(`${baseUrl}/api/quality-inspection/feedback/integration-notice-2`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${login.token}`
+      },
+      body: JSON.stringify({
+        ...timeChangeFeedback,
+        rework: {
+          ...timeChangeFeedback.rework,
+          reworkCompleteTime: '2026-08-05',
+          reworkRemark: '改到新时间验货'
+        },
+        reworkSchedule: {}
+      }),
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(timeChangeCompleteResponse.status, 200, await timeChangeCompleteResponse.text());
+    const timeChangeRecordsResponse = await fetch(`${baseUrl}/api/quality-inspection/records`, {
+      headers: { Authorization: `Bearer ${login.token}` },
+      signal: AbortSignal.timeout(10000)
+    });
+    const timeChangeRecordsText = await timeChangeRecordsResponse.text();
+    assert.equal(timeChangeRecordsResponse.status, 200, timeChangeRecordsText);
+    const timeChangeRecord = JSON.parse(timeChangeRecordsText).rows.find((record) => record.id === 'integration-notice-2');
+    assert.equal(timeChangeRecord?.feedback?.result, '验货时间变更');
+    assert.equal(timeChangeRecord?.rework?.status, '待安排验货');
+    assert.equal(timeChangeRecord?.shipmentTime, '2026-08-05');
+    assert.equal(timeChangeRecord?.schedule?.status, '未安排');
+    assert.equal(timeChangeRecord?.schedule?.inspector, '');
+
     const directFeedbackResponse = await fetch(`${baseUrl}/api/quality-inspection/direct-feedback`, {
       method: 'POST',
       headers: {

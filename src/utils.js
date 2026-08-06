@@ -1,4 +1,5 @@
 import { BUSINESS_DEPARTMENT_OPTIONS, PAGE_OPTIONS, ROLE_PAGE_ACCESS, ROLE_ADMIN, DEFAULT_ADMIN_USER, MENU_PAGES, NOTICE_FIELDS, NOTICE_IMPORT_MERGE_KEYS } from './constants.js';
+import { requiresFollowUpInspection } from '../shared/feedback-results.js';
 
 function createId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
@@ -405,6 +406,7 @@ export {
   homeTabForUser,
   isAdminUser,
   isPrimaryAdminUser,
+  requiresFollowUpInspection,
   isSubmittedScheduleRecord,
   canReadClientRecord,
   createNoticeRow,

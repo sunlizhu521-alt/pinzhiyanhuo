@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import DataTable from './DataTable.jsx';
-import { canReadClientRecord, hasObjectValue, normalize, formatDate, feedbackReportNo, supplierInitials, formatCompactDate, mergeFeedbackRecords, uniqueValues } from '../utils.js';
+import { canReadClientRecord, hasObjectValue, normalize, formatDate, feedbackReportNo, supplierInitials, formatCompactDate, mergeFeedbackRecords, uniqueValues, requiresFollowUpInspection } from '../utils.js';
 import { reportHref, reportFileExt, isImageReport, shouldShowFeedbackRecord, feedbackMatchKey } from '../file-utils.js';
 import { NOTICE_FIELDS } from '../constants.js';
 import ReportPreviewModal from './ReportPreviewModal.jsx';
 
-const FEEDBACK_STATUS_OPTIONS = ['待安排验货员', '待验货', '需返工', '已验货'];
+const FEEDBACK_STATUS_OPTIONS = ['待安排验货员', '待验货', '需返工', '验货时间变更', '已验货'];
 
 function feedbackStatus(record, feedback = {}) {
   const hasInspector = !!normalize(record.schedule?.inspector);
@@ -14,6 +14,7 @@ function feedbackStatus(record, feedback = {}) {
   if (!hasInspector) return '待安排验货员';
   if (!result) return '待验货';
   if (result === '返工') return '需返工';
+  if (result === '验货时间变更') return '验货时间变更';
   return '已验货';
 }
 
@@ -53,7 +54,7 @@ function FeedbackPage({
   const previewLimitedRows = previewRows.slice(0, 10);
   const matchedCount = previewRows.filter((item) => item.recordId).length;
   function isReinspectionFeedback(record) {
-    return normalize(record.feedback?.result) === '返工'
+    return requiresFollowUpInspection(record.feedback?.result)
       && !!normalize(record.rework?.completedAt)
       && normalize(record.schedule?.status) === '已安排';
   }
@@ -379,6 +380,7 @@ function FeedbackPage({
                   <option value="通过">通过</option>
                   <option value="让步">让步</option>
                   <option value="返工">返工</option>
+                  <option value="验货时间变更">验货时间变更</option>
                 </select>
               </label>
               <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
@@ -464,7 +466,7 @@ function FeedbackPage({
           const feedback = justSubmitted ? {} : activeFeedback(record);
           const draft = feedbackDraft(record);
           const reportNo = feedbackReportNo(record, draft.actualInspectionTime, draft.inspectionQuantity);
-          const isReworkRow = !justSubmitted && normalize(draft.result) === '返工';
+          const isFollowUpRow = !justSubmitted && requiresFollowUpInspection(draft.result);
           const cachedReportFile = reportFileDrafts[record.id]?.file;
           const isReportRejected = !!normalize(record.report?.reportRejectedAt);
           return [
@@ -477,6 +479,7 @@ function FeedbackPage({
                 待安排验货员: '#c2410c',
                 待验货: '#1d4ed8',
                 需返工: '#dc2626',
+                验货时间变更: '#7c3aed',
                 已验货: '#047857'
               }[statusText];
               return <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '4px', background: color, color: '#fff', fontSize: '12px', fontWeight: 600 }}>{statusText}</span>;
@@ -535,7 +538,7 @@ function FeedbackPage({
                 updateFeedbackDraft(record.id, 'result', event.target.value);
                 setReworkRowIds((current) => {
                   const next = new Set(current);
-                  if (event.target.value === '返工') next.add(record.id);
+                  if (requiresFollowUpInspection(event.target.value)) next.add(record.id);
                   else next.delete(record.id);
                   return next;
                 });
@@ -545,6 +548,7 @@ function FeedbackPage({
               <option value="通过">通过</option>
               <option value="让步">让步</option>
               <option value="返工">返工</option>
+              <option value="验货时间变更">验货时间变更</option>
             </select>,
             <span className="readonly-cell wide-readonly-cell">{reportNo}</span>,
             <select name="issueLevel" form={`feedback-form-${record.id}`} className="table-input" defaultValue={feedback.issueLevel || ''}>
@@ -618,8 +622,8 @@ function FeedbackPage({
               );
             })(),
             <div className="feedback-report-cell">
-              {(reworkRowIds.has(record.id) || isReworkRow) ? (
-                <span style={{ color: '#94a3b8', fontSize: '13px' }}>返工无需上传报告</span>
+              {(reworkRowIds.has(record.id) || isFollowUpRow) ? (
+                <span style={{ color: '#94a3b8', fontSize: '13px' }}>该场景无需上传报告</span>
               ) : reportHref(record) && !isReportRejected ? (
                 <>
                   <button type="button" className="link-button" onClick={() => previewSavedReport(record)}>

@@ -17,3 +17,12 @@ test('feedback inspector is editable only when explicitly allowed', () => {
   assert.match(source, /canEditInspector = false/);
   assert.match(source, /canEditInspector \? \(\s*<input[\s\S]*name="assignedInspector"[\s\S]*<span className="readonly-cell">/);
 });
+
+test('feedback page offers inspection time change as a follow-up result', () => {
+  const source = readFileSync(new URL('../src/components/FeedbackPage.jsx', import.meta.url), 'utf8');
+  const options = source.match(/<option value="验货时间变更">验货时间变更<\/option>/g) || [];
+
+  assert.equal(options.length, 2);
+  assert.match(source, /requiresFollowUpInspection\(event\.target\.value\)/);
+  assert.match(source, /该场景无需上传报告/);
+});

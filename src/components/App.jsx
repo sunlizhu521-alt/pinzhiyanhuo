@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { API, STATIC_MODE, DEFAULT_ADMIN_USER, ROLE_ADMIN, ROLE_USER, BUSINESS_DEPARTMENT_OPTIONS, NOTICE_FIELDS, MENU_PAGES, PAGE_OPTIONS, DIMENSION_LIBRARY_SLOTS, PRODUCT_CATEGORY_SLOT_ID, PURCHASE_WORK_DIVISION_SLOT_ID, RECORD_REFRESH_PAGES, DIMENSION_REFRESH_PAGES, REPORT_FILE_REFRESH_PAGES, DIMENSION_PREVIEW_ROW_LIMIT } from '../constants.js';
-import { createId, normalize, formatDate, nowText, fixMojibakeText, splitMultiValue, joinBusinessDepartments, uniqueValues, canAccessPage, homeTabForUser, isAdminUser, isPrimaryAdminUser, isSubmittedScheduleRecord, canReadClientRecord, createNoticeRow, feedbackReportNo, mergeNoticeRowsForImport } from '../utils.js';
+import { createId, normalize, formatDate, nowText, fixMojibakeText, splitMultiValue, joinBusinessDepartments, uniqueValues, canAccessPage, homeTabForUser, isAdminUser, isPrimaryAdminUser, requiresFollowUpInspection, isSubmittedScheduleRecord, canReadClientRecord, createNoticeRow, feedbackReportNo, mergeNoticeRowsForImport } from '../utils.js';
 import { readStaticDb, saveStaticDb, readDimensionLibrary, saveDimensionLibrary, readReportFileLibrary, saveReportFileLibrary, readStoredUser, saveStoredUser, clearStoredUser, composedStaticRecords, normalizeStaticDb, normalizeDimensionLibrary } from '../db-utils.js';
 import { getCachedDimensionLibrary, setCachedDimensionLibrary } from '../dimension-cache.js';
 import { loadXlsxModule, parseWorkbookInBrowser, exportFileStamp, recordToMigrationLedgerRow, recordToReportExportRow, parseWorkbookSheetsInBrowser, parseDimensionSheet, importedRowsToNoticeRows, importedRowsToSummaryItems, importedRowsToFeedbackItems } from '../import-utils.js';
@@ -176,7 +176,7 @@ function App() {
   }), [displayRecords, productLineOptions, seriesOptions, supplierOptions]);
   const reworkRecords = useMemo(
     () => displayRecords.filter((record) => (
-      record.feedback?.result === '返工'
+      requiresFollowUpInspection(record.feedback?.result)
       && !['summaryImport', 'ledgerImport'].includes(normalize(record.importSource))
       && !record.rework?.completedAt
       && normalize(record.rework?.status) !== '已删除'
@@ -1798,11 +1798,11 @@ function App() {
       actualInspector: normalize(form.get('actualInspector')),
       feedbackText: normalize(form.get('feedbackText'))
     };
-    const isRework = feedbackPatch.result === '返工';
-    const feedbackSubmitId = isRework ? createId() : '';
+    const isFollowUp = requiresFollowUpInspection(feedbackPatch.result);
+    const feedbackSubmitId = isFollowUp ? createId() : '';
     const feedbackPatchForRecord = (sourceRecord = record) => {
       const existingRework = sourceRecord.rework || sourceRecord.feedback?.rework || {};
-      if (!isRework) {
+      if (!isFollowUp) {
         if (normalize(existingRework.status) === '待验货') {
           return {
             ...feedbackPatch,
@@ -1846,9 +1846,9 @@ function App() {
         rework: nextRework
       };
     };
-    const reportNo = isRework ? '' : feedbackReportNo(record, feedbackPatch.actualInspectionTime, feedbackPatch.inspectionQuantity);
-    const shouldResubmitRejectedReport = !isRework && reportNo && normalize(record.report?.reportRejectedAt);
-    if (!isRework && file instanceof File && file.size > 0 && !reportNo) {
+    const reportNo = isFollowUp ? '' : feedbackReportNo(record, feedbackPatch.actualInspectionTime, feedbackPatch.inspectionQuantity);
+    const shouldResubmitRejectedReport = !isFollowUp && reportNo && normalize(record.report?.reportRejectedAt);
+    if (!isFollowUp && file instanceof File && file.size > 0 && !reportNo) {
       setSavingId('');
       setMessage('请先填写实际验货时间和实际验货数量，系统会自动生成检验报告单编码后再上传检验报告单。');
       return false;
@@ -1872,7 +1872,7 @@ function App() {
           updatedAt: savedAt
         };
       });
-      if (!isRework && file instanceof File && file.size > 0) {
+      if (!isFollowUp && file instanceof File && file.size > 0) {
         const reportFileName = reportFileNameFromCode(reportNo, file.name);
         db.qualityInspection.reports[record.id] = {
           ...(db.qualityInspection.reports[record.id] || {}),
@@ -1889,7 +1889,7 @@ function App() {
         delete db.qualityInspection.reports[record.id].stampSkippedAt;
         delete db.qualityInspection.reports[record.id].stampSkippedBy;
         delete db.qualityInspection.reports[record.id].stampRotation;
-      } else if (!isRework && reportNo) {
+      } else if (!isFollowUp && reportNo) {
         db.qualityInspection.reports[record.id] = {
           ...(db.qualityInspection.reports[record.id] || {}),
           reportNo,
@@ -1930,7 +1930,7 @@ function App() {
       setMessage(payload.error || '验货反馈保存失败。');
       return false;
     }
-    if (!isRework && file instanceof File && file.size > 0) {
+    if (!isFollowUp && file instanceof File && file.size > 0) {
       const reportForm = new FormData();
       reportForm.append('file', file);
       reportForm.append('reportNo', reportNo);
@@ -1943,7 +1943,7 @@ function App() {
         await refreshRecords();
         return false;
       }
-    } else if (!isRework && reportNo && (reportNo !== normalize(record.report?.reportNo) || shouldResubmitRejectedReport)) {
+    } else if (!isFollowUp && reportNo && (reportNo !== normalize(record.report?.reportNo) || shouldResubmitRejectedReport)) {
       const reportForm = new FormData();
       reportForm.append('reportNo', reportNo);
       const reportRes = await authFetch(`${API}/api/quality-inspection/reports/${encodeURIComponent(record.id)}`, {
@@ -2041,8 +2041,8 @@ function App() {
       actualInspector: user.name,
       updatedAt: createdAt
     };
-    const isRework = feedback.result === '返工';
-    if (isRework) {
+    const isFollowUp = requiresFollowUpInspection(feedback.result);
+    if (isFollowUp) {
       feedback.rework = {
         source: 'inspectionFeedback',
         feedbackSubmitId: createId(),
@@ -2130,10 +2130,11 @@ function App() {
 
   async function saveReworkRecord(record, draft = {}) {
     setSavingId(record.id);
+    const followUpRemark = normalize(record.feedback?.result) === '验货时间变更' ? '验货时间变更后验货' : '返工后验货';
     const baseRemark = normalize(record.feedback?.remark);
-    const feedbackRemark = baseRemark.includes('返工后验货')
+    const feedbackRemark = baseRemark.includes(followUpRemark)
       ? baseRemark
-      : (baseRemark ? `${baseRemark}；返工后验货` : '返工后验货');
+      : (baseRemark ? `${baseRemark}；${followUpRemark}` : followUpRemark);
     const rework = {
       ...(record.rework || {}),
       reworkCompleteTime: normalize(draft.reworkCompleteTime),
@@ -2147,7 +2148,7 @@ function App() {
           scheduledDate: '',
           inspector: '',
           status: '未安排',
-          remark: normalize(record.schedule?.remark) || '返工后验货',
+          remark: normalize(record.schedule?.remark) || followUpRemark,
           reworkRequestedAt: nowText(),
           updatedAt: nowText()
         }
