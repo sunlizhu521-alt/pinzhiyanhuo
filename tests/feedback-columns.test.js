@@ -34,3 +34,15 @@ test('feedback page filters records that need inspection verification', () => {
   assert.match(source, /updateFilter\('verificationStatus', event\.target\.value\)/);
   assert.match(source, /全部核实状态/);
 });
+
+test('ledger filters by created date and inspection month before pagination', () => {
+  const source = readFileSync(new URL('../src/components/LedgerPage.jsx', import.meta.url), 'utf8');
+
+  assert.match(source, /formatDate\(record\.inspectionFillTime\) === normalizedFilters\.createdDate/);
+  assert.match(source, /formatDate\(record\.schedule\?\.scheduledDate\)\.slice\(0, 7\) === normalizedFilters\.inspectionMonth/);
+  assert.match(source, /type="date"[\s\S]*aria-label="添加时间"/);
+  assert.match(source, /type="month"[\s\S]*aria-label="验货月份"/);
+  assert.match(source, /const paginatedRecords = useMemo/);
+  assert.match(source, /rows=\{paginatedRecords\}/);
+  assert.match(source, /筛选后 \{filteredRecords\.length\} 条/);
+});

@@ -385,6 +385,46 @@ th {
   max-width: 440px;
 }
 
+.ledger-date-filter,
+.ledger-pagination,
+.ledger-pagination label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ledger-date-filter {
+  color: #475569;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.ledger-date-filter input {
+  width: 148px;
+}
+
+.ledger-pagination {
+  justify-content: flex-end;
+  min-height: 40px;
+  margin-top: 12px;
+  color: #64748b;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.ledger-pagination select {
+  min-width: 86px;
+  padding: 6px 8px;
+}
+
+.ledger-pagination .pagination-arrow {
+  width: 34px;
+  min-width: 34px;
+  padding: 5px;
+  font-size: 20px;
+  line-height: 1;
+}
+
 .required-star {
   color: #dc2626;
   font-weight: 800;

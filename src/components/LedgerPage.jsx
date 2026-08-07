@@ -15,8 +15,12 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
     status: '',
     result: '',
     keyword: '',
-    notifier: ''
+    notifier: '',
+    createdDate: '',
+    inspectionMonth: ''
   });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const [previewRecord, setPreviewRecord] = useState(null);
   const previewUrl = previewRecord ? reportHref(previewRecord) : '';
   const previewExt = previewRecord ? reportFileExt(previewRecord) : '';
@@ -101,12 +105,20 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
       && (ignoreKey === 'keyword' || !normalizedFilters.keyword
         || normalize(`${record.supplierShortName}${record.salesProductLine}${record.series}${record.schedule?.inspector || ''}`).toLowerCase().includes(normalizedFilters.keyword))
       && (ignoreKey === 'notifier' || !normalizedFilters.notifier || normalize(record.inspectionNotifier || record.inspectionApplicant || '').toLowerCase() === normalizedFilters.notifier)
+      && (ignoreKey === 'createdDate' || !normalizedFilters.createdDate || formatDate(record.inspectionFillTime) === normalizedFilters.createdDate)
+      && (ignoreKey === 'inspectionMonth' || !normalizedFilters.inspectionMonth || formatDate(record.schedule?.scheduledDate).slice(0, 7) === normalizedFilters.inspectionMonth)
     );
   }
 
   const filteredRecords = useMemo(() => {
     return ledgerRecords.filter((record) => ledgerRecordMatchesFilters(record, filters));
   }, [ledgerRecords, filters]);
+  const totalPages = Math.max(1, Math.ceil(filteredRecords.length / pageSize));
+  const displayedPage = Math.min(currentPage, totalPages);
+  const paginatedRecords = useMemo(() => {
+    const start = (displayedPage - 1) * pageSize;
+    return filteredRecords.slice(start, start + pageSize);
+  }, [displayedPage, filteredRecords, pageSize]);
 
   const stats = useMemo(() => ({
     total: ledgerRecords.length,
@@ -118,10 +130,12 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
 
   function updateFilter(key, value) {
     setFilters((current) => ({ ...current, [key]: value }));
+    setCurrentPage(1);
   }
 
   function clearFilters() {
-    setFilters({ supplierShortName: '', salesProductLine: '', series: '', businessDepartments: '', issueLevel: '', status: '', result: '', keyword: '', notifier: '' });
+    setFilters({ supplierShortName: '', salesProductLine: '', series: '', businessDepartments: '', issueLevel: '', status: '', result: '', keyword: '', notifier: '', createdDate: '', inspectionMonth: '' });
+    setCurrentPage(1);
   }
 
   function reportPreviewCell(record) {
@@ -280,6 +294,24 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
           <option value="">全部问题等级</option>
           {filterOptions.issueLevel.map((level) => <option key={level} value={level}>{level}</option>)}
         </select>
+        <label className="ledger-date-filter">
+          <span>添加时间</span>
+          <input
+            type="date"
+            aria-label="添加时间"
+            value={filters.createdDate}
+            onChange={(event) => updateFilter('createdDate', event.target.value)}
+          />
+        </label>
+        <label className="ledger-date-filter">
+          <span>验货月份</span>
+          <input
+            type="month"
+            aria-label="验货月份"
+            value={filters.inspectionMonth}
+            onChange={(event) => updateFilter('inspectionMonth', event.target.value)}
+          />
+        </label>
         <button type="button" className="ghost compact-button" onClick={clearFilters}>清除</button>
       </div>
       <datalist id="ledger-supplier-options">
@@ -299,7 +331,7 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
       </datalist>
       <DataTable
         className="inspection-ledger-table"
-        rows={filteredRecords}
+        rows={paginatedRecords}
         columns={ledgerColumns}
         render={(record) => {
           const feedback = latestFeedback(record.feedback);
@@ -353,6 +385,42 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
           ];
         }}
       />
+      <div className="ledger-pagination" aria-label="验货台账分页">
+        <span>筛选后 {filteredRecords.length} 条</span>
+        <label>
+          每页
+          <select
+            value={pageSize}
+            onChange={(event) => {
+              setPageSize(Number(event.target.value));
+              setCurrentPage(1);
+            }}
+          >
+            {[20, 50, 100].map((size) => <option key={size} value={size}>{size} 条</option>)}
+          </select>
+        </label>
+        <button
+          type="button"
+          className="ghost compact-button pagination-arrow"
+          aria-label="上一页"
+          title="上一页"
+          disabled={displayedPage <= 1}
+          onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+        >
+          ‹
+        </button>
+        <span>第 {displayedPage} / {totalPages} 页</span>
+        <button
+          type="button"
+          className="ghost compact-button pagination-arrow"
+          aria-label="下一页"
+          title="下一页"
+          disabled={displayedPage >= totalPages}
+          onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+        >
+          ›
+        </button>
+      </div>
       {previewRecord && (
         <ReportPreviewModal
           title={previewRecord.report?.originalName || previewRecord.report?.reportNo || '报告文件预览'}
