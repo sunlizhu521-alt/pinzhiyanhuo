@@ -106,7 +106,7 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
         || normalize(`${record.supplierShortName}${record.salesProductLine}${record.series}${record.schedule?.inspector || ''}`).toLowerCase().includes(normalizedFilters.keyword))
       && (ignoreKey === 'notifier' || !normalizedFilters.notifier || normalize(record.inspectionNotifier || record.inspectionApplicant || '').toLowerCase() === normalizedFilters.notifier)
       && (ignoreKey === 'createdDate' || !normalizedFilters.createdDate || formatDate(record.inspectionFillTime) === normalizedFilters.createdDate)
-      && (ignoreKey === 'inspectionMonth' || !normalizedFilters.inspectionMonth || formatDate(record.schedule?.scheduledDate).slice(0, 7) === normalizedFilters.inspectionMonth)
+      && (ignoreKey === 'inspectionMonth' || !normalizedFilters.inspectionMonth || formatDate(feedback.actualInspectionTime).slice(0, 7) === normalizedFilters.inspectionMonth)
     );
   }
 
