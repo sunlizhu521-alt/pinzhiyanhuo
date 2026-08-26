@@ -136,6 +136,7 @@ test('concurrent login and notice submission complete through the HTTP API', asy
           inspectionFillTime: '2026-07-20',
           supplierFinishTime: '2026-07-21',
           shipmentTime: '2026-07-22',
+          shippingOaNo: 'FH-OA-20260722',
           supplierShortName: '测试供应商',
           supplierAddress: '广东省深圳市测试路1号',
           businessDepartments: '测试事业部',
@@ -147,6 +148,20 @@ test('concurrent login and notice submission complete through the HTTP API', asy
           skuQuantity: 'SKU-A 10'
       }]
     });
+    const missingShippingBody = JSON.parse(noticeBody('integration-notice-missing-shipping-oa'));
+    delete missingShippingBody.rows[0].shippingOaNo;
+    const missingShippingResponse = await fetch(baseUrl + '/api/quality-inspection/notices', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + login.token
+      },
+      body: JSON.stringify(missingShippingBody),
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(missingShippingResponse.status, 400);
+    assert.match(await missingShippingResponse.text(), /发货OA号/);
+
     const noticeResponses = await Promise.all(['integration-notice-1', 'integration-notice-2'].map((id) => (
       fetch(`${baseUrl}/api/quality-inspection/notices`, {
         method: 'POST',

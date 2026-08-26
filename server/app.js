@@ -72,6 +72,7 @@ const NOTICE_REQUIRED_FIELDS = [
   { key: 'inspectionFillTime', label: '验货填写时间' },
   { key: 'supplierFinishTime', label: '供应商完工时间' },
   { key: 'shipmentTime', label: '可验货时间' },
+  { key: 'shippingOaNo', label: '发货OA号' },
   { key: 'supplierShortName', label: '供应商简称' },
   { key: 'businessDepartments', label: '事业部' },
   { key: 'operation', label: '运营' },
@@ -1848,7 +1849,7 @@ function validateNoticeRows(rows, supplierMap, categoryMaps) {
   const missingIndex = rows.findIndex((row) => NOTICE_REQUIRED_FIELDS.some((field) => !normalizeText(row[field.key])));
   if (missingIndex >= 0) {
     const missingField = NOTICE_REQUIRED_FIELDS.find((field) => !normalizeText(rows[missingIndex][field.key]));
-    return `第 ${missingIndex + 1} 行“${missingField.label}”不能为空，除 SKU及数量、备注 外其余字段都必填。`;
+    return `第 ${missingIndex + 1} 行“${missingField.label}”不能为空，请补充所有必填字段。`;
   }
   return '';
 }

@@ -349,7 +349,7 @@ function validateNoticeRows(rows, supplierOptions = [], productLineOptions = [],
   const missingIndex = rows.findIndex((row) => requiredFields.some((field) => !normalize(row[field.key])));
   if (missingIndex >= 0) {
     const missingField = requiredFields.find((field) => !normalize(rows[missingIndex][field.key]));
-    return `第 ${missingIndex + 1} 行“${missingField.label}”不能为空，除 SKU及数量、备注 外其余字段都必填。`;
+    return `第 ${missingIndex + 1} 行“${missingField.label}”不能为空，请补充所有必填字段。`;
   }
   return '';
 }
