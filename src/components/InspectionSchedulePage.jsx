@@ -5,14 +5,16 @@ import DataTable from './DataTable.jsx';
 function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete }) {
   const [drafts, setDrafts] = useState({});
   const [filterProvince, setFilterProvince] = useState('');
+  const [shippingOaQuery, setShippingOaQuery] = useState('');
   const scheduleRows = useMemo(() => mergeScheduleRecords(records), [records]);
   const filteredRows = useMemo(() => {
-    if (!filterProvince) return scheduleRows;
+    const query = shippingOaQuery.trim().toLowerCase();
     return scheduleRows.filter((row) => {
       const addr = row.supplierAddress || '';
-      return addr.includes(filterProvince);
+      return (!filterProvince || addr.includes(filterProvince))
+        && (!query || String(row.shippingOaNo || '').toLowerCase().includes(query));
     });
-  }, [scheduleRows, filterProvince]);
+  }, [scheduleRows, filterProvince, shippingOaQuery]);
 
   useEffect(() => {
     setDrafts((current) => {
@@ -72,13 +74,19 @@ function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete
       </div>
       <div className="toolbar" style={{ marginBottom: '12px' }}>
         <input
+          placeholder="搜索发货OA号"
+          value={shippingOaQuery}
+          onChange={(event) => setShippingOaQuery(event.target.value)}
+          style={{ maxWidth: '180px' }}
+        />
+        <input
           placeholder="筛选省份"
           value={filterProvince}
           onChange={(event) => setFilterProvince(event.target.value)}
           style={{ maxWidth: '180px' }}
         />
-        {filterProvince && (
-          <button type="button" className="ghost compact-button" onClick={() => setFilterProvince('')}>清除</button>
+        {(filterProvince || shippingOaQuery) && (
+          <button type="button" className="ghost compact-button" onClick={() => { setFilterProvince(''); setShippingOaQuery(''); }}>清除</button>
         )}
       </div>
       <DataTable

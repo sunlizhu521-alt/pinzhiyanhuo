@@ -18,7 +18,12 @@ function InspectionStampPage({ records, savingId, onStamp, onReject }) {
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState('');
   const [uploadMessage, setUploadMessage] = useState('');
-  const stampRecords = useMemo(() => [...uploadedRecords, ...records], [uploadedRecords, records]);
+  const [shippingOaQuery, setShippingOaQuery] = useState('');
+  const allStampRecords = useMemo(() => [...uploadedRecords, ...records], [uploadedRecords, records]);
+  const stampRecords = useMemo(() => {
+    const query = shippingOaQuery.trim().toLowerCase();
+    return query ? allStampRecords.filter((record) => String(record.shippingOaNo || '').toLowerCase().includes(query)) : allStampRecords;
+  }, [allStampRecords, shippingOaQuery]);
   const safeIndex = stampRecords.length ? Math.min(currentIndex, stampRecords.length - 1) : 0;
   const current = stampRecords[safeIndex];
   const canStamp = current && isImageReport(current);
@@ -160,6 +165,7 @@ function InspectionStampPage({ records, savingId, onStamp, onReject }) {
 
   return (
     <section className="stamp-page">
+      <div className="toolbar"><input placeholder="搜索发货OA号" value={shippingOaQuery} onChange={(event) => { setShippingOaQuery(event.target.value); setCurrentIndex(0); }} /></div>
       <div className="section-heading-row">
         <h2>盖检验章</h2>
         <span className="section-count">待盖章 {stampRecords.length} 份</span>

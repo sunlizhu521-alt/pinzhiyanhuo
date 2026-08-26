@@ -28,8 +28,8 @@ function ReportQueryPage({
   const previewUrl = previewRecord?._overrideUrl || (previewRecord ? reportHref(previewRecord) : '');
   const previewExt = previewRecord?._overrideExt ?? (previewRecord ? reportFileExt(previewRecord) : '');
   const columns = canDelete
-    ? ['供应商', '实际验货时间', '实际验货员', '报告单号', '报告文件', '验货结果', '操作']
-    : ['供应商', '实际验货时间', '实际验货员', '报告单号', '报告文件', '验货结果'];
+    ? ['供应商', '发货OA号', '实际验货时间', '实际验货员', '报告单号', '报告文件', '验货结果', '操作']
+    : ['供应商', '发货OA号', '实际验货时间', '实际验货员', '报告单号', '报告文件', '验货结果'];
 
   const recordReportFile = useMemo(() => {
     const map = {};
@@ -92,7 +92,7 @@ function ReportQueryPage({
         </button>
       </div>
       <div className="toolbar">
-        <input placeholder="搜索供应商、采购订单、产品线、报告单号" value={query} onChange={(event) => onQuery(event.target.value)} />
+        <input placeholder="搜索供应商、采购订单、发货OA号、产品线、报告单号" value={query} onChange={(event) => onQuery(event.target.value)} />
         <select value={filters.supplierShortName} onChange={(event) => onFilterChange('supplierShortName', event.target.value)}>
           <option value="">全部供应商简称</option>
           {supplierOptions.map((item) => <option key={item} value={item}>{item}</option>)}
@@ -126,6 +126,7 @@ function ReportQueryPage({
         render={(record) => {
           const cells = [
             record.supplierShortName,
+            record.shippingOaNo || '',
             formatDate(record.feedback?.actualInspectionTime),
             record.feedback?.actualInspector || record.schedule?.inspector || '',
             record.report?.reportNo || '',

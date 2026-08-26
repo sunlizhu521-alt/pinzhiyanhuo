@@ -11,6 +11,7 @@ function ReworkRecordsPage({
 }) {
   const [filters, setFilters] = useState({
     supplierShortName: '',
+    shippingOaNo: '',
     inspector: ''
   });
   const [reworkDrafts, setReworkDrafts] = useState({});
@@ -21,6 +22,7 @@ function ReworkRecordsPage({
     );
     return records.filter((record) => (
       (!normalizedFilters.supplierShortName || normalize(record.supplierShortName).toLowerCase().includes(normalizedFilters.supplierShortName))
+      && (!normalizedFilters.shippingOaNo || normalize(record.shippingOaNo).toLowerCase().includes(normalizedFilters.shippingOaNo))
       && (!normalizedFilters.inspector || normalize(record.schedule?.inspector).toLowerCase().includes(normalizedFilters.inspector))
     ));
   }, [records, filters]);
@@ -30,7 +32,7 @@ function ReworkRecordsPage({
   }
 
   function clearFilters() {
-    setFilters({ supplierShortName: '', inspector: '' });
+    setFilters({ supplierShortName: '', shippingOaNo: '', inspector: '' });
   }
 
   function reworkDraft(record) {
@@ -62,6 +64,11 @@ function ReworkRecordsPage({
           placeholder="筛选供应商"
           value={filters.supplierShortName}
           onChange={(event) => updateFilter('supplierShortName', event.target.value)}
+        />
+        <input
+          placeholder="搜索发货OA号"
+          value={filters.shippingOaNo}
+          onChange={(event) => updateFilter('shippingOaNo', event.target.value)}
         />
         <input
           placeholder="筛选验货员"

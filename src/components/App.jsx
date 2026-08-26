@@ -2403,6 +2403,7 @@ function App() {
         fileUrl: reportHref(record),
         source: record.report?.stampedAt ? '已盖章报告' : (record.report?.stampSkippedAt ? '无需盖章报告' : '验货报告'),
         reportNo: record.report?.reportNo || '',
+        shippingOaNo: record.shippingOaNo || '',
         supplierShortName: record.supplierShortName || '',
         productLine: record.salesProductLine || '',
         series: record.series || '',
@@ -2440,6 +2441,7 @@ function App() {
         return {
           id: `report-file-${file.id || file.fileName}`,
           supplierShortName: file.supplierShortName || '',
+          shippingOaNo: file.shippingOaNo || '',
           salesProductLine: file.productLine || '',
           series: file.series || '',
           businessDepartments: '',
@@ -2466,6 +2468,7 @@ function App() {
       .filter((record) => {
         const text = [
           record.supplierShortName,
+          record.shippingOaNo,
           record.salesProductLine,
           record.series,
           record.inspectionNotifier,
@@ -2815,6 +2818,7 @@ function App() {
     return displayRecords.filter((record) => {
       const text = [
         record.kingdeeOrderNo,
+        record.shippingOaNo,
         record.supplierShortName,
         record.salesProductLine,
         record.series,

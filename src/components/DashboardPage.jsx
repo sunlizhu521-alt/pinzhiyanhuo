@@ -232,6 +232,9 @@ function recordMatchesFilters(record, filters, productLineForRecord, ignoreKey =
   const matchesSupplier = ignoreKey === 'supplierShortName'
     || !filters.supplierShortName
     || normalize(record.supplierShortName) === filters.supplierShortName;
+  const matchesShippingOa = ignoreKey === 'shippingOaNo'
+    || !filters.shippingOaNo
+    || normalize(record.shippingOaNo).toLowerCase().includes(normalize(filters.shippingOaNo).toLowerCase());
   const matchesLine = ignoreKey === 'salesProductLine'
     || !filters.salesProductLine
     || normalize(dimensionProductLine) === filters.salesProductLine;
@@ -243,12 +246,13 @@ function recordMatchesFilters(record, filters, productLineForRecord, ignoreKey =
     || splitMultiValue(record.businessDepartments).some((item) => item === filters.businessDepartment);
   const matchesStart = ignoreKey === 'startMonth' || !filters.startMonth || (month && month >= filters.startMonth);
   const matchesEnd = ignoreKey === 'endMonth' || !filters.endMonth || (month && month <= filters.endMonth);
-  return matchesSupplier && matchesLine && matchesSeries && matchesDepartment && matchesStart && matchesEnd;
+  return matchesSupplier && matchesShippingOa && matchesLine && matchesSeries && matchesDepartment && matchesStart && matchesEnd;
 }
 
 function DashboardPage({ records = [], supplierOptions = [], productLineOptions = [], seriesOptions = [], seriesByProductLine = {}, onExportInspectionSummary }) {
   const [filters, setFilters] = useState({
     supplierShortName: '',
+    shippingOaNo: '',
     salesProductLine: '',
     series: '',
     businessDepartment: '',
@@ -383,7 +387,7 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
   }
 
   function resetFilters() {
-    setFilters({ supplierShortName: '', salesProductLine: '', series: '', businessDepartment: '', startMonth: '', endMonth: '' });
+    setFilters({ supplierShortName: '', shippingOaNo: '', salesProductLine: '', series: '', businessDepartment: '', startMonth: '', endMonth: '' });
   }
 
   function resultClass(result) {
@@ -435,6 +439,7 @@ function DashboardPage({ records = [], supplierOptions = [], productLineOptions 
       </div>
 
       <div className="dashboard-filters">
+        <input value={filters.shippingOaNo} placeholder="搜索发货OA号" onChange={(event) => updateFilter('shippingOaNo', event.target.value)} />
         <select value={filters.supplierShortName} onChange={(event) => updateFilter('supplierShortName', event.target.value)}>
           <option value="">全部供应商简称</option>
           {filterOptions.suppliers.map((item) => <option key={item} value={item}>{item}</option>)}

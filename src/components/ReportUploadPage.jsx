@@ -1,16 +1,23 @@
+import { useMemo, useState } from 'react';
 import EmptyState from './EmptyState.jsx';
 import { reportHref, isImageReport, reportFileExt, formatFileSize } from '../file-utils.js';
 
 function ReportUploadPage({ records, savingId, onSave }) {
+  const [shippingOaQuery, setShippingOaQuery] = useState('');
+  const filteredRecords = useMemo(() => {
+    const query = shippingOaQuery.trim().toLowerCase();
+    return query ? records.filter((record) => String(record.shippingOaNo || '').toLowerCase().includes(query)) : records;
+  }, [records, shippingOaQuery]);
   return (
     <>
       <div className="section-heading-row">
         <h2>检验报告单回传</h2>
         <span className="section-count">支持 PDF、图片、Excel 文件</span>
       </div>
+      <div className="toolbar"><input placeholder="搜索发货OA号" value={shippingOaQuery} onChange={(event) => setShippingOaQuery(event.target.value)} /></div>
       <div className="report-list">
-        {records.length === 0 && <EmptyState text="暂无验货通知，请先在验货通知页面提交数据。" />}
-        {records.map((record) => (
+        {filteredRecords.length === 0 && <EmptyState text="暂无验货通知，请先在验货通知页面提交数据。" />}
+        {filteredRecords.map((record) => (
           <form key={record.id} className="report-card" onSubmit={(event) => { event.preventDefault(); onSave(record, event.currentTarget); }}>
             <div>
               <h3>{record.supplierShortName || '未填写供应商'}</h3>

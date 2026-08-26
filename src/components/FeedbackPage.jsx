@@ -41,6 +41,7 @@ function FeedbackPage({
     supplierShortName: '',
     salesProductLine: '',
     series: '',
+    shippingOaNo: '',
     inspector: '',
     status: '',
     verificationStatus: ''
@@ -88,6 +89,7 @@ function FeedbackPage({
         supplierShortName: record.supplierShortName,
         salesProductLine: record.salesProductLine,
         series: record.series,
+        shippingOaNo: record.shippingOaNo,
         inspector: record.schedule?.inspector,
         result: feedback.result,
         status: feedbackStatus(record, feedback),
@@ -109,6 +111,7 @@ function FeedbackPage({
       supplierShortName: '',
       salesProductLine: '',
       series: '',
+      shippingOaNo: '',
       inspector: '',
       status: '',
       verificationStatus: ''
@@ -218,6 +221,7 @@ function FeedbackPage({
       )}
       {hasFilterOptions && (
         <div className="toolbar feedback-filter-toolbar">
+          <input placeholder="搜索发货OA号" value={filters.shippingOaNo} onChange={(event) => updateFilter('shippingOaNo', event.target.value)} />
           {filterOptions.supplierShortName.length > 0 && (
             <select value={filters.supplierShortName} onChange={(event) => updateFilter('supplierShortName', event.target.value)}>
               <option value="">全部供应商简称</option>

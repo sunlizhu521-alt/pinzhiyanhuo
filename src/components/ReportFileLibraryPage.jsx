@@ -19,6 +19,7 @@ function ReportFileLibraryPage({ files, supplierOptions = [], productLineOptions
   const [selectedFileKeys, setSelectedFileKeys] = useState(new Set());
   const [filters, setFilters] = useState({
     supplierShortName: '',
+    shippingOaNo: '',
     productLine: '',
     series: '',
     inspector: ''
@@ -29,6 +30,7 @@ function ReportFileLibraryPage({ files, supplierOptions = [], productLineOptions
     );
     return files.filter((file) => (
       (!normalizedFilters.supplierShortName || normalize(file.supplierShortName).toLowerCase() === normalizedFilters.supplierShortName)
+      && (!normalizedFilters.shippingOaNo || normalize(file.shippingOaNo).toLowerCase().includes(normalizedFilters.shippingOaNo))
       && (!normalizedFilters.productLine || normalize(file.productLine).toLowerCase() === normalizedFilters.productLine)
       && (!normalizedFilters.series || normalize(file.series).toLowerCase() === normalizedFilters.series)
       && (!normalizedFilters.inspector || normalize(file.inspector).toLowerCase().includes(normalizedFilters.inspector))
@@ -38,7 +40,7 @@ function ReportFileLibraryPage({ files, supplierOptions = [], productLineOptions
     setFilters((current) => ({ ...current, [key]: value }));
   }
   function clearFilters() {
-    setFilters({ supplierShortName: '', productLine: '', series: '', inspector: '' });
+    setFilters({ supplierShortName: '', shippingOaNo: '', productLine: '', series: '', inspector: '' });
   }
   function fileKey(file) {
     return file.id || file.fileName;
@@ -157,6 +159,7 @@ function ReportFileLibraryPage({ files, supplierOptions = [], productLineOptions
         </div>
       </div>
       <div className="toolbar feedback-filter-toolbar">
+        <input placeholder="搜索发货OA号" value={filters.shippingOaNo} onChange={(event) => updateFilter('shippingOaNo', event.target.value)} />
         <select value={filters.supplierShortName} onChange={(event) => updateFilter('supplierShortName', event.target.value)}>
           <option value="">全部供应商简称</option>
           {supplierOptions.map((option) => <option key={option} value={option}>{option}</option>)}

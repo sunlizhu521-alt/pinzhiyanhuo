@@ -103,7 +103,7 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
       && (ignoreKey === 'status' || !normalizedFilters.status || normalize(ledgerStatus(record)).toLowerCase() === normalizedFilters.status)
       && (ignoreKey === 'result' || !normalizedFilters.result || normalize(feedback.result).toLowerCase() === normalizedFilters.result)
       && (ignoreKey === 'keyword' || !normalizedFilters.keyword
-        || normalize(`${record.supplierShortName}${record.salesProductLine}${record.series}${record.schedule?.inspector || ''}`).toLowerCase().includes(normalizedFilters.keyword))
+        || normalize(`${record.supplierShortName}${record.shippingOaNo || ''}${record.salesProductLine}${record.series}${record.schedule?.inspector || ''}`).toLowerCase().includes(normalizedFilters.keyword))
       && (ignoreKey === 'notifier' || !normalizedFilters.notifier || normalize(record.inspectionNotifier || record.inspectionApplicant || '').toLowerCase() === normalizedFilters.notifier)
       && (ignoreKey === 'createdDate' || !normalizedFilters.createdDate || formatDate(record.inspectionFillTime) === normalizedFilters.createdDate)
       && (ignoreKey === 'inspectionMonth' || !normalizedFilters.inspectionMonth || formatDate(feedback.actualInspectionTime).slice(0, 7) === normalizedFilters.inspectionMonth)
@@ -159,6 +159,7 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
     '事业部',
     '运营',
     '备货流程号',
+    '发货OA号',
     '验货通知人',
     '是否首批验货',
     '验货员',
@@ -248,7 +249,7 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
       )}
       <div className="toolbar">
         <input
-          placeholder="搜索供应商/产品线/系列/验货员"
+          placeholder="搜索供应商/发货OA号/产品线/系列/验货员"
           value={filters.keyword}
           onChange={(event) => updateFilter('keyword', event.target.value)}
         />
@@ -353,6 +354,7 @@ function LedgerPage({ records, canImport, importPreview, onUpload, onConfirmImpo
             record.businessDepartments,
             record.operation || '',
             record.stockOaNo || '',
+            record.shippingOaNo || '',
             record.inspectionNotifier || record.inspectionApplicant || '',
             record.firstInspection || '',
             record.schedule?.inspector || '',
