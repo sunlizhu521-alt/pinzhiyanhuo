@@ -51,7 +51,7 @@ test('concurrent login and notice submission complete through the HTTP API', asy
     saveDatabaseState({
       users: [
         { id: 'u-admin', name: '孙立柱', password: await bcrypt.hash(process.env.ADMIN_PASSWORD, 4), role: '管理员', pageAccess: [] },
-        { id: 'u-user', name: '测试用户', password: await bcrypt.hash(process.env.ADMIN_PASSWORD, 4), role: '普通用户', pageAccess: ['inspectionNotice', 'inspectionFeedback'] }
+        { id: 'u-user', name: '测试用户', password: await bcrypt.hash(process.env.ADMIN_PASSWORD, 4), role: '普通用户', pageAccess: ['inspectionNotice', 'inspectionSchedule', 'inspectionFeedback'] }
       ],
       sessions: {},
       qualityInspection: {
@@ -216,6 +216,22 @@ test('concurrent login and notice submission complete through the HTTP API', asy
     const userLoginText = await userLoginResponse.text();
     assert.equal(userLoginResponse.status, 200, userLoginText);
     const userLogin = JSON.parse(userLoginText);
+    const authorizedScheduleResponse = await fetch(`${baseUrl}/api/quality-inspection/schedules/integration-notice-1`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${userLogin.token}`
+      },
+      body: JSON.stringify({
+        inspector: '页面授权验货员',
+        scheduledDate: '2026-07-31',
+        status: '已安排'
+      }),
+      signal: AbortSignal.timeout(10000)
+    });
+    const authorizedScheduleText = await authorizedScheduleResponse.text();
+    assert.equal(authorizedScheduleResponse.status, 200, authorizedScheduleText);
+    assert.equal(JSON.parse(authorizedScheduleText).inspector, '页面授权验货员');
     const deniedInspectorResponse = await fetch(`${baseUrl}/api/quality-inspection/feedback/integration-notice-1`, {
       method: 'PATCH',
       headers: {
@@ -231,7 +247,7 @@ test('concurrent login and notice submission complete through the HTTP API', asy
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${login.token}`
+        Authorization: `Bearer ${userLogin.token}`
       },
       body: JSON.stringify({
         items: [{

@@ -2529,7 +2529,7 @@ function buildScheduleChanges(items, user) {
   return { schedules, feedback: feedbackChanges };
 }
 
-app.patch('/api/quality-inspection/schedules', requireAuth, requirePages('inspectionSchedule'), requireRoles(ROLE_ADMIN), async (req, res) => {
+app.patch('/api/quality-inspection/schedules', requireAuth, requirePages('inspectionSchedule'), async (req, res) => {
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
   if (!items.length) return res.status(400).json({ error: '暂无可提交的验货安排。' });
   if (items.length > 2000) return res.status(400).json({ error: '单次最多提交 2000 条验货安排。' });
@@ -2541,7 +2541,7 @@ app.patch('/api/quality-inspection/schedules', requireAuth, requirePages('inspec
   res.json({ updated: normalizedItems.length });
 });
 
-app.patch('/api/quality-inspection/schedules/:id', requireAuth, requirePages('inspectionSchedule'), requireRoles(ROLE_ADMIN), async (req, res) => {
+app.patch('/api/quality-inspection/schedules/:id', requireAuth, requirePages('inspectionSchedule'), async (req, res) => {
   const id = normalizeText(req.params.id);
   const item = { ...(req.body || {}), id };
   const changes = buildScheduleChanges([item], req.authUser);
