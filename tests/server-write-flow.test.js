@@ -51,7 +51,8 @@ test('concurrent login and notice submission complete through the HTTP API', asy
     saveDatabaseState({
       users: [
         { id: 'u-admin', name: '孙立柱', password: await bcrypt.hash(process.env.ADMIN_PASSWORD, 4), role: '管理员', pageAccess: [] },
-        { id: 'u-user', name: '测试用户', password: await bcrypt.hash(process.env.ADMIN_PASSWORD, 4), role: '普通用户', pageAccess: ['inspectionNotice', 'inspectionSchedule', 'inspectionFeedback'] }
+        { id: 'u-user', name: '测试用户', password: await bcrypt.hash(process.env.ADMIN_PASSWORD, 4), role: '普通用户', pageAccess: ['inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'inspectionStamp'] },
+        { id: 'u-no-stamp', name: '无盖章权限用户', password: await bcrypt.hash(process.env.ADMIN_PASSWORD, 4), role: '普通用户', pageAccess: ['inspectionFeedback'] }
       ],
       sessions: {},
       qualityInspection: {
@@ -216,6 +217,43 @@ test('concurrent login and notice submission complete through the HTTP API', asy
     const userLoginText = await userLoginResponse.text();
     assert.equal(userLoginResponse.status, 200, userLoginText);
     const userLogin = JSON.parse(userLoginText);
+    const stampHeaders = { Authorization: `Bearer ${userLogin.token}` };
+    const stampListResponse = await fetch(`${baseUrl}/api/quality-inspection/stamp-reports`, {
+      headers: stampHeaders,
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(stampListResponse.status, 200, await stampListResponse.text());
+    const stampResponse = await fetch(`${baseUrl}/api/quality-inspection/reports/missing-report/stamp`, {
+      method: 'POST',
+      headers: stampHeaders,
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(stampResponse.status, 404, await stampResponse.text());
+    const rejectResponse = await fetch(`${baseUrl}/api/quality-inspection/reports/missing-report/reject`, {
+      method: 'POST',
+      headers: stampHeaders,
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(rejectResponse.status, 404, await rejectResponse.text());
+    const stampUploadResponse = await fetch(`${baseUrl}/api/quality-inspection/report-files`, {
+      method: 'POST',
+      headers: stampHeaders,
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(stampUploadResponse.status, 400, await stampUploadResponse.text());
+    const noStampLoginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: '无盖章权限用户', password }),
+      signal: AbortSignal.timeout(10000)
+    });
+    const noStampLoginText = await noStampLoginResponse.text();
+    assert.equal(noStampLoginResponse.status, 200, noStampLoginText);
+    const deniedStampListResponse = await fetch(`${baseUrl}/api/quality-inspection/stamp-reports`, {
+      headers: { Authorization: `Bearer ${JSON.parse(noStampLoginText).token}` },
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(deniedStampListResponse.status, 403, await deniedStampListResponse.text());
     const authorizedScheduleResponse = await fetch(`${baseUrl}/api/quality-inspection/schedules/integration-notice-1`, {
       method: 'PATCH',
       headers: {

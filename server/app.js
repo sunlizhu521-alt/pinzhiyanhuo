@@ -2630,7 +2630,7 @@ app.delete('/api/quality-inspection/records/:id', requireAuth, requirePages('ins
   res.json({ rows: composedRecords(db), files: await reportFileItems(db) });
 });
 
-app.get('/api/quality-inspection/stamp-reports', requireAuth, requirePages('inspectionStamp'), requireRoles(ROLE_ADMIN), async (req, res) => {
+app.get('/api/quality-inspection/stamp-reports', requireAuth, requirePages('inspectionStamp'), async (req, res) => {
   const db = await readDb();
   const rows = composedRecords(db)
     .filter((record) => record.report?.fileName && !record.report?.stampedAt && !record.report?.stampSkippedAt && !record.report?.reportRejectedAt)
@@ -2644,7 +2644,7 @@ app.get('/api/quality-inspection/stamp-reports', requireAuth, requirePages('insp
   res.json({ rows });
 });
 
-app.post('/api/quality-inspection/reports/:id/stamp', requireAuth, requirePages('inspectionStamp'), requireRoles(ROLE_ADMIN), upload.single('file'), async (req, res) => {
+app.post('/api/quality-inspection/reports/:id/stamp', requireAuth, requirePages('inspectionStamp'), upload.single('file'), async (req, res) => {
   const db = await readDb();
   const record = composedRecords(db).find((item) => item.id === req.params.id);
   const previous = db.qualityInspection.reports[req.params.id] || {};
@@ -2684,7 +2684,7 @@ app.post('/api/quality-inspection/reports/:id/stamp', requireAuth, requirePages(
   res.json(db.qualityInspection.reports[req.params.id]);
 });
 
-app.post('/api/quality-inspection/reports/:id/reject', requireAuth, requirePages('inspectionStamp'), requireRoles(ROLE_ADMIN), async (req, res) => {
+app.post('/api/quality-inspection/reports/:id/reject', requireAuth, requirePages('inspectionStamp'), async (req, res) => {
   const db = await readDb();
   const record = composedRecords(db).find((item) => item.id === req.params.id);
   const previous = db.qualityInspection.reports[req.params.id] || {};
@@ -2710,7 +2710,7 @@ app.get('/api/quality-inspection/report-files', requireAuth, requirePages('inspe
   res.json({ files: await reportFileItems(db) });
 });
 
-app.post('/api/quality-inspection/report-files', requireAuth, requirePages('inspectionReportLibrary', 'inspectionStamp'), requireRoles(ROLE_ADMIN), upload.array('files', 300), async (req, res) => {
+app.post('/api/quality-inspection/report-files', requireAuth, requirePages('inspectionReportLibrary', 'inspectionStamp'), upload.array('files', 300), async (req, res) => {
   const db = await readDb();
   const files = Array.isArray(req.files) ? req.files : [];
   if (!files.length) return res.status(400).json({ error: 'missing files' });
