@@ -1677,6 +1677,8 @@ function addSupplierRecord(map, supplier, address = '') {
 function buildSupplierRecordMap(db) {
   const map = new Map();
   const record = db.qualityInspection.dimensionLibrary?.[PURCHASE_WORK_DIVISION_SLOT_ID] || {};
+  const supplierShortNames = Array.isArray(record.supplierShortNames) ? record.supplierShortNames : [];
+  supplierShortNames.forEach((supplier) => addSupplierRecord(map, supplier));
   const indexedRows = Array.isArray(record.supplierAddressLookup) ? record.supplierAddressLookup : [];
   indexedRows.forEach((item) => {
     addSupplierRecord(map, item.supplierShortName || item.supplier, item.provinceCity || item.address);

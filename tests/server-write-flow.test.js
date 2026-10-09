@@ -67,7 +67,7 @@ test('concurrent login and notice submission complete through the HTTP API', asy
             seriesByProductLine: { '测试产品线': ['测试系列'] }
           },
           'dimension-slot-2': {
-            supplierShortNames: ['测试供应商'],
+            supplierShortNames: ['测试供应商', '无地址供应商'],
             supplierAddressLookup: [{ supplierShortName: '测试供应商', provinceCity: '广东省深圳市' }]
           }
         },
@@ -176,6 +176,25 @@ test('concurrent login and notice submission complete through the HTTP API', asy
     )));
     const noticeResponseTexts = await Promise.all(noticeResponses.map((response) => response.text()));
     assert.ok(noticeResponses.every((response) => response.status === 200), `${noticeResponseTexts.join('\n')}\n${output}`);
+
+    const noAddressSupplierBody = JSON.parse(noticeBody('integration-notice-no-address-supplier'));
+    noAddressSupplierBody.rows[0].supplierShortName = '无地址供应商';
+    noAddressSupplierBody.rows[0].supplierAddress = '';
+    const noAddressSupplierResponse = await fetch(`${baseUrl}/api/quality-inspection/notices`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${login.token}`
+      },
+      body: JSON.stringify(noAddressSupplierBody),
+      signal: AbortSignal.timeout(10000)
+    });
+    const noAddressSupplierText = await noAddressSupplierResponse.text();
+    assert.equal(noAddressSupplierResponse.status, 200, noAddressSupplierText);
+    const noAddressSupplierRecord = JSON.parse(noAddressSupplierText).rows
+      .find((row) => row.id === 'integration-notice-no-address-supplier');
+    assert.equal(noAddressSupplierRecord?.supplierShortName, '无地址供应商');
+    assert.equal(noAddressSupplierRecord?.supplierAddress, '');
 
     const scheduleResponse = await fetch(`${baseUrl}/api/quality-inspection/schedules/integration-notice-1`, {
       method: 'PATCH',
