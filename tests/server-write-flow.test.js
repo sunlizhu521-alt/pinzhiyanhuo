@@ -52,7 +52,9 @@ test('concurrent login and notice submission complete through the HTTP API', asy
       users: [
         { id: 'u-admin', name: '孙立柱', password: await bcrypt.hash(process.env.ADMIN_PASSWORD, 4), role: '管理员', pageAccess: [] },
         { id: 'u-user', name: '测试用户', password: await bcrypt.hash(process.env.ADMIN_PASSWORD, 4), role: '普通用户', pageAccess: ['inspectionNotice', 'inspectionSchedule', 'inspectionFeedback', 'inspectionStamp'] },
-        { id: 'u-no-stamp', name: '无盖章权限用户', password: await bcrypt.hash(process.env.ADMIN_PASSWORD, 4), role: '普通用户', pageAccess: ['inspectionFeedback'] }
+        { id: 'u-no-stamp', name: '无盖章权限用户', password: await bcrypt.hash(process.env.ADMIN_PASSWORD, 4), role: '普通用户', pageAccess: ['inspectionFeedback'] },
+        { id: 'u-mei', name: '梅孜琨', password: await bcrypt.hash(process.env.ADMIN_PASSWORD, 4), role: '普通用户', pageAccess: ['inspectionSchedule', 'inspectionFeedback'] },
+        { id: 'u-deng', name: '邓颜威', password: await bcrypt.hash(process.env.ADMIN_PASSWORD, 4), role: '普通用户', pageAccess: ['inspectionSchedule', 'inspectionFeedback'] }
       ],
       sessions: {},
       qualityInspection: {
@@ -196,6 +198,17 @@ test('concurrent login and notice submission complete through the HTTP API', asy
     assert.equal(noAddressSupplierRecord?.supplierShortName, '无地址供应商');
     assert.equal(noAddressSupplierRecord?.supplierAddress, '');
 
+    const deleteFeedbackResponse = await fetch(`${baseUrl}/api/quality-inspection/notices`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${login.token}`
+      },
+      body: noticeBody('integration-delete-feedback'),
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(deleteFeedbackResponse.status, 200, await deleteFeedbackResponse.text());
+
     const scheduleResponse = await fetch(`${baseUrl}/api/quality-inspection/schedules/integration-notice-1`, {
       method: 'PATCH',
       headers: {
@@ -236,6 +249,56 @@ test('concurrent login and notice submission complete through the HTTP API', asy
     const userLoginText = await userLoginResponse.text();
     assert.equal(userLoginResponse.status, 200, userLoginText);
     const userLogin = JSON.parse(userLoginText);
+    const deniedScheduleDeleteResponse = await fetch(`${baseUrl}/api/quality-inspection/notices/integration-notice-no-address-supplier`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${userLogin.token}` },
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(deniedScheduleDeleteResponse.status, 403, await deniedScheduleDeleteResponse.text());
+    const deniedReportDeleteResponse = await fetch(`${baseUrl}/api/quality-inspection/reports/integration-delete-feedback`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${userLogin.token}` },
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(deniedReportDeleteResponse.status, 403, await deniedReportDeleteResponse.text());
+    const deniedFeedbackDeleteResponse = await fetch(`${baseUrl}/api/quality-inspection/records/integration-delete-feedback`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${userLogin.token}` },
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(deniedFeedbackDeleteResponse.status, 403, await deniedFeedbackDeleteResponse.text());
+
+    const namedDeleteLogin = async (name) => {
+      const response = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, password }),
+        signal: AbortSignal.timeout(10000)
+      });
+      const text = await response.text();
+      assert.equal(response.status, 200, text);
+      return JSON.parse(text);
+    };
+    const meiLogin = await namedDeleteLogin('梅孜琨');
+    const meiScheduleDeleteResponse = await fetch(`${baseUrl}/api/quality-inspection/notices/integration-notice-no-address-supplier`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${meiLogin.token}` },
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(meiScheduleDeleteResponse.status, 200, await meiScheduleDeleteResponse.text());
+    const dengLogin = await namedDeleteLogin('邓颜威');
+    const dengReportDeleteResponse = await fetch(`${baseUrl}/api/quality-inspection/reports/integration-delete-feedback`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${dengLogin.token}` },
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(dengReportDeleteResponse.status, 200, await dengReportDeleteResponse.text());
+    const dengFeedbackDeleteResponse = await fetch(`${baseUrl}/api/quality-inspection/records/integration-delete-feedback`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${dengLogin.token}` },
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(dengFeedbackDeleteResponse.status, 200, await dengFeedbackDeleteResponse.text());
     const stampHeaders = { Authorization: `Bearer ${userLogin.token}` };
     const stampListResponse = await fetch(`${baseUrl}/api/quality-inspection/stamp-reports`, {
       headers: stampHeaders,

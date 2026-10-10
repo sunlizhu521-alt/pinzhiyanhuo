@@ -647,17 +647,19 @@ function FeedbackPage({
                   <button type="button" className="link-button" onClick={() => previewSavedReport(record)}>
                     {record.report?.originalName || '查看报告'}
                   </button>
-                  <button
-                    type="button"
-                    className="danger-button compact-button"
-                    disabled={savingId === record.id}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      if (onDeleteReport) onDeleteReport(record);
-                    }}
-                  >
-                    删除报告
-                  </button>
+                  {canDelete && (
+                    <button
+                      type="button"
+                      className="danger-button compact-button"
+                      disabled={savingId === record.id}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        if (onDeleteReport) onDeleteReport(record);
+                      }}
+                    >
+                      删除报告
+                    </button>
+                  )}
                 </>
               ) : (
                 <>

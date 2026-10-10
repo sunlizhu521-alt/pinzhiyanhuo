@@ -14,6 +14,7 @@ import bcrypt from 'bcryptjs';
 import { fileURLToPath } from 'node:url';
 import { mergeNoticeRowsById } from '../shared/notice-rows.js';
 import { requiresFollowUpInspection } from '../shared/feedback-results.js';
+import { canDeleteInspectionPageData } from '../shared/inspection-delete-permissions.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
@@ -1273,6 +1274,11 @@ function requirePrimaryAdmin(req, res, next) {
   return res.status(403).json({ error: '仅孙立柱管理员可以执行该操作' });
 }
 
+function requireInspectionPageDelete(req, res, next) {
+  if (canDeleteInspectionPageData(req.authUser)) return next();
+  return res.status(403).json({ error: '当前账号没有验货记录删除权限' });
+}
+
 function hasPageAccess(user, page) {
   if ((isPrimaryAdminUser(user) || user?.role === ROLE_ADMIN) && PAGE_KEYS.includes(page)) return true;
   return Array.isArray(user?.pageAccess) && user.pageAccess.includes(page);
@@ -2296,7 +2302,7 @@ app.delete('/api/quality-inspection/notices', requireAuth, requirePages('inspect
   res.json({ notices: db.qualityInspection.notices, rows: [] });
 });
 
-app.delete('/api/quality-inspection/notices/:id', requireAuth, requirePages('inspectionSchedule'), requireRoles(ROLE_ADMIN), async (req, res) => {
+app.delete('/api/quality-inspection/notices/:id', requireAuth, requirePages('inspectionSchedule'), requireInspectionPageDelete, async (req, res) => {
   const db = await readDb();
   const recordId = String(req.params.id || '').trim();
   const rows = db.qualityInspection.notices.rows || [];
@@ -2594,12 +2600,8 @@ app.post('/api/quality-inspection/reports/:id', requireAuth, requirePages('inspe
   res.json(next);
 });
 
-app.delete('/api/quality-inspection/reports/:id', requireAuth, requirePages('inspectionFeedback'), async (req, res) => {
+app.delete('/api/quality-inspection/reports/:id', requireAuth, requirePages('inspectionFeedback'), requireInspectionPageDelete, async (req, res) => {
   const db = await readDb();
-  const record = composedRecords(db).find((item) => item.id === req.params.id);
-  if (!canWriteFeedback(req.authUser, record)) {
-    return res.status(403).json({ error: '无权删除该检验报告单' });
-  }
   const report = db.qualityInspection.reports[req.params.id] || {};
   if (report.fileName) {
     await unlink(reportFilePath(report.fileName)).catch(() => {});
@@ -2610,7 +2612,7 @@ app.delete('/api/quality-inspection/reports/:id', requireAuth, requirePages('ins
   res.json({ ok: true });
 });
 
-app.delete('/api/quality-inspection/records/:id', requireAuth, requirePages('inspectionFeedback', 'inspectionReportQuery', 'inspectionSummary', 'inspectionLedger'), requirePrimaryAdmin, async (req, res) => {
+app.delete('/api/quality-inspection/records/:id', requireAuth, requirePages('inspectionFeedback', 'inspectionReportQuery', 'inspectionSummary', 'inspectionLedger'), requireInspectionPageDelete, async (req, res) => {
   const db = await readDb();
   const recordId = String(req.params.id || '').trim();
   const report = db.qualityInspection.reports[recordId] || {};

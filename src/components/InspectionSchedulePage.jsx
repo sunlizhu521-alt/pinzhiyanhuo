@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { formatDate, mergeScheduleRecords } from '../utils.js';
 import DataTable from './DataTable.jsx';
 
-function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete }) {
+function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete, canDelete = false }) {
   const [drafts, setDrafts] = useState({});
   const [filterProvince, setFilterProvince] = useState('');
   const [shippingOaQuery, setShippingOaQuery] = useState('');
@@ -150,14 +150,16 @@ function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete
             >
               提交
             </button>
-            <button
-              type="button"
-              className="danger-button compact-button"
-              disabled={(record.sourceIds || [record.id]).includes(savingId)}
-              onClick={() => onDelete(record.sourceIds || [record.id])}
-            >
-              删除
-            </button>
+            {canDelete && (
+              <button
+                type="button"
+                className="danger-button compact-button"
+                disabled={(record.sourceIds || [record.id]).includes(savingId)}
+                onClick={() => onDelete(record.sourceIds || [record.id])}
+              >
+                删除
+              </button>
+            )}
           </div>
         ]}
       />

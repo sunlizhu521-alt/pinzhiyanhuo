@@ -7,6 +7,7 @@ import { loadXlsxModule, parseWorkbookInBrowser, exportFileStamp, recordToMigrat
 import { buildSupplierShortNameOptions, buildSupplierShortNameOptionsFromSheets, buildSalesProductLineOptions, buildSalesSeriesOptions, buildSeriesByProductLineOptions, buildCategoryDimensionOptions, buildSupplierAddressLookupRows, normalizeRecordDimensions, normalizeNoticeDimensions, validateNoticeRows, findSupplierShortNameOption, supplierProvinceCityForName } from '../dimension-utils.js';
 import { readFileAsDataUrl, dataUrlToFile, reportHref, reportFileNameFromCode, isImageReport, isReportLibraryFile, normalizeStampUploadFileName, createRotatedReportImageDataUrl, createStampedImageDataUrl, scoreOcrResult, shouldShowFeedbackRecord, shouldShowScheduleRecord, shouldShowSummaryRecord, recordIdSignature } from '../file-utils.js';
 import { mergeNoticeRowsById } from '../../shared/notice-rows.js';
+import { canDeleteInspectionPageData } from '../../shared/inspection-delete-permissions.js';
 import SecurityWatermark from './SecurityWatermark.jsx';
 import InitialDataPage from './InitialDataPage.jsx';
 import DimensionLibraryPage from './DimensionLibraryPage.jsx';
@@ -1669,8 +1670,8 @@ function App() {
   }
 
   async function deleteScheduleNotice(recordIds) {
-    if (!isPrimaryAdminUser(user)) {
-      setMessage('仅孙立柱管理员可以删除验货安排记录。');
+    if (!canDeleteInspectionPageData(user)) {
+      setMessage('当前账号没有验货安排删除权限。');
       return;
     }
     const targetIds = Array.isArray(recordIds) ? recordIds.filter(Boolean) : [recordIds].filter(Boolean);
@@ -1963,8 +1964,8 @@ function App() {
   }
 
   async function deleteReport(record) {
-    if (!isPrimaryAdminUser(user)) {
-      setMessage('仅孙立柱管理员可以删除检验报告单。');
+    if (!canDeleteInspectionPageData(user)) {
+      setMessage('当前账号没有检验报告单删除权限。');
       return;
     }
     if (!window.confirm('确认删除该检验报告单？删除后可重新上传。')) return;
@@ -2683,8 +2684,8 @@ function App() {
   }
 
   async function deleteInspectionRecord(record) {
-    if (!isPrimaryAdminUser(user)) {
-      setMessage('仅孙立柱管理员可以删除单条信息。');
+    if (!canDeleteInspectionPageData(user)) {
+      setMessage('当前账号没有验货反馈删除权限。');
       return;
     }
     if (!record) return;
@@ -2862,7 +2863,7 @@ function App() {
     const failed = summaryRecords.filter((row) => row.feedback?.result === '不合格').length;
     return { total, scheduled, reported, passed, failed };
   }, [summaryRecords]);
-  const canDeleteInspectionInfo = isPrimaryAdminUser(user);
+  const canDeleteInspectionInfo = canDeleteInspectionPageData(user);
 
   if (pendingPasswordChange) {
     return (
@@ -2999,6 +3000,7 @@ function App() {
             onSubmit={saveSchedules}
             onClear={clearScheduleContent}
             onDelete={deleteScheduleNotice}
+            canDelete={canDeleteInspectionInfo}
           />
         )}
         {canAccessPage(user, 'inspectionReportUpload') && activeTab === 'inspectionReportUpload' && (
