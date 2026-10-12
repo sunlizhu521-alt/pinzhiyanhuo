@@ -19,6 +19,7 @@ import ReportFileLibraryPage from './ReportFileLibraryPage.jsx';
 import ReportQueryPage from './ReportQueryPage.jsx';
 import ReworkRecordsPage from './ReworkRecordsPage.jsx';
 import InspectionNoticePage from './InspectionNoticePage.jsx';
+import InspectionDraftPage from './InspectionDraftPage.jsx';
 import LedgerPage from './LedgerPage.jsx';
 import PermissionManagementPage from './PermissionManagementPage.jsx';
 import BackupCenterPage from './BackupCenterPage.jsx';
@@ -101,6 +102,7 @@ function App() {
   const [appVersionTime, setAppVersionTime] = useState('读取中...');
   const [noticeRows, setNoticeRows] = useState(() => [createBlankNoticeRow()]);
   const [noticeSubmission, setNoticeSubmission] = useState({ rows: [], submittedAt: '', submittedBy: '' });
+  const [noticeDrafts, setNoticeDrafts] = useState([]);
   const [noticeImportPreview, setNoticeImportPreview] = useState(null);
   const [feedbackImportPreview, setFeedbackImportPreview] = useState(null);
   const [ledgerImportPreview, setLedgerImportPreview] = useState(null);
@@ -131,7 +133,7 @@ function App() {
   });
   const [savingId, setSavingId] = useState('');
   const accessibleMenuPages = useMemo(
-    () => MENU_PAGES.filter((page) => canAccessPage(user, page.tab)),
+    () => MENU_PAGES.filter((page) => canAccessPage(user, page.permissionTab || page.tab)),
     [user]
   );
   const supplierOptions = useMemo(
@@ -245,7 +247,8 @@ function App() {
 
   useEffect(() => {
     if (!user) return;
-    if (canAccessPage(user, activeTab)) {
+    const activePage = MENU_PAGES.find((page) => page.tab === activeTab);
+    if (canAccessPage(user, activePage?.permissionTab || activeTab)) {
       saveStoredActiveTab(activeTab);
       return;
     }
@@ -281,21 +284,26 @@ function App() {
       const db = readStaticDb();
       const inspection = db.qualityInspection;
       const visibleNotices = isAdminUser(user)
-        ? (inspection.notices.rows || [])
-        : (inspection.notices.rows || []).filter((row) => row.inspectionApplicant === user.name);
+        ? (inspection.notices.rows || []).filter((row) => row.noticeStatus !== 'draft')
+        : (inspection.notices.rows || []).filter((row) => row.noticeStatus !== 'draft' && row.inspectionApplicant === user.name);
+      const visibleDrafts = isAdminUser(user)
+        ? (inspection.notices.rows || []).filter((row) => row.noticeStatus === 'draft')
+        : (inspection.notices.rows || []).filter((row) => row.noticeStatus === 'draft' && row.inspectionApplicant === user.name);
       setInitialData(inspection.initialData);
       setDimensionLibrary(await readDimensionLibrary());
       setNoticeSubmission({ ...inspection.notices, rows: visibleNotices });
+      setNoticeDrafts(visibleDrafts);
       setNoticeRows([createBlankNoticeRow({ inspectionApplicant: user.name })]);
       setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
       return;
     }
-    const [initialRes, noticeRes, recordsRes] = await Promise.all([
+    const [initialRes, noticeRes, draftRes, recordsRes] = await Promise.all([
       authFetch(`${API}/api/quality-inspection/initial-data`, { cache: 'no-store' }),
       authFetch(`${API}/api/quality-inspection/notices`, { cache: 'no-store' }),
+      authFetch(`${API}/api/quality-inspection/notices/drafts`, { cache: 'no-store' }),
       authFetch(`${API}/api/quality-inspection/records`, { cache: 'no-store' })
     ]);
-    if ([initialRes, noticeRes, recordsRes].some((res) => res.status === 401)) {
+    if ([initialRes, noticeRes, draftRes, recordsRes].some((res) => res.status === 401)) {
       logout();
       setMessage('登录已失效，请重新登录。');
       return;
@@ -309,6 +317,7 @@ function App() {
       setNoticeSubmission(payload);
       setNoticeRows([createBlankNoticeRow({ inspectionApplicant: user.name })]);
     }
+    if (draftRes.ok) setNoticeDrafts((await draftRes.json()).rows || []);
     if (recordsRes.ok) setRecords((await recordsRes.json()).rows || []);
   }
 
@@ -368,6 +377,7 @@ function App() {
     clearStoredUser();
     setUser(null);
     setPendingPasswordChange(null);
+    setNoticeDrafts([]);
   }
 
   async function handleChangePassword() {
@@ -798,7 +808,7 @@ function App() {
     setMessage('已清除当前验货通知填写内容。');
   }
 
-  async function submitNoticesRows(sourceRows, { clearRows = true, successText = '' } = {}) {
+  async function submitNoticesRows(sourceRows, { clearRows = true, successText = '', asDraft = false } = {}) {
     const userFillableKeys = [
       'supplierFinishTime', 'shipmentTime', 'stockOaNo', 'shippingOaNo',
       'supplierShortName', 'supplierAddress', 'businessDepartments',
@@ -813,12 +823,31 @@ function App() {
         inspectionNotifier: normalize(row.inspectionNotifier) || user.name
       }))
       .map((row) => normalizeNoticeDimensions(row, supplierOptions, productLineOptions, seriesOptions, dimensionLibrary, seriesByProductLine))
-      .filter((row) => userFillableKeys.some((key) => normalize(row[key]))));
+      .filter((row) => userFillableKeys.some((key) => normalize(row[key]))))
+      .map((row) => {
+        const nextRow = {
+          ...row,
+          noticeStatus: asDraft ? 'draft' : 'submitted',
+          ...(asDraft ? { draftedAt: nowText(), draftedBy: user.name } : {})
+        };
+        if (!asDraft) {
+          delete nextRow.draftedAt;
+          delete nextRow.draftedBy;
+        }
+        return nextRow;
+      });
     if (!rows.length) {
       setMessage('请至少填写一条验货通知后再提交。');
       return;
     }
-    const validationMessage = validateNoticeRows(rows, supplierOptions, productLineOptions, seriesOptions, seriesByProductLine);
+    const validationMessage = validateNoticeRows(
+      rows,
+      supplierOptions,
+      productLineOptions,
+      seriesOptions,
+      seriesByProductLine,
+      { allowPendingTimes: asDraft }
+    );
     if (validationMessage) {
       setMessage(validationMessage);
       return;
@@ -829,40 +858,46 @@ function App() {
       const nextRows = mergeNoticeRowsById(existingRows, rows);
       const payload = {
         rows: nextRows.map((row, index) => ({ ...row, id: row.id || createId(), rowNumber: index + 1 })),
-        submittedAt: nowText(),
-        submittedBy: user.name
+        submittedAt: asDraft ? (db.qualityInspection.notices.submittedAt || '') : nowText(),
+        submittedBy: asDraft ? (db.qualityInspection.notices.submittedBy || '') : user.name
       };
       db.qualityInspection.notices = payload;
       saveStaticDb(db);
       const visibleRows = isAdminUser(user)
-        ? payload.rows
-        : payload.rows.filter((row) => row.inspectionApplicant === user.name);
+        ? payload.rows.filter((row) => row.noticeStatus !== 'draft')
+        : payload.rows.filter((row) => row.noticeStatus !== 'draft' && row.inspectionApplicant === user.name);
+      const visibleDrafts = isAdminUser(user)
+        ? payload.rows.filter((row) => row.noticeStatus === 'draft')
+        : payload.rows.filter((row) => row.noticeStatus === 'draft' && row.inspectionApplicant === user.name);
       setNoticeSubmission({ ...payload, rows: visibleRows });
+      setNoticeDrafts(visibleDrafts);
       if (clearRows) setNoticeRows([createBlankNoticeRow({ inspectionApplicant: user.name })]);
       setNoticeImportPreview(null);
       setClearedScheduleSignature('');
       setRecords(composedStaticRecords(db).filter((record) => canReadClientRecord(user, record)));
-      setMessage(successText || `验货通知已提交：共 ${payload.rows.length} 条。`);
+      setMessage(successText || (asDraft ? '验货通知已暂存。' : `验货通知已提交：共 ${visibleRows.length} 条。`));
       return true;
     }
     const params = new URLSearchParams({ user: user.name });
-    const res = await authFetch(`${API}/api/quality-inspection/notices?${params.toString()}`, {
+    const endpoint = asDraft ? 'notices/drafts' : 'notices';
+    const res = await authFetch(`${API}/api/quality-inspection/${endpoint}?${params.toString()}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rows, user: user.name })
     });
     if (!res.ok) {
       const payload = await res.json().catch(() => ({}));
-      setMessage(payload.error || '验货通知提交失败。');
+      setMessage(payload.error || (asDraft ? '验货通知暂存失败。' : '验货通知提交失败。'));
       return false;
     }
     const payload = await res.json();
-    setNoticeSubmission(payload);
+    if (asDraft) setNoticeDrafts(payload.rows || []);
+    else setNoticeSubmission(payload);
     if (clearRows) setNoticeRows([createBlankNoticeRow({ inspectionApplicant: user.name })]);
     setNoticeImportPreview(null);
     setClearedScheduleSignature('');
-    setMessage(successText || `验货通知已提交：共 ${payload.rows.length} 条。`);
-    await refreshRecords();
+    setMessage(successText || (asDraft ? '验货通知已暂存。' : `验货通知已提交：共 ${payload.rows.length} 条。`));
+    if (!asDraft) await refreshRecords();
     return true;
   }
 
@@ -892,6 +927,70 @@ function App() {
     }
   }
 
+  async function draftNoticeRow(row) {
+    setSavingId('notice-draft-' + row.id);
+    try {
+      const saved = await submitNoticesRows([row], {
+        clearRows: false,
+        asDraft: true,
+        successText: '已暂存 1 条验货通知。'
+      });
+      if (!saved) return;
+      setNoticeRows((rows) => {
+        const nextRows = rows.filter((item) => item.id !== row.id);
+        return nextRows.length ? nextRows : [createBlankNoticeRow({ inspectionApplicant: user.name })];
+      });
+    } finally {
+      setSavingId('');
+    }
+  }
+
+  function updateNoticeDraft(id, key, value) {
+    setNoticeDrafts((rows) => rows.map((row) => row.id === id ? { ...row, [key]: value } : row));
+  }
+
+  async function submitNoticeDraft(row) {
+    setSavingId(`draft-submit-${row.id}`);
+    try {
+      const saved = await submitNoticesRows([row], {
+        clearRows: false,
+        successText: '验货暂存已正式提交，并进入验货安排。'
+      });
+      if (!saved) return;
+      await refreshNoticeDraftsFromServer();
+    } finally {
+      setSavingId('');
+    }
+  }
+
+  async function deleteNoticeDraft(row) {
+    if (!window.confirm(`确定删除“${row.supplierShortName || row.shippingOaNo || '该条'}”验货暂存吗？`)) return;
+    setSavingId(`draft-delete-${row.id}`);
+    if (STATIC_MODE) {
+      const db = readStaticDb();
+      db.qualityInspection.notices = {
+        ...(db.qualityInspection.notices || {}),
+        rows: (db.qualityInspection.notices.rows || [])
+          .filter((item) => item.id !== row.id)
+          .map((item, index) => ({ ...item, rowNumber: index + 1 }))
+      };
+      saveStaticDb(db);
+      setNoticeDrafts((rows) => rows.filter((item) => item.id !== row.id));
+      setSavingId('');
+      setMessage('已删除该条验货暂存。');
+      return;
+    }
+    const res = await authFetch(`${API}/api/quality-inspection/notices/drafts/${encodeURIComponent(row.id)}`, { method: 'DELETE' });
+    setSavingId('');
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      setMessage(payload.error || '验货暂存删除失败。');
+      return;
+    }
+    setNoticeDrafts((await res.json()).rows || []);
+    setMessage('已删除该条验货暂存。');
+  }
+
   async function refreshRecords() {
     if (STATIC_MODE) {
       setRecords(composedStaticRecords(readStaticDb()).filter((record) => canReadClientRecord(user, record)));
@@ -917,6 +1016,20 @@ function App() {
     if (res.ok) setNoticeSubmission(await res.json());
   }
 
+  async function refreshNoticeDraftsFromServer() {
+    if (STATIC_MODE) {
+      const rows = readStaticDb().qualityInspection.notices.rows || [];
+      setNoticeDrafts(rows.filter((row) => (
+        row.noticeStatus === 'draft'
+        && (isAdminUser(user) || row.inspectionApplicant === user.name)
+      )));
+      return;
+    }
+    if (!canAccessPage(user, 'inspectionNotice')) return;
+    const res = await authFetch(`${API}/api/quality-inspection/notices/drafts`, { cache: 'no-store' });
+    if (res.ok) setNoticeDrafts((await res.json()).rows || []);
+  }
+
   async function refreshServerDataForActiveTab(tab = activeTab, options = {}) {
     if (STATIC_MODE || !user) return;
     const tasks = [];
@@ -924,6 +1037,7 @@ function App() {
     if (DIMENSION_REFRESH_PAGES.includes(tab)) tasks.push(refreshDimensionLibrary({ silent: options.silent }));
     if (REPORT_FILE_REFRESH_PAGES.includes(tab)) tasks.push(refreshReportFiles());
     if (tab === 'inspectionNotice' || tab === 'inspectionSchedule') tasks.push(refreshNoticeSubmissionFromServer());
+    if (tab === 'inspectionDraft') tasks.push(refreshNoticeDraftsFromServer());
     if (tab === 'permissionManagement') tasks.push(refreshPermissionUsers());
     if (tab === 'backupCenter') tasks.push(refreshBackupStatus({ silent: options.silent }));
     if (tab === 'operationRecords') tasks.push(refreshOperationRecords({ silent: options.silent }));
@@ -2990,7 +3104,17 @@ function App() {
             onClearImportPreview={clearNoticeImportPreview}
             onSubmit={submitNotices}
             onSubmitRow={submitNoticeRow}
+            onDraftRow={draftNoticeRow}
             savingId={savingId}
+          />
+        )}
+        {canAccessPage(user, 'inspectionNotice') && activeTab === 'inspectionDraft' && (
+          <InspectionDraftPage
+            rows={noticeDrafts}
+            savingId={savingId}
+            onChange={updateNoticeDraft}
+            onSubmit={submitNoticeDraft}
+            onDelete={deleteNoticeDraft}
           />
         )}
         {canAccessPage(user, 'inspectionSchedule') && activeTab === 'inspectionSchedule' && (

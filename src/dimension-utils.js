@@ -324,14 +324,17 @@ function normalizeNoticeDimensions(row, supplierOptions, productLineOptions, ser
   };
 }
 
-function validateNoticeRows(rows, supplierOptions = [], productLineOptions = [], seriesOptions = [], seriesByProductLine = {}) {
+function validateNoticeRows(rows, supplierOptions = [], productLineOptions = [], seriesOptions = [], seriesByProductLine = {}, options = {}) {
   if (!supplierOptions.length) {
     return '请先在维度表文件库上传并应用“采购分工明细”，系统需要从里面读取供应商简称。';
   }
   if (!productLineOptions.length || !seriesOptions.length) {
     return '请先在维度表文件库上传并应用“商品分类维表”，系统需要从里面读取销售产品线和销售系列。';
   }
-  const requiredFields = NOTICE_FIELDS.filter((field) => !NOTICE_OPTIONAL_KEYS.has(field.key));
+  const temporarilyOptionalKeys = options.allowPendingTimes
+    ? new Set([...NOTICE_OPTIONAL_KEYS, 'supplierFinishTime', 'shipmentTime'])
+    : NOTICE_OPTIONAL_KEYS;
+  const requiredFields = NOTICE_FIELDS.filter((field) => !temporarilyOptionalKeys.has(field.key));
   const invalidSupplierIndex = rows.findIndex((row) => !findSupplierShortNameOption(row.supplierShortName, supplierOptions));
   if (invalidSupplierIndex >= 0) {
     return `第 ${invalidSupplierIndex + 1} 行供应商简称"${rows[invalidSupplierIndex].supplierShortName || '(空)'}"不在采购分工明细中，请从模糊匹配结果里选择。`;

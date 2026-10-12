@@ -333,6 +333,8 @@ function describeMutation(req) {
     return { action: '上传并应用维度表', detail: `槽位：${safeNoticeValue(req.params?.slotId || targetId)}${fileText ? `；${fileText}` : ''}` };
   }
   if (method === 'DELETE' && /\/api\/quality-inspection\/dimension-library\/[^/]+$/.test(pathName)) return { action: '删除维度表槽位文件', detail: `槽位：${safeNoticeValue(req.params?.slotId || targetId)}` };
+  if (method === 'POST' && pathName === '/api/quality-inspection/notices/drafts') return { action: '暂存验货通知', detail: `记录数：${rowsCount}` };
+  if (method === 'DELETE' && /\/api\/quality-inspection\/notices\/drafts\/[^/]+$/.test(pathName)) return { action: '删除验货暂存', detail: `记录ID：${safeNoticeValue(targetId)}` };
   if (method === 'POST' && pathName === '/api/quality-inspection/notices') return { action: '提交验货通知', detail: `记录数：${rowsCount}`, inspectionInfo: noticeRowsSummary(body.rows) };
   if (method === 'DELETE' && pathName === '/api/quality-inspection/notices') return { action: '清空验货通知和安排', detail: '清空全部验货通知、安排、报告和反馈' };
   if (method === 'DELETE' && /\/api\/quality-inspection\/notices\/[^/]+$/.test(pathName)) return { action: '删除单条验货通知', detail: `记录ID：${safeNoticeValue(targetId)}` };
@@ -1463,7 +1465,7 @@ async function reportFileItems(db) {
 
 function composedRecords(db) {
   const inspection = db.qualityInspection;
-  return (inspection.notices.rows || []).map((row, index) => ({
+  return (inspection.notices.rows || []).filter((row) => row.noticeStatus !== 'draft').map((row, index) => ({
     ...row,
     rowNumber: row.rowNumber || index + 1,
     schedule: inspection.schedules[row.id] || {},
@@ -1835,7 +1837,7 @@ function prepareNoticeRows(rows, user, supplierMap, categoryMaps) {
   });
 }
 
-function validateNoticeRows(rows, supplierMap, categoryMaps) {
+function validateNoticeRows(rows, supplierMap, categoryMaps, options = {}) {
   if (!supplierMap.size) {
     return '请先在维度表文件库上传并应用“采购分工明细”，系统需要从里面读取供应商简称。';
   }
@@ -1854,12 +1856,23 @@ function validateNoticeRows(rows, supplierMap, categoryMaps) {
   if (invalidSeriesIndex >= 0) {
     return `第 ${invalidSeriesIndex + 1} 行系列不在商品分类维表的销售系列中，请选择正确系列。`;
   }
-  const missingIndex = rows.findIndex((row) => NOTICE_REQUIRED_FIELDS.some((field) => !normalizeText(row[field.key])));
+  const requiredFields = options.allowPendingTimes
+    ? NOTICE_REQUIRED_FIELDS.filter((field) => !['supplierFinishTime', 'shipmentTime'].includes(field.key))
+    : NOTICE_REQUIRED_FIELDS;
+  const missingIndex = rows.findIndex((row) => requiredFields.some((field) => !normalizeText(row[field.key])));
   if (missingIndex >= 0) {
-    const missingField = NOTICE_REQUIRED_FIELDS.find((field) => !normalizeText(rows[missingIndex][field.key]));
+    const missingField = requiredFields.find((field) => !normalizeText(rows[missingIndex][field.key]));
     return `第 ${missingIndex + 1} 行“${missingField.label}”不能为空，请补充所有必填字段。`;
   }
   return '';
+}
+
+function noticeRowsForUser(rows, user, status) {
+  const matchingRows = (rows || []).filter((row) => (
+    status === 'draft' ? row.noticeStatus === 'draft' : row.noticeStatus !== 'draft'
+  ));
+  if (user.role === ROLE_ADMIN) return matchingRows;
+  return matchingRows.filter((row) => row.inspectionApplicant === user.name);
 }
 
 app.get('/api/health', (req, res) => {
@@ -2246,28 +2259,87 @@ app.delete('/api/quality-inspection/dimension-library/:slotId', requireAuth, req
 
 app.get('/api/quality-inspection/notices', requireAuth, requirePages('inspectionNotice'), async (req, res) => {
   const db = await readDb();
-  const noticeRows = (db.qualityInspection.notices.rows || []).filter((row) => !isHistoricalLedgerImportRow(row));
-  if (req.authUser.role === ROLE_ADMIN) {
-    res.json({ ...db.qualityInspection.notices, rows: noticeRows });
-    return;
-  }
   res.json({
     ...db.qualityInspection.notices,
-    rows: noticeRows.filter((row) => row.inspectionApplicant === req.authUser.name)
+    rows: noticeRowsForUser(
+      (db.qualityInspection.notices.rows || []).filter((row) => !isHistoricalLedgerImportRow(row)),
+      req.authUser,
+      'submitted'
+    )
   });
+});
+
+app.get('/api/quality-inspection/notices/drafts', requireAuth, requirePages('inspectionNotice'), async (req, res) => {
+  const db = await readDb();
+  res.json({ rows: noticeRowsForUser(db.qualityInspection.notices.rows || [], req.authUser, 'draft') });
+});
+
+app.post('/api/quality-inspection/notices/drafts', requireAuth, requirePages('inspectionNotice'), async (req, res) => {
+  const db = await readDb();
+  const user = req.authUser || requestUser(db, req);
+  const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
+  const existingRows = db.qualityInspection.notices.rows || [];
+  const existingById = new Map(existingRows.map((row) => [normalizeText(row.id), row]));
+  const invalidTarget = rows.find((row) => {
+    const existing = existingById.get(normalizeText(row.id));
+    if (!existing) return false;
+    return existing.noticeStatus !== 'draft'
+      || (user.role !== ROLE_ADMIN && existing.inspectionApplicant !== user.name);
+  });
+  if (invalidTarget) return res.status(403).json({ error: '只能更新本人暂存的验货通知。' });
+  if (await ensureProductCategoryOptionCache(db)) await saveDb(db);
+  const supplierMap = buildSupplierRecordMap(db);
+  const categoryMaps = buildProductCategoryMaps(db);
+  const preparedRows = prepareNoticeRows(rows, user, supplierMap, categoryMaps).map((row) => ({
+    ...row,
+    inspectionApplicant: user.name,
+    noticeStatus: 'draft',
+    draftedAt: nowText(),
+    draftedBy: user.name
+  }));
+  const validationMessage = validateNoticeRows(preparedRows, supplierMap, categoryMaps, { allowPendingTimes: true });
+  if (validationMessage) return res.status(400).json({ error: validationMessage });
+  db.qualityInspection.notices = {
+    ...(db.qualityInspection.notices || {}),
+    rows: mergeNoticeRowsById(existingRows, preparedRows).map((row, index) => ({
+      rowNumber: index + 1,
+      ...row
+    }))
+  };
+  await saveDb(db);
+  res.json({ rows: noticeRowsForUser(db.qualityInspection.notices.rows, user, 'draft') });
 });
 
 app.post('/api/quality-inspection/notices', requireAuth, requirePages('inspectionNotice'), async (req, res) => {
   const db = await readDb();
   const user = req.authUser || requestUser(db, req);
   const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
+  const existingRows = db.qualityInspection.notices.rows || [];
+  const existingById = new Map(existingRows.map((row) => [normalizeText(row.id), row]));
+  const unauthorizedDraft = rows.find((row) => {
+    const existing = existingById.get(normalizeText(row.id));
+    return existing?.noticeStatus === 'draft'
+      && user.role !== ROLE_ADMIN
+      && existing.inspectionApplicant !== user.name;
+  });
+  if (unauthorizedDraft) return res.status(403).json({ error: '只能提交本人暂存的验货通知。' });
   if (await ensureProductCategoryOptionCache(db)) await saveDb(db);
   const supplierMap = buildSupplierRecordMap(db);
   const categoryMaps = buildProductCategoryMaps(db);
-  const preparedRows = prepareNoticeRows(rows, user, supplierMap, categoryMaps);
+  const preparedRows = prepareNoticeRows(rows, user, supplierMap, categoryMaps).map((row) => {
+    const submittedRow = {
+      ...row,
+      inspectionApplicant: user.role === ROLE_ADMIN
+        ? (normalizeText(row.inspectionApplicant) || user.name)
+        : user.name,
+      noticeStatus: 'submitted'
+    };
+    delete submittedRow.draftedAt;
+    delete submittedRow.draftedBy;
+    return submittedRow;
+  });
   const validationMessage = validateNoticeRows(preparedRows, supplierMap, categoryMaps);
   if (validationMessage) return res.status(400).json({ error: validationMessage });
-  const existingRows = db.qualityInspection.notices.rows || [];
   const nextRows = mergeNoticeRowsById(existingRows, preparedRows);
   db.qualityInspection.notices = {
     rows: nextRows.map((row, index) => ({
@@ -2279,13 +2351,33 @@ app.post('/api/quality-inspection/notices', requireAuth, requirePages('inspectio
   };
   await saveDb(db);
   if (user.role === ROLE_ADMIN) {
-    res.json(db.qualityInspection.notices);
+    res.json({
+      ...db.qualityInspection.notices,
+      rows: noticeRowsForUser(db.qualityInspection.notices.rows, user, 'submitted')
+    });
     return;
   }
   res.json({
     ...db.qualityInspection.notices,
-    rows: db.qualityInspection.notices.rows.filter((row) => row.inspectionApplicant === user.name)
+    rows: noticeRowsForUser(db.qualityInspection.notices.rows, user, 'submitted')
   });
+});
+
+app.delete('/api/quality-inspection/notices/drafts/:id', requireAuth, requirePages('inspectionNotice'), async (req, res) => {
+  const db = await readDb();
+  const recordId = String(req.params.id || '').trim();
+  const rows = db.qualityInspection.notices.rows || [];
+  const draft = rows.find((row) => row.id === recordId && row.noticeStatus === 'draft');
+  if (!draft) return res.status(404).json({ error: '未找到该条验货暂存。' });
+  if (req.authUser.role !== ROLE_ADMIN && draft.inspectionApplicant !== req.authUser.name) {
+    return res.status(403).json({ error: '只能删除本人暂存的验货通知。' });
+  }
+  db.qualityInspection.notices = {
+    ...(db.qualityInspection.notices || {}),
+    rows: rows.filter((row) => row.id !== recordId).map((row, index) => ({ ...row, rowNumber: index + 1 }))
+  };
+  await saveDb(db);
+  res.json({ rows: noticeRowsForUser(db.qualityInspection.notices.rows, req.authUser, 'draft') });
 });
 
 app.delete('/api/quality-inspection/notices', requireAuth, requirePages('inspectionSchedule'), requireRoles(ROLE_ADMIN), async (req, res) => {

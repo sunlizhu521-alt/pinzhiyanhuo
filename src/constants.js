@@ -87,6 +87,7 @@ const FEEDBACK_IMPORT_ALIASES = {
 
 const MENU_PAGES = [
   { tab: 'inspectionNotice', label: '验货通知' },
+  { tab: 'inspectionDraft', label: '验货暂存', permissionTab: 'inspectionNotice' },
   { tab: 'inspectionSchedule', label: '验货安排' },
   { tab: 'inspectionFeedback', label: '验货反馈' },
   { tab: 'reworkRecords', label: '复验通知' },
@@ -102,7 +103,7 @@ const MENU_PAGES = [
 ];
 
 const PAGE_OPTIONS = [
-  ...MENU_PAGES,
+  ...MENU_PAGES.filter((page) => !page.permissionTab),
   { tab: 'inspectionInitialData', label: '验货信息初始数据' }
 ];
 

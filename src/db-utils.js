@@ -155,7 +155,7 @@ function clearStoredUser() {
 
 function composedStaticRecords(db) {
   const inspection = db.qualityInspection;
-  return (inspection.notices.rows || []).map((row, index) => ({
+  return (inspection.notices.rows || []).filter((row) => row.noticeStatus !== 'draft').map((row, index) => ({
     ...row,
     rowNumber: row.rowNumber || index + 1,
     schedule: inspection.schedules[row.id] || {},

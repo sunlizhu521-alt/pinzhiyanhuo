@@ -34,6 +34,7 @@ function InspectionNoticePage({
   onClearImportPreview,
   onSubmit,
   onSubmitRow,
+  onDraftRow,
   savingId
 }) {
   const productLineBySeries = Object.fromEntries(
@@ -114,6 +115,7 @@ function InspectionNoticePage({
         <h2>验货通知</h2>
         <span className="section-count">共 {rows.length} 条</span>
         {submission.submittedAt && <span className="section-count">已提交：{submission.submittedAt}</span>}
+        <span className="section-count">暂存时可暂不填写供应商完工时间和可验货时间</span>
         <button type="button" className="ghost compact-button" onClick={onAdd}>新增一行</button>
         <label className="upload-button">
           批量上传
@@ -396,6 +398,9 @@ function InspectionNoticePage({
               {savingId === 'notice-' + row.id ? '提交中...' : '提交'}
             </button>
             <button type="button" className="danger-button compact-button" onClick={() => onDelete(row.id)}>删除</button>
+            <button type="button" className="ghost compact-button" onClick={() => onDraftRow(row)} disabled={!!savingId}>
+              {savingId === 'notice-draft-' + row.id ? '暂存中...' : '暂存'}
+            </button>
           </div>
         ]}
       />

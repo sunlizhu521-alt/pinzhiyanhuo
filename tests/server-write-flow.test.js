@@ -165,6 +165,67 @@ test('concurrent login and notice submission complete through the HTTP API', asy
     assert.equal(missingShippingResponse.status, 400);
     assert.match(await missingShippingResponse.text(), /发货OA号/);
 
+    const draftBody = JSON.parse(noticeBody('integration-notice-draft'));
+    draftBody.rows[0].supplierFinishTime = '';
+    draftBody.rows[0].shipmentTime = '';
+    const directDraftSubmitResponse = await fetch(`${baseUrl}/api/quality-inspection/notices`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${login.token}`
+      },
+      body: JSON.stringify(draftBody),
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(directDraftSubmitResponse.status, 400);
+    assert.match(await directDraftSubmitResponse.text(), /供应商完工时间/);
+
+    const draftResponse = await fetch(`${baseUrl}/api/quality-inspection/notices/drafts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${login.token}`
+      },
+      body: JSON.stringify(draftBody),
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(draftResponse.status, 200, await draftResponse.text());
+    const draftListResponse = await fetch(`${baseUrl}/api/quality-inspection/notices/drafts`, {
+      headers: { Authorization: `Bearer ${login.token}` },
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(draftListResponse.status, 200);
+    assert.ok((await draftListResponse.json()).rows.some((row) => row.id === 'integration-notice-draft'));
+    const recordsBeforeDraftSubmit = await fetch(`${baseUrl}/api/quality-inspection/records`, {
+      headers: { Authorization: `Bearer ${login.token}` },
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(recordsBeforeDraftSubmit.status, 200);
+    assert.ok(!(await recordsBeforeDraftSubmit.json()).rows.some((row) => row.id === 'integration-notice-draft'));
+
+    const completedDraftResponse = await fetch(`${baseUrl}/api/quality-inspection/notices`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${login.token}`
+      },
+      body: noticeBody('integration-notice-draft'),
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(completedDraftResponse.status, 200, await completedDraftResponse.text());
+    const draftsAfterSubmitResponse = await fetch(`${baseUrl}/api/quality-inspection/notices/drafts`, {
+      headers: { Authorization: `Bearer ${login.token}` },
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(draftsAfterSubmitResponse.status, 200);
+    assert.ok(!(await draftsAfterSubmitResponse.json()).rows.some((row) => row.id === 'integration-notice-draft'));
+    const recordsAfterDraftSubmit = await fetch(`${baseUrl}/api/quality-inspection/records`, {
+      headers: { Authorization: `Bearer ${login.token}` },
+      signal: AbortSignal.timeout(10000)
+    });
+    assert.equal(recordsAfterDraftSubmit.status, 200);
+    assert.ok((await recordsAfterDraftSubmit.json()).rows.some((row) => row.id === 'integration-notice-draft'));
+
     const noticeResponses = await Promise.all(['integration-notice-1', 'integration-notice-2'].map((id) => (
       fetch(`${baseUrl}/api/quality-inspection/notices`, {
         method: 'POST',
