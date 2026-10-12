@@ -238,7 +238,8 @@ function latestFeedback(feedback) {
 function mergeScheduleRecords(records = []) {
   const groups = new Map();
   records.forEach((record) => {
-    const key = normalize(record.series) || record.id;
+    const series = normalize(record.series);
+    const key = series ? `${series}|${formatDate(record.shipmentTime)}` : record.id;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(record);
   });

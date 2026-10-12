@@ -1,10 +1,10 @@
-const API = import.meta.env.DEV ? 'http://localhost:4002' : '';
-const STATIC_MODE = import.meta.env.VITE_STATIC_MODE === '1';
+const API = import.meta.env?.DEV ? 'http://localhost:4002' : '';
+const STATIC_MODE = import.meta.env?.VITE_STATIC_MODE === '1';
 const STATIC_DB_KEY = 'qualityInspectionStaticDb';
 const DIMENSION_LIBRARY_KEY = 'qualityInspectionDimensionLibrary';
 const REPORT_FILE_LIBRARY_KEY = 'qualityInspectionReportFileLibrary';
 const AUTH_USER_KEY = 'qualityInspectionUser';
-const QUALITY_SEAL_IMAGE = `${import.meta.env.BASE_URL}assets/quality-seal.png`;
+const QUALITY_SEAL_IMAGE = `${import.meta.env?.BASE_URL || '/'}assets/quality-seal.png`;
 const DIMENSION_PREVIEW_ROW_LIMIT = 20;
 const DEFAULT_ADMIN_USER = { id: 'u-admin', name: '孙立柱', password: '', role: '管理员' };
 const ROLE_ADMIN = '管理员';

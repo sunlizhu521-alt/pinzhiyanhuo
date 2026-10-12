@@ -55,7 +55,7 @@ function InspectionSchedulePage({ records, savingId, onSubmit, onClear, onDelete
     <>
       <div className="section-heading-row">
         <h2>验货安排</h2>
-        <span className="section-count">来自验货通知 {records.length} 条，按系列合并 {filteredRows.length} 条</span>
+        <span className="section-count">来自验货通知 {records.length} 条，按系列及可验货时间合并 {filteredRows.length} 条</span>
         <button
           type="button"
           disabled={savingId === 'inspectionSchedule' || scheduleRows.length === 0}
